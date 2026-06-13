@@ -25,9 +25,20 @@ Run these before finishing changes:
 
 ```sh
 gofmt -w cmd internal tests
+golangci-lint run ./...
 go test ./...
 go build ./cmd/session-manager
 ```
+
+For full repository hygiene, run:
+
+```sh
+pre-commit run --all-files
+```
+
+The pre-commit config intentionally stays small: staged gitleaks scanning,
+basic file checks, `gofmt`, `go vet`, `go test`, and the repository's
+`.golangci.yml` core linter set.
 
 Useful local checks:
 

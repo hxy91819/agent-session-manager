@@ -19,6 +19,19 @@ go run ./cmd/session-manager --json --query openclaw
 go run ./cmd/session-manager --resume <session-id> --print-exec
 ```
 
+Developer checks:
+
+```sh
+pre-commit install
+pre-commit run --all-files
+go test ./...
+go build ./cmd/session-manager
+```
+
+The pre-commit setup expects `gitleaks` and `golangci-lint` to be installed.
+It runs staged secret scanning, basic file hygiene checks, `gofmt`, `go vet`,
+`go test`, and a small Go lint set.
+
 Performance controls:
 
 ```sh

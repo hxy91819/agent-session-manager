@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: gitleaks-staged
+        name: gitleaks staged secret scan
+        entry: gitleaks protect --staged --redact --no-banner
+        language: system
+        pass_filenames: false
+
+      - id: gofmt
+        name: gofmt
+        entry: gofmt -w
+        language: system
+        types: [go]
+
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+
+      - id: go-test
+        name: go test
+        entry: go test ./...
+        language: system
+        pass_filenames: false
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint run ./...
+        language: system
+        pass_filenames: false
