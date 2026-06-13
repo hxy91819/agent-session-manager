@@ -115,6 +115,40 @@ func TestCLIUsesRolloutUserMessageWhenHistoryIsMissing(t *testing.T) {
 	}
 }
 
+func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSession(t, filepath.Join(sessionDir, "session.jsonl"), "native-title-session", "/repo/openclaw")
+	writeFile(t, filepath.Join(home, "history.jsonl"), `{"session_id":"native-title-session","text":"history title"}
+`)
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"id":"native-title-session","thread_name":"Native Codex Title","updated_at":"2026-06-13T01:00:00Z"}
+`)
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(sessionDir, "session.jsonl"), now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "--codex-home", home, "--json", "--query", "Native Codex")
+	var payload struct {
+		Sessions []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Title != "Native Codex Title" {
+		t.Fatalf("title = %q", payload.Sessions[0].Title)
+	}
+}
+
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
 	cmdArgs := append([]string{"run", "./cmd/session-manager"}, args...)

@@ -52,6 +52,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 
 	history := readHistoryTitles(filepath.Join(home, "history.jsonl"))
+	threadNames := readSessionIndexTitles(filepath.Join(home, "session_index.jsonl"))
 	sessions := make([]session.Session, 0, len(files))
 	for _, file := range files {
 		s, err := parseSessionFile(file.Path)
@@ -66,6 +67,11 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		if title := history[s.ID]; title != "" {
 			s.Title = title
+			s.Metadata["title_source"] = "history"
+		}
+		if title := threadNames[s.ID]; title != "" {
+			s.Title = title
+			s.Metadata["title_source"] = "session_index"
 		}
 		sessions = append(sessions, s)
 	}
@@ -223,6 +229,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 			if json.Unmarshal(rec.Payload, &msg) == nil && msg.Type == "message" && msg.Role == "user" {
 				if title := titleFromMessageContent(msg.Content); title != "" {
 					out.Title = title
+					out.Metadata["title_source"] = "rollout"
 				}
 			}
 		}
@@ -265,6 +272,10 @@ func isInjectedUserContext(text string) bool {
 		"<permissions",
 		"<collaboration_mode",
 		"<skills_instructions",
+		"<skill",
+		"<user_action",
+		"The following is the Codex agent history added since your last approval assessment.",
+		"The following is the Codex agent history whose request action you are assessing.",
 	}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(text, prefix) {
@@ -303,6 +314,35 @@ func readHistoryTitles(path string) map[string]string {
 			continue
 		}
 		titles[rec.SessionID] = text
+	}
+	return titles
+}
+
+type sessionIndexRecord struct {
+	ID         string `json:"id"`
+	ThreadName string `json:"thread_name"`
+}
+
+func readSessionIndexTitles(path string) map[string]string {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	titles := make(map[string]string)
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var rec sessionIndexRecord
+		if json.Unmarshal(scanner.Bytes(), &rec) != nil {
+			continue
+		}
+		title := strings.TrimSpace(rec.ThreadName)
+		if rec.ID == "" || title == "" {
+			continue
+		}
+		titles[rec.ID] = title
 	}
 	return titles
 }

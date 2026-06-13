@@ -49,6 +49,9 @@ func TestParseSessionExtractsLastHumanUserTitle(t *testing.T) {
 func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>autoreview</name>\n</skill>"}]}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"The following is the Codex agent history added since your last approval assessment."}]}}
+{"timestamp":"2026-06-13T01:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"The following is the Codex agent history whose request action you are assessing."}]}}
 `)
 
 	got, err := parseSession(input)
@@ -91,6 +94,54 @@ func TestDiscoverReadsHistoryTitleAndLimitsFiles(t *testing.T) {
 	}
 	if got[0].ID != "new" || got[0].Title != "new title" {
 		t.Fatalf("unexpected session: %#v", got[0])
+	}
+}
+
+func TestDiscoverPrefersSessionIndexTitle(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, filepath.Join(sessionDir, "session.jsonl"), `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"rollout title"}]}}
+`)
+	writeFile(t, filepath.Join(home, "history.jsonl"), `{"session_id":"sid","text":"history title"}
+`)
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"id":"sid","thread_name":"older native title","updated_at":"2026-06-13T01:00:00Z"}
+{"id":"sid","thread_name":"native title","updated_at":"2026-06-13T01:01:00Z"}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Title != "native title" {
+		t.Fatalf("Title = %q", got[0].Title)
+	}
+	if got[0].Metadata["title_source"] != "session_index" {
+		t.Fatalf("title_source = %q", got[0].Metadata["title_source"])
+	}
+}
+
+func TestReadSessionIndexTitlesIgnoresEmptyNames(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "session_index.jsonl")
+	writeFile(t, path, `{"id":"sid","thread_name":"native title","updated_at":"2026-06-13T01:00:00Z"}
+{"id":"sid","thread_name":"  ","updated_at":"2026-06-13T01:01:00Z"}
+{"id":"other","thread_name":"other title","updated_at":"2026-06-13T01:02:00Z"}
+`)
+
+	got := readSessionIndexTitles(path)
+	if got["sid"] != "native title" {
+		t.Fatalf("sid title = %q", got["sid"])
+	}
+	if got["other"] != "other title" {
+		t.Fatalf("other title = %q", got["other"])
 	}
 }
 

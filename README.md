@@ -3,6 +3,8 @@
 A local TUI for browsing and resuming coding-agent sessions.
 
 First provider: Codex CLI sessions stored under `$CODEX_HOME/sessions`.
+Titles prefer Codex's native `$CODEX_HOME/session_index.jsonl` thread names,
+then fall back to `history.jsonl` and rollout user messages.
 
 ## Usage
 
