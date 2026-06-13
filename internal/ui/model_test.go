@@ -68,6 +68,36 @@ func TestModelSearchFiltersProvider(t *testing.T) {
 	}
 }
 
+func TestSearchViewShowsMatchingSessionsAcrossProjects(t *testing.T) {
+	now := time.Now()
+	m := New([]session.Session{
+		{ID: "one", Provider: "codex", CWD: "/repo/a", Title: "needle first", UpdatedAt: now},
+		{ID: "two", Provider: "claude", CWD: "/repo/b", Title: "needle second", UpdatedAt: now.Add(-time.Minute)},
+		{ID: "three", Provider: "kimi", CWD: "/repo/c", Title: "unrelated", UpdatedAt: now.Add(-2 * time.Minute)},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = next.(Model)
+	for _, r := range "needle" {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+
+	view := m.sessionsView(16, 96)
+
+	if !strings.Contains(view, "Search results") {
+		t.Fatalf("view missing search header:\n%s", view)
+	}
+	for _, want := range []string{"needle first", "needle second", "/repo/a", "/repo/b"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "unrelated") {
+		t.Fatalf("view should not include unrelated session:\n%s", view)
+	}
+}
+
 func TestModelCyclesSortMode(t *testing.T) {
 	m := New([]session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}})
 

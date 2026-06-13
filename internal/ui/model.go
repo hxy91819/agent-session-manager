@@ -356,6 +356,9 @@ func (m *Model) moveSessionPage(direction int) {
 }
 
 func (m Model) currentSessions() []session.Session {
+	if m.searchActive() {
+		return m.sessions
+	}
 	if len(m.projects) == 0 || m.projectIdx >= len(m.projects) {
 		return nil
 	}
@@ -415,11 +418,13 @@ func (m Model) projectsView(height int, width int) string {
 func (m Model) sessionsView(height int, width int) string {
 	items := m.currentSessions()
 	if len(items) == 0 {
+		if m.searchActive() {
+			return mutedStyle.Render("No matching sessions")
+		}
 		return mutedStyle.Render("No sessions in this project")
 	}
 	var b strings.Builder
-	project := m.projects[m.projectIdx]
-	b.WriteString(sectionStyle.Render(shortPath(project.CWD, width)))
+	b.WriteString(sectionStyle.Render(m.sessionsHeader(width)))
 	b.WriteByte('\n')
 	limit := sessionListLimit(height)
 	start := sessionPageStart(m.sessionIdx, limit)
@@ -433,7 +438,7 @@ func (m Model) sessionsView(height int, width int) string {
 		if cwdUnavailable(s) {
 			status = "!"
 		}
-		line := truncate(fmt.Sprintf("%s %s %-6s %s  %s", formatTime(s.UpdatedAt), status, providerTag(s.Provider), shortID(s.ID), title), width)
+		line := truncate(m.sessionLine(s, status, title, width), width)
 		if i == m.sessionIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
@@ -464,6 +469,32 @@ func (m Model) sessionsView(height int, width int) string {
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, len(items), limit), width)))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (m Model) searchActive() bool {
+	return strings.TrimSpace(m.search.Value()) != ""
+}
+
+func (m Model) sessionsHeader(width int) string {
+	if m.searchActive() {
+		return truncate("Search results", width)
+	}
+	if len(m.projects) == 0 || m.projectIdx >= len(m.projects) {
+		return ""
+	}
+	return shortPath(m.projects[m.projectIdx].CWD, width)
+}
+
+func (m Model) sessionLine(s session.Session, status string, title string, width int) string {
+	base := fmt.Sprintf("%s %s %-6s %s  %s", formatTime(s.UpdatedAt), status, providerTag(s.Provider), shortID(s.ID), title)
+	if !m.searchActive() {
+		return base
+	}
+	cwdWidth := width - lipgloss.Width(base) - 2
+	if cwdWidth < 8 {
+		return base
+	}
+	return fmt.Sprintf("%s  %s", base, shortPath(s.CWD, cwdWidth))
 }
 
 func sessionListLimit(height int) int {
