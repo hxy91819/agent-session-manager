@@ -1,8 +1,8 @@
 # AGENTS.md
 
-This repository contains a local TUI for browsing and resuming coding-agent
-sessions. Keep changes small, testable, and compatible with future providers
-such as Claude Code.
+This repository contains `agent-session-manager`, a local TUI for finding,
+inspecting, and resuming coding-agent sessions across projects. Keep changes
+small, testable, and compatible with future providers such as Claude Code.
 
 ## Project Shape
 

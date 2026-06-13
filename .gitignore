@@ -1,4 +1,5 @@
 session-manager
+agent-session-manager
 dist/
 coverage.out
 tmp/

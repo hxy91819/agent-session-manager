@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
 const Name = "codex"

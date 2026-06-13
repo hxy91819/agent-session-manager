@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"session-manager/internal/index"
-	"session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/index"
+	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
 type Model struct {

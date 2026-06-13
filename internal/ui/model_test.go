@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
 func TestModelSelectsMostRecentSessionByDefault(t *testing.T) {

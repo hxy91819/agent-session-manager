@@ -1,6 +1,7 @@
-# session-manager
+# agent-session-manager
 
-A local TUI for browsing and resuming coding-agent sessions.
+A local TUI for finding, inspecting, and resuming coding-agent sessions across
+projects.
 
 First provider: Codex CLI sessions stored under `$CODEX_HOME/sessions`.
 Titles prefer Codex's native `$CODEX_HOME/session_index.jsonl` thread names,

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
 func TestFilterAndSortByActive(t *testing.T) {
