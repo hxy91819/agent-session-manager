@@ -1,0 +1,5 @@
+session-manager
+dist/
+coverage.out
+tmp/
+
