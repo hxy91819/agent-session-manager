@@ -91,6 +91,9 @@ func collectJSONL(root string, opts session.DiscoverOptions) ([]fileInfo, error)
 			return nil
 		}
 		if d.IsDir() {
+			if shouldSkipSessionDateDir(root, path, opts.Since) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".jsonl" {
@@ -116,6 +119,30 @@ func collectJSONL(root string, opts session.DiscoverOptions) ([]fileInfo, error)
 		files = files[:opts.LimitFiles]
 	}
 	return files, nil
+}
+
+func shouldSkipSessionDateDir(root, path string, since time.Time) bool {
+	if since.IsZero() || path == root {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) != 3 {
+		return false
+	}
+	day, err := time.Parse("2006/01/02", filepath.ToSlash(rel))
+	if err != nil {
+		return false
+	}
+	return day.Before(startOfDay(since))
+}
+
+func startOfDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 }
 
 type rawRecord struct {

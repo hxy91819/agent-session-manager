@@ -59,6 +59,29 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2025", "01", "01")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSession(t, filepath.Join(sessionDir, "old.jsonl"), "old-session", "/repo/old")
+	oldTime := time.Date(2025, 1, 1, 1, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(sessionDir, "old.jsonl"), oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "--codex-home", home, "--json")
+	if strings.Contains(out, "old-session") {
+		t.Fatalf("default window should hide old sessions: %s", out)
+	}
+
+	out = runCommand(t, "--codex-home", home, "--json", "--since-days", "0")
+	if !strings.Contains(out, "old-session") {
+		t.Fatalf("since-days=0 should include old sessions: %s", out)
+	}
+}
+
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
 	cmdArgs := append([]string{"run", "./cmd/session-manager"}, args...)

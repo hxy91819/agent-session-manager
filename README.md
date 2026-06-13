@@ -20,8 +20,9 @@ go run ./cmd/session-manager --resume <session-id> --print-exec
 Performance controls:
 
 ```sh
-go run ./cmd/session-manager --limit 1000 --since-days 90
+go run ./cmd/session-manager --limit 1000 --since-days 45
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
-ordering. `--since-days 0` disables the modification-time filter.
+ordering. By default only sessions active in the last 45 days are shown.
+`--since-days 0` disables the modification-time filter.

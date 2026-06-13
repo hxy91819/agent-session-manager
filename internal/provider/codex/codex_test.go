@@ -64,6 +64,45 @@ func TestDiscoverReadsHistoryTitleAndLimitsFiles(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkipsSessionDateDirectoriesBeforeSince(t *testing.T) {
+	home := t.TempDir()
+	oldDir := filepath.Join(home, "sessions", "2025", "01", "01")
+	newDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSession(t, filepath.Join(oldDir, "old.jsonl"), "old", "/repo/old")
+	writeSession(t, filepath.Join(newDir, "new.jsonl"), "new", "/repo/new")
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Since: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "new" {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestShouldSkipSessionDateDir(t *testing.T) {
+	root := filepath.Join("root", "sessions")
+	since := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	if !shouldSkipSessionDateDir(root, filepath.Join(root, "2026", "05", "31"), since) {
+		t.Fatal("expected older day to be skipped")
+	}
+	if shouldSkipSessionDateDir(root, filepath.Join(root, "2026", "06", "01"), since) {
+		t.Fatal("expected since day to be kept")
+	}
+	if shouldSkipSessionDateDir(root, filepath.Join(root, "2026", "06"), since) {
+		t.Fatal("expected month directory to be kept")
+	}
+}
+
 func TestResumeCommandUsesSessionCWD(t *testing.T) {
 	spec := New("").ResumeCommand(session.Session{ID: "sid", CWD: "/repo"})
 
