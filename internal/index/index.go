@@ -59,10 +59,11 @@ func GroupProjects(sessions []session.Session) []session.Project {
 
 	projects := make([]session.Project, 0, len(byCWD))
 	for cwd, items := range byCWD {
-		items = FilterAndSort(items, Query{Sort: SortActive})
 		updated := time.Time{}
-		if len(items) > 0 {
-			updated = items[0].UpdatedAt
+		for _, item := range items {
+			if item.UpdatedAt.After(updated) {
+				updated = item.UpdatedAt
+			}
 		}
 		projects = append(projects, session.Project{
 			CWD:      cwd,

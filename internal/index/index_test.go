@@ -46,7 +46,7 @@ func TestGroupProjectsSortsByMostRecentSession(t *testing.T) {
 		{ID: "a2", CWD: "/repo/a", UpdatedAt: base.Add(2 * time.Hour)},
 	}
 
-	got := GroupProjects(sessions)
+	got := GroupProjects(FilterAndSort(sessions, Query{Sort: SortActive}))
 
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2", len(got))
