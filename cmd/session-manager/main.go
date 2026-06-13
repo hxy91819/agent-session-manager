@@ -77,7 +77,7 @@ func run(ctx context.Context, args []string) error {
 		if provider == nil {
 			return fmt.Errorf("no provider registered for %q", selected.Provider)
 		}
-		return launcher.Run(ctx, provider.ResumeCommand(selected), cfg.printExec)
+		return resumeSession(ctx, provider, selected, cfg.printExec)
 	}
 
 	if cfg.json {
@@ -105,7 +105,7 @@ func run(ctx context.Context, args []string) error {
 	if provider == nil {
 		return fmt.Errorf("no provider registered for %q", selected.Provider)
 	}
-	return launcher.Run(ctx, provider.ResumeCommand(selected), cfg.printExec)
+	return resumeSession(ctx, provider, selected, cfg.printExec)
 }
 
 func parseFlags(args []string) (config, error) {
@@ -186,4 +186,16 @@ func providerByName(providers []session.Provider, name string) session.Provider 
 		}
 	}
 	return nil
+}
+
+func resumeSession(ctx context.Context, provider session.Provider, selected session.Session, printOnly bool) error {
+	spec := provider.ResumeCommand(selected)
+	if !printOnly {
+		fmt.Fprintln(os.Stderr, resumeNotice(selected))
+	}
+	return launcher.Run(ctx, spec, printOnly)
+}
+
+func resumeNotice(selected session.Session) string {
+	return fmt.Sprintf("Starting %s session %s from %s ... this can take a few seconds.", selected.Provider, selected.ID, selected.CWD)
 }
