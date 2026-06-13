@@ -28,6 +28,7 @@ type Model struct {
 	stepDays    int
 	loading     bool
 	loadErr     string
+	message     string
 	loadMore    LoadMoreFunc
 	selected    *session.Session
 	quitting    bool
@@ -125,6 +126,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.Focus()
 			return m, textinput.Blink
 		case "s":
+			m.message = ""
 			m.cycleSort()
 			m.refresh()
 			return m, nil
@@ -135,6 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			nextDays := m.windowDays + m.stepDays
 			m.loading = true
 			m.loadErr = ""
+			m.message = ""
 			return m, loadMoreCmd(m.loadMore, nextDays)
 		case "up", "k":
 			if m.sessionIdx > 0 {
@@ -164,6 +167,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			selected := items[m.sessionIdx]
+			if cwdUnavailable(selected) {
+				m.message = missingCWDMessage(selected)
+				return m, nil
+			}
 			m.selected = &selected
 			m.quitting = true
 			return m, tea.Quit
@@ -206,6 +213,9 @@ func (m Model) View() string {
 	}
 	if m.loadErr != "" {
 		metaParts = append(metaParts, "load error: "+m.loadErr)
+	}
+	if m.message != "" {
+		metaParts = append(metaParts, m.message)
 	}
 	meta := mutedStyle.Render(strings.Join(metaParts, " · "))
 
@@ -277,7 +287,11 @@ func (m Model) projectsView(height int, width int) string {
 	start := windowStart(m.projectIdx, limit, len(m.projects))
 	for i := start; i < len(m.projects) && i < start+limit; i++ {
 		p := m.projects[i]
-		line := fmt.Sprintf("%s  %d", shortPath(p.CWD, width-8), p.Count)
+		count := fmt.Sprintf("%d", p.Count)
+		if missingSessionCount(p.Sessions) > 0 {
+			count += "!"
+		}
+		line := fmt.Sprintf("%s  %s", shortPath(p.CWD, width-8), count)
 		if i == m.projectIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
@@ -308,7 +322,11 @@ func (m Model) sessionsView(height int, width int) string {
 		if title == "" {
 			title = s.ID
 		}
-		line := fmt.Sprintf("%s  %s  %s", formatTime(s.UpdatedAt), shortID(s.ID), truncate(title, width-28))
+		status := " "
+		if cwdUnavailable(s) {
+			status = "!"
+		}
+		line := fmt.Sprintf("%s %s %s  %s", formatTime(s.UpdatedAt), status, shortID(s.ID), truncate(title, width-30))
 		if i == m.sessionIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
@@ -320,6 +338,10 @@ func (m Model) sessionsView(height int, width int) string {
 	selected := items[m.sessionIdx]
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render("cwd: " + selected.CWD))
+	if cwdUnavailable(selected) {
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Render(missingCWDMessage(selected)))
+	}
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render("id:  " + selected.ID))
 	if selected.Path != "" {
@@ -327,6 +349,27 @@ func (m Model) sessionsView(height int, width int) string {
 		b.WriteString(mutedStyle.Render("file: " + selected.Path))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func cwdUnavailable(s session.Session) bool {
+	return s.Metadata["cwd_missing"] == "true" || s.Metadata["cwd_error"] != ""
+}
+
+func missingCWDMessage(s session.Session) string {
+	if s.Metadata["cwd_error"] != "" {
+		return "cwd check failed: " + s.Metadata["cwd_error"]
+	}
+	return "cwd missing: " + s.CWD
+}
+
+func missingSessionCount(sessions []session.Session) int {
+	count := 0
+	for _, s := range sessions {
+		if cwdUnavailable(s) {
+			count++
+		}
+	}
+	return count
 }
 
 func windowStart(cursor, limit, total int) int {

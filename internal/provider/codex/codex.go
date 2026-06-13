@@ -65,6 +65,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.CreatedAt.IsZero() {
 			s.CreatedAt = file.ModTime
 		}
+		markCWDStatus(&s)
 		if title := history[s.ID]; title != "" {
 			s.Title = title
 			s.Metadata["title_source"] = "history"
@@ -76,6 +77,18 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		sessions = append(sessions, s)
 	}
 	return sessions, nil
+}
+
+func markCWDStatus(s *session.Session) {
+	info, err := os.Stat(s.CWD)
+	if err == nil && info.IsDir() {
+		return
+	}
+	if errors.Is(err, fs.ErrNotExist) || err == nil {
+		s.Metadata["cwd_missing"] = "true"
+		return
+	}
+	s.Metadata["cwd_error"] = err.Error()
 }
 
 func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {

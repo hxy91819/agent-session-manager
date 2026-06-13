@@ -145,6 +145,28 @@ func TestReadSessionIndexTitlesIgnoresEmptyNames(t *testing.T) {
 	}
 }
 
+func TestDiscoverMarksMissingCWD(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	missing := filepath.Join(home, "missing-repo")
+	writeSession(t, filepath.Join(sessionDir, "session.jsonl"), "sid", missing)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Metadata["cwd_missing"] != "true" {
+		t.Fatalf("cwd_missing = %q", got[0].Metadata["cwd_missing"])
+	}
+}
+
 func TestDiscoverSkipsSessionDateDirectoriesBeforeSince(t *testing.T) {
 	home := t.TempDir()
 	oldDir := filepath.Join(home, "sessions", "2025", "01", "01")

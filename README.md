@@ -38,3 +38,6 @@ TUI keys:
 - `s`: cycle sort mode
 - `m`: load 45 more days of history
 - `q`: quit
+
+Sessions or project counts marked with `!` have a missing or unavailable cwd and
+cannot be resumed until the path exists again.

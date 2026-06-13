@@ -98,6 +98,40 @@ func TestModelLoadMoreExtendsWindow(t *testing.T) {
 	}
 }
 
+func TestModelDoesNotSelectMissingCWDSession(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "missing",
+		CWD:       "/repo/missing",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"cwd_missing": "true"},
+	}})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if _, ok := got.Selected(); ok {
+		t.Fatal("expected missing cwd session not to be selected")
+	}
+	if !strings.Contains(got.View(), "cwd missing: /repo/missing") {
+		t.Fatalf("view missing cwd warning:\n%s", got.View())
+	}
+}
+
+func TestModelViewMarksMissingCWDSessions(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "missing",
+		CWD:       "/repo/missing",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"cwd_missing": "true"},
+	}})
+
+	view := m.View()
+
+	if !strings.Contains(view, "missing cwd") && !strings.Contains(view, "! missing") {
+		t.Fatalf("view missing unavailable marker:\n%s", view)
+	}
+}
+
 func TestModelViewShowsNavigationHints(t *testing.T) {
 	m := New([]session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}})
 
