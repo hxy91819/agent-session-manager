@@ -30,6 +30,8 @@ ordering. By default only sessions active in the last 45 days are shown.
 TUI keys:
 
 - `enter`: resume selected session
+- `left` / `right`: switch projects
+- `up` / `down`: switch sessions
 - `/`: search sessions
 - `s`: cycle sort mode
 - `m`: load 45 more days of history

@@ -187,7 +187,7 @@ func (m Model) View() string {
 		rightWidth = 44
 	}
 
-	header := titleStyle.Render("Session Manager") + "  " + mutedStyle.Render("enter resume · / search · s sort · q quit")
+	header := titleStyle.Render("Session Manager") + "  " + mutedStyle.Render("←/→ projects · ↑/↓ sessions · enter resume · / search · s sort · q quit")
 	searchLine := m.search.View()
 	if !m.search.Focused() && m.search.Value() == "" {
 		searchLine = mutedStyle.Render("/ search")

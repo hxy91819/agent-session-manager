@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -94,5 +95,17 @@ func TestModelLoadMoreExtendsWindow(t *testing.T) {
 	}
 	if len(m.sessions) != 2 {
 		t.Fatalf("sessions = %#v", m.sessions)
+	}
+}
+
+func TestModelViewShowsNavigationHints(t *testing.T) {
+	m := New([]session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}})
+
+	view := m.View()
+
+	for _, want := range []string{"←/→ projects", "↑/↓ sessions"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
 	}
 }
