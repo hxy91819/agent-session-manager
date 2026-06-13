@@ -44,6 +44,7 @@ type loadedSessionsMsg struct {
 
 const defaultWindowDays = 30
 const defaultStepDays = 30
+const maxSessionsPerPage = 20
 
 func New(sessions []session.Session) Model {
 	return NewWithLoader(sessions, defaultWindowDays, defaultStepDays, nil)
@@ -201,19 +202,38 @@ func (m Model) View() string {
 		return ""
 	}
 
-	availableHeight := m.height - 7
-	if availableHeight < 8 {
-		availableHeight = 8
+	panelOuterHeight := m.height - 3
+	if panelOuterHeight < 10 {
+		panelOuterHeight = 10
+	}
+	panelContentHeight := panelOuterHeight - panelStyle.GetVerticalBorderSize()
+	if panelContentHeight < 8 {
+		panelContentHeight = 8
 	}
 	leftWidth := clamp(m.width/3, 28, 48)
 	rightWidth := m.width - leftWidth - 5
 	if rightWidth < 44 {
 		rightWidth = 44
 	}
+	leftContentWidth := leftWidth - panelStyle.GetHorizontalFrameSize()
+	rightContentWidth := rightWidth - panelStyle.GetHorizontalFrameSize()
+	if leftContentWidth < 1 {
+		leftContentWidth = 1
+	}
+	if rightContentWidth < 1 {
+		rightContentWidth = 1
+	}
 
-	header := titleStyle.Render("Session Manager") + "  " + mutedStyle.Render("←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter resume · / search · s sort · q quit")
-	searchLine := m.search.View()
-	if !m.search.Focused() && m.search.Value() == "" {
+	headerTitle := "Session Manager"
+	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter resume · / search · s sort · q quit"
+	header := titleStyle.Render(headerTitle)
+	if hintWidth := m.width - lipgloss.Width(headerTitle) - 2; hintWidth > 0 {
+		header += "  " + mutedStyle.Render(truncate(headerHint, hintWidth))
+	}
+	search := m.search
+	search.Width = m.width - 2
+	searchLine := search.View()
+	if !search.Focused() && search.Value() == "" {
 		searchLine = mutedStyle.Render("/ search")
 	}
 	metaParts := []string{
@@ -234,10 +254,10 @@ func (m Model) View() string {
 	if m.message != "" {
 		metaParts = append(metaParts, m.message)
 	}
-	meta := mutedStyle.Render(strings.Join(metaParts, " · "))
+	meta := mutedStyle.Render(truncate(strings.Join(metaParts, " · "), m.width))
 
-	left := panelStyle.Width(leftWidth).Height(availableHeight).Render(m.projectsView(availableHeight, leftWidth))
-	right := panelStyle.Width(rightWidth).Height(availableHeight).Render(m.sessionsView(availableHeight, rightWidth))
+	left := renderPanel(leftWidth, panelContentHeight, m.projectsView(panelContentHeight, leftContentWidth))
+	right := renderPanel(rightWidth, panelContentHeight, m.sessionsView(panelContentHeight, rightContentWidth))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -253,6 +273,14 @@ func loadMoreCmd(loader LoadMoreFunc, days int) tea.Cmd {
 		sessions, err := loader(days)
 		return loadedSessionsMsg{days: days, sessions: sessions, err: err}
 	}
+}
+
+func renderPanel(outerWidth, contentHeight int, content string) string {
+	renderWidth := outerWidth - panelStyle.GetHorizontalBorderSize()
+	if renderWidth < 1 {
+		renderWidth = 1
+	}
+	return panelStyle.Width(renderWidth).Height(contentHeight).Render(fitLines(content, contentHeight))
 }
 
 func (m *Model) refresh() {
@@ -313,11 +341,15 @@ func (m Model) currentSessions() []session.Session {
 }
 
 func (m Model) sessionPageSize() int {
-	availableHeight := m.height - 7
-	if availableHeight < 8 {
-		availableHeight = 8
+	panelOuterHeight := m.height - 3
+	if panelOuterHeight < 10 {
+		panelOuterHeight = 10
 	}
-	return sessionListLimit(availableHeight)
+	contentHeight := panelOuterHeight - panelStyle.GetVerticalBorderSize()
+	if contentHeight < 8 {
+		contentHeight = 8
+	}
+	return sessionListLimit(contentHeight)
 }
 
 func (m Model) projectsView(height int, width int) string {
@@ -335,7 +367,8 @@ func (m Model) projectsView(height int, width int) string {
 		if missingSessionCount(p.Sessions) > 0 {
 			count += "!"
 		}
-		line := fmt.Sprintf("%s  %s", shortPath(p.CWD, width-8), count)
+		prefixWidth := lipgloss.Width("  " + count)
+		line := fmt.Sprintf("%s  %s", shortPath(p.CWD, width-prefixWidth), count)
 		if i == m.projectIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
@@ -367,7 +400,8 @@ func (m Model) sessionsView(height int, width int) string {
 		if cwdUnavailable(s) {
 			status = "!"
 		}
-		line := fmt.Sprintf("%s %s %s  %s", formatTime(s.UpdatedAt), status, shortID(s.ID), truncate(title, width-30))
+		prefix := fmt.Sprintf("%s %s %s  ", formatTime(s.UpdatedAt), status, shortID(s.ID))
+		line := prefix + truncate(title, width-lipgloss.Width(prefix))
 		if i == m.sessionIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
@@ -403,6 +437,9 @@ func sessionListLimit(height int) int {
 	if limit < 1 {
 		return 1
 	}
+	if limit > maxSessionsPerPage {
+		return maxSessionsPerPage
+	}
 	return limit
 }
 
@@ -424,6 +461,17 @@ func sessionPageStatus(start, end, total, limit int) string {
 
 func detailLine(label, value string, width int) string {
 	return truncate(label+": "+value, width)
+}
+
+func fitLines(value string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	if len(lines) <= height {
+		return value
+	}
+	return strings.Join(lines[:height], "\n")
 }
 
 func cwdUnavailable(s session.Session) bool {
@@ -466,11 +514,11 @@ func shortPath(path string, width int) string {
 		return ""
 	}
 	clean := filepath.Clean(path)
-	if len(clean) <= width {
+	if lipgloss.Width(clean) <= width {
 		return clean
 	}
 	base := filepath.Base(clean)
-	if len(base)+2 <= width {
+	if lipgloss.Width(base)+2 <= width {
 		return "…" + string(filepath.Separator) + base
 	}
 	return truncate(base, width)
@@ -494,14 +542,21 @@ func truncate(value string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	runes := []rune(value)
-	if len(runes) <= width {
+	if lipgloss.Width(value) <= width {
 		return value
 	}
 	if width == 1 {
 		return "…"
 	}
-	return string(runes[:width-1]) + "…"
+	var b strings.Builder
+	for _, r := range value {
+		next := b.String() + string(r)
+		if lipgloss.Width(next)+1 > width {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String() + "…"
 }
 
 func clamp(value, min, max int) int {

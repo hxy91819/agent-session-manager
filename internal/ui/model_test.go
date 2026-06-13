@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"session-manager/internal/session"
 )
@@ -125,11 +126,83 @@ func TestModelPageDownMovesByVisiblePage(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 	m = next.(Model)
 
-	if m.sessionIdx != sessionListLimit(m.height-7) {
-		t.Fatalf("sessionIdx = %d, want %d", m.sessionIdx, sessionListLimit(m.height-7))
+	if m.sessionIdx != m.sessionPageSize() {
+		t.Fatalf("sessionIdx = %d, want %d", m.sessionIdx, m.sessionPageSize())
 	}
 	if !strings.Contains(m.View(), "page 2/") {
 		t.Fatalf("view missing page status:\n%s", m.View())
+	}
+}
+
+func TestSessionsViewFitsContentHeightAndWidth(t *testing.T) {
+	now := time.Now()
+	longTitle := strings.Repeat("帮我review下ctl里的qqbot配置下发功能", 8)
+	sessions := make([]session.Session, 0, 50)
+	for i := range 50 {
+		sessions = append(sessions, session.Session{
+			ID:        string(rune('a' + i%26)),
+			CWD:       "/root/code/mono",
+			Title:     longTitle,
+			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
+			Path:      "/root/.codex/sessions/2026/04/02/rollout-2026-04-02T13-06-10-019d4c95-ac99-7201-bdd9-1a95bd8a8f8b.jsonl",
+			Metadata:  map[string]string{"cwd_missing": "true"},
+		})
+	}
+	m := New(sessions)
+
+	view := m.sessionsView(12, 50)
+
+	if got := lipgloss.Height(view); got > 12 {
+		t.Fatalf("height = %d, want <= 12\n%s", got, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 50 {
+			t.Fatalf("line width = %d, want <= 50\n%s", got, line)
+		}
+	}
+	if !strings.Contains(view, "page 1/") {
+		t.Fatalf("view missing page status:\n%s", view)
+	}
+}
+
+func TestModelViewFitsConfiguredViewport(t *testing.T) {
+	now := time.Now()
+	longTitle := strings.Repeat("记录两个文档，一个是这个问题，另一个是后续微信通道的排障、跟进指引。", 5)
+	sessions := make([]session.Session, 0, 50)
+	for i := range 50 {
+		sessions = append(sessions, session.Session{
+			ID:        string(rune('a' + i%26)),
+			CWD:       "/root/code/mono",
+			Title:     longTitle,
+			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
+			Path:      "/root/.codex/sessions/2026/04/02/rollout-2026-04-02T13-06-10-019d4c95-ac99-7201-bdd9-1a95bd8a8f8b.jsonl",
+			Metadata:  map[string]string{"cwd_missing": "true"},
+		})
+	}
+	m := New(sessions)
+	m.width = 120
+	m.height = 24
+
+	view := m.View()
+
+	if got := lipgloss.Height(view); got > m.height {
+		t.Fatalf("height = %d, want <= %d\n%s", got, m.height, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > m.width {
+			t.Fatalf("line width = %d, want <= %d\n%s", got, m.width, line)
+		}
+	}
+}
+
+func TestTruncateUsesDisplayWidth(t *testing.T) {
+	got := truncate("帮我review下ctl里的qqbot配置下发功能", 12)
+
+	if width := lipgloss.Width(got); width > 12 {
+		t.Fatalf("width = %d, want <= 12 for %q", width, got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("got %q, want ellipsis", got)
 	}
 }
 
