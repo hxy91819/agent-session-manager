@@ -15,6 +15,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/launcher"
 	"github.com/hxy91819/agent-session-manager/internal/provider/claude"
 	"github.com/hxy91819/agent-session-manager/internal/provider/codex"
+	"github.com/hxy91819/agent-session-manager/internal/provider/kimi"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
@@ -22,6 +23,7 @@ import (
 type config struct {
 	codexHome  string
 	claudeHome string
+	kimiHome   string
 	query      string
 	sortMode   index.SortMode
 	resumeID   string
@@ -52,6 +54,7 @@ func run(ctx context.Context, args []string) error {
 	providers := []session.Provider{
 		codex.New(cfg.codexHome),
 		claude.New(cfg.claudeHome),
+		kimi.New(cfg.kimiHome),
 	}
 	loadSessions := func(days int) ([]session.Session, error) {
 		items, err := discoverAll(providers, cfg.limit, days)
@@ -112,6 +115,7 @@ func parseFlags(args []string) (config, error) {
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
+	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
 	fs.BoolVar(&cfg.json, "json", false, "print indexed sessions as JSON")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")

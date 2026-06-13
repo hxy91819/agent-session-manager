@@ -105,6 +105,45 @@ func TestCLIIndexesClaudeAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesKimiAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	kimiDir := filepath.Join(kimiHome, "sessions", "wd_openclaw", "ses_kimi")
+	writeKimiSession(t, kimiHome, kimiDir, "ses_kimi", "/data/code/openclaw/openclaw", "fix openclaw with kimi")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--json", "--query", "kimi")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_kimi" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "kimi" {
+		t.Fatalf("provider = %q, want kimi", payload.Sessions[0].Provider)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--resume", "ses_kimi", "--print-exec")
+	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'kimi' '--session' 'ses_kimi'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
 func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
@@ -203,6 +242,10 @@ func runCommand(t *testing.T, args ...string) string {
 	cmdArgs := append([]string{"run", "./cmd/session-manager"}, args...)
 	cmd := exec.Command("go", cmdArgs...)
 	cmd.Dir = ".."
+	cmd.Env = append(os.Environ(),
+		"KIMI_CODE_HOME="+t.TempDir(),
+		"KIMI_HOME="+t.TempDir(),
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\n%s", err, string(out))
@@ -219,6 +262,17 @@ func writeSession(t *testing.T, path, id, cwd string) {
 func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
 	t.Helper()
 	writeFile(t, path, `{"type":"user","sessionId":"`+id+`","cwd":"`+cwd+`","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"`+title+`"}}
+`)
+}
+
+func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, title string) {
+	t.Helper()
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"sessionId":"`+id+`","sessionDir":"`+sessionDir+`","workDir":"`+cwd+`"}
+`)
+	writeFile(t, filepath.Join(sessionDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","title":"`+title+`"}
 `)
 }
 

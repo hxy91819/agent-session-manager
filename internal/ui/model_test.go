@@ -177,6 +177,24 @@ func TestModelPageDownMovesByVisiblePage(t *testing.T) {
 	}
 }
 
+func TestSessionPageSizeIsCapped(t *testing.T) {
+	sessions := make([]session.Session, 0, 30)
+	now := time.Now()
+	for i := range 30 {
+		sessions = append(sessions, session.Session{
+			ID:        string(rune('a' + i%26)),
+			CWD:       "/repo",
+			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	m := New(sessions)
+	m.height = 80
+
+	if got := m.sessionPageSize(); got != maxSessionsPerPage {
+		t.Fatalf("sessionPageSize = %d, want %d", got, maxSessionsPerPage)
+	}
+}
+
 func TestSessionsViewFitsContentHeightAndWidth(t *testing.T) {
 	now := time.Now()
 	longTitle := strings.Repeat("帮我review下ctl里的qqbot配置下发功能", 8)
@@ -222,6 +240,33 @@ func TestSessionsViewShowsProviderTags(t *testing.T) {
 	}
 	if !strings.Contains(view, "provider: claude") {
 		t.Fatalf("view missing selected provider detail:\n%s", view)
+	}
+}
+
+func TestProjectsViewShowsRangeWhenClipped(t *testing.T) {
+	now := time.Now()
+	sessions := make([]session.Session, 0, 30)
+	for i := range 30 {
+		sessions = append(sessions, session.Session{
+			ID:        string(rune('a' + i%26)),
+			CWD:       "/repo/project-" + string(rune('a'+i%26)),
+			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	m := New(sessions)
+
+	view := m.projectsView(8, 32)
+
+	if !strings.Contains(view, "showing 1-5/26") {
+		t.Fatalf("view missing clipped project range:\n%s", view)
+	}
+	if got := lipgloss.Height(view); got > 8 {
+		t.Fatalf("height = %d, want <= 8\n%s", got, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 32 {
+			t.Fatalf("line width = %d, want <= 32\n%s", got, line)
+		}
 	}
 }
 

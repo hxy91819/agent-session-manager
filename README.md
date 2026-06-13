@@ -11,6 +11,9 @@ Providers:
 - Claude Code sessions stored under `$CLAUDE_HOME/projects` or
   `~/.claude/projects`. Resume runs from the original session cwd with
   `claude --resume <session-id>`.
+- Kimi Code sessions stored under `$KIMI_CODE_HOME` / `$KIMI_HOME` or
+  `~/.kimi-code`. Resume runs from the original session cwd with
+  `kimi --session <session-id>`.
 
 ## Usage
 
@@ -24,6 +27,7 @@ Useful non-interactive checks:
 go run ./cmd/session-manager --json --query openclaw
 go run ./cmd/session-manager --resume <session-id> --print-exec
 go run ./cmd/session-manager --claude-home /tmp/fake-claude --json
+go run ./cmd/session-manager --kimi-home /tmp/fake-kimi --json
 ```
 
 Developer checks:
@@ -46,8 +50,9 @@ go run ./cmd/session-manager --limit 1000 --since-days 30
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
-ordering. Use `--codex-home` or `--claude-home` to point at alternate provider
-stores. By default only sessions active in the last 30 days are shown.
+ordering. Use `--codex-home`, `--claude-home`, or `--kimi-home` to point at
+alternate provider stores. By default only sessions active in the last 30 days
+are shown.
 `--since-days 0` disables the modification-time filter.
 
 TUI keys:

@@ -44,7 +44,7 @@ type loadedSessionsMsg struct {
 
 const defaultWindowDays = 30
 const defaultStepDays = 30
-const maxSessionsPerPage = 20
+const maxSessionsPerPage = 12
 const panelGap = 1
 
 // Narrow terminals intentionally fall back to the sessions panel only; keeping
@@ -378,9 +378,20 @@ func (m Model) projectsView(height int, width int) string {
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render("Projects"))
 	b.WriteByte('\n')
-	limit := height - 2
+	statusHeight := 0
+	if len(m.projects) > max(1, height-2) {
+		statusHeight = 1
+	}
+	limit := height - 2 - statusHeight
+	if limit < 1 {
+		limit = 1
+	}
 	start := windowStart(m.projectIdx, limit, len(m.projects))
-	for i := start; i < len(m.projects) && i < start+limit; i++ {
+	end := start + limit
+	if end > len(m.projects) {
+		end = len(m.projects)
+	}
+	for i := start; i < end; i++ {
 		p := m.projects[i]
 		count := fmt.Sprintf("%d", p.Count)
 		if missingSessionCount(p.Sessions) > 0 {
@@ -394,6 +405,9 @@ func (m Model) projectsView(height int, width int) string {
 			b.WriteString(line)
 		}
 		b.WriteByte('\n')
+	}
+	if statusHeight > 0 {
+		b.WriteString(mutedStyle.Render(truncate(rangeStatus(start, end, len(m.projects)), width)))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -477,6 +491,13 @@ func sessionPageStatus(start, end, total, limit int) string {
 	page := start/limit + 1
 	pages := (total + limit - 1) / limit
 	return fmt.Sprintf("showing %d-%d/%d · page %d/%d · pgup/pgdn", start+1, end, total, page, pages)
+}
+
+func rangeStatus(start, end, total int) string {
+	if total == 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("showing %d-%d/%d", start+1, end, total)
 }
 
 func detailLine(label, value string, width int) string {
@@ -595,6 +616,13 @@ func clamp(value, min, max int) int {
 		return max
 	}
 	return value
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 var (
