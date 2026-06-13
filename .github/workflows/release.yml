@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+  release:
+    name: Build and publish
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+
+          targets=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+            "darwin arm64"
+            "windows amd64"
+            "windows arm64"
+          )
+
+          for target in "${targets[@]}"; do
+            read -r goos goarch <<<"${target}"
+            package="asm_${VERSION}_${goos}_${goarch}"
+            outdir="dist/${package}"
+            mkdir -p "${outdir}"
+
+            binary="asm"
+            if [[ "${goos}" == "windows" ]]; then
+              binary="asm.exe"
+            fi
+
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
+              go build -trimpath -ldflags="-s -w" -o "${outdir}/${binary}" ./cmd/session-manager
+
+            cp README.md "${outdir}/"
+            if [[ "${goos}" == "windows" ]]; then
+              (cd dist && zip -qr "${package}.zip" "${package}")
+            else
+              tar -C dist -czf "dist/${package}.tar.gz" "${package}"
+            fi
+          done
+
+          (cd dist && sha256sum ./*.tar.gz ./*.zip > sha256sums.txt)
+
+      - name: Publish GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            echo "Release ${VERSION} already exists; uploading artifacts with --clobber."
+          else
+            gh release create "${VERSION}" --title "${VERSION}" --generate-notes
+          fi
+          gh release upload "${VERSION}" dist/*.tar.gz dist/*.zip dist/sha256sums.txt --clobber
