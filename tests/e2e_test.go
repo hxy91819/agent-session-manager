@@ -82,6 +82,39 @@ func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 	}
 }
 
+func TestCLIUsesRolloutUserMessageWhenHistoryIsMissing(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sessionDir, "session.jsonl"), `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"session-without-history","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo/openclaw"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>ignore me</INSTRUCTIONS>"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"investigate missing title"}]}}
+`)
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(sessionDir, "session.jsonl"), now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "--codex-home", home, "--json", "--query", "missing title")
+	var payload struct {
+		Sessions []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Title != "investigate missing title" {
+		t.Fatalf("title = %q", payload.Sessions[0].Title)
+	}
+}
+
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
 	cmdArgs := append([]string{"run", "./cmd/session-manager"}, args...)

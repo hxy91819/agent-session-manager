@@ -24,11 +24,28 @@ type Model struct {
 	search      textinput.Model
 	width       int
 	height      int
+	windowDays  int
+	stepDays    int
+	loading     bool
+	loadErr     string
+	loadMore    LoadMoreFunc
 	selected    *session.Session
 	quitting    bool
 }
 
+type LoadMoreFunc func(days int) ([]session.Session, error)
+
+type loadedSessionsMsg struct {
+	days     int
+	sessions []session.Session
+	err      error
+}
+
 func New(sessions []session.Session) Model {
+	return NewWithLoader(sessions, 45, 45, nil)
+}
+
+func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMore LoadMoreFunc) Model {
 	search := textinput.New()
 	search.Placeholder = "Search sessions"
 	search.Prompt = "/ "
@@ -40,6 +57,12 @@ func New(sessions []session.Session) Model {
 		search:      search,
 		width:       120,
 		height:      32,
+		windowDays:  windowDays,
+		stepDays:    stepDays,
+		loadMore:    loadMore,
+	}
+	if m.stepDays <= 0 {
+		m.stepDays = 45
 	}
 	m.refresh()
 	return m
@@ -58,6 +81,17 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case loadedSessionsMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.loadErr = msg.err.Error()
+			return m, nil
+		}
+		m.loadErr = ""
+		m.windowDays = msg.days
+		m.allSessions = msg.sessions
+		m.refresh()
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -94,6 +128,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleSort()
 			m.refresh()
 			return m, nil
+		case "m":
+			if m.loadMore == nil || m.loading {
+				return m, nil
+			}
+			nextDays := m.windowDays + m.stepDays
+			m.loading = true
+			m.loadErr = ""
+			return m, loadMoreCmd(m.loadMore, nextDays)
 		case "up", "k":
 			if m.sessionIdx > 0 {
 				m.sessionIdx--
@@ -150,7 +192,22 @@ func (m Model) View() string {
 	if !m.search.Focused() && m.search.Value() == "" {
 		searchLine = mutedStyle.Render("/ search")
 	}
-	meta := mutedStyle.Render(fmt.Sprintf("%d sessions · %d projects · sort %s", len(m.sessions), len(m.projects), m.sortMode))
+	metaParts := []string{
+		fmt.Sprintf("%d sessions", len(m.sessions)),
+		fmt.Sprintf("%d projects", len(m.projects)),
+		fmt.Sprintf("sort %s", m.sortMode),
+		fmt.Sprintf("%d days", m.windowDays),
+	}
+	if m.loadMore != nil {
+		metaParts = append(metaParts, "m load more")
+	}
+	if m.loading {
+		metaParts = append(metaParts, "loading...")
+	}
+	if m.loadErr != "" {
+		metaParts = append(metaParts, "load error: "+m.loadErr)
+	}
+	meta := mutedStyle.Render(strings.Join(metaParts, " · "))
 
 	left := panelStyle.Width(leftWidth).Height(availableHeight).Render(m.projectsView(availableHeight, leftWidth))
 	right := panelStyle.Width(rightWidth).Height(availableHeight).Render(m.sessionsView(availableHeight, rightWidth))
@@ -162,6 +219,13 @@ func (m Model) View() string {
 		meta,
 		lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right),
 	)
+}
+
+func loadMoreCmd(loader LoadMoreFunc, days int) tea.Cmd {
+	return func() tea.Msg {
+		sessions, err := loader(days)
+		return loadedSessionsMsg{days: days, sessions: sessions, err: err}
+	}
 }
 
 func (m *Model) refresh() {

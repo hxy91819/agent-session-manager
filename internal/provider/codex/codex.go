@@ -162,6 +162,18 @@ type turnContext struct {
 	Model string `json:"model"`
 }
 
+type responseMessage struct {
+	Type    string           `json:"type"`
+	Role    string           `json:"role"`
+	Content []messageContent `json:"content"`
+}
+
+type messageContent struct {
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	InputText string `json:"input_text"`
+}
+
 func parseSessionFile(path string) (session.Session, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -206,9 +218,64 @@ func parseSession(r io.Reader) (session.Session, error) {
 					out.Metadata["model"] = ctx.Model
 				}
 			}
+		case "response_item":
+			var msg responseMessage
+			if json.Unmarshal(rec.Payload, &msg) == nil && msg.Type == "message" && msg.Role == "user" {
+				if title := titleFromMessageContent(msg.Content); title != "" {
+					out.Title = title
+				}
+			}
 		}
 	}
 	return out, scanner.Err()
+}
+
+func titleFromMessageContent(content []messageContent) string {
+	var parts []string
+	for _, item := range content {
+		if item.Type != "" && item.Type != "input_text" {
+			continue
+		}
+		text := item.Text
+		if text == "" {
+			text = item.InputText
+		}
+		text = strings.TrimSpace(text)
+		if text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return cleanUserTitle(strings.Join(parts, "\n"))
+}
+
+func cleanUserTitle(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || isInjectedUserContext(text) {
+		return ""
+	}
+	return collapseWhitespace(text)
+}
+
+func isInjectedUserContext(text string) bool {
+	prefixes := []string{
+		"# AGENTS.md instructions",
+		"<environment_context",
+		"<codex_internal_context",
+		"<turn_aborted",
+		"<permissions",
+		"<collaboration_mode",
+		"<skills_instructions",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func collapseWhitespace(text string) string {
+	return strings.Join(strings.Fields(text), " ")
 }
 
 type historyRecord struct {

@@ -58,3 +58,41 @@ func TestModelCyclesSortMode(t *testing.T) {
 		t.Fatalf("sortMode = %q, want created", m.sortMode)
 	}
 }
+
+func TestModelLoadMoreExtendsWindow(t *testing.T) {
+	now := time.Now()
+	m := NewWithLoader(
+		[]session.Session{{ID: "recent", CWD: "/repo", UpdatedAt: now}},
+		45,
+		45,
+		func(days int) ([]session.Session, error) {
+			if days != 90 {
+				t.Fatalf("days = %d, want 90", days)
+			}
+			return []session.Session{
+				{ID: "recent", CWD: "/repo", UpdatedAt: now},
+				{ID: "older", CWD: "/repo", UpdatedAt: now.Add(-60 * 24 * time.Hour)},
+			}, nil
+		},
+	)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = next.(Model)
+	if !m.loading {
+		t.Fatal("expected loading after pressing m")
+	}
+
+	msg := cmd().(loadedSessionsMsg)
+	next, _ = m.Update(msg)
+	m = next.(Model)
+
+	if m.loading {
+		t.Fatal("expected loading to finish")
+	}
+	if m.windowDays != 90 {
+		t.Fatalf("windowDays = %d, want 90", m.windowDays)
+	}
+	if len(m.sessions) != 2 {
+		t.Fatalf("sessions = %#v", m.sessions)
+	}
+}

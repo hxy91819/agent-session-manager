@@ -30,6 +30,36 @@ func TestParseSessionPrefersLatestTurnContextCWD(t *testing.T) {
 	}
 }
 
+func TestParseSessionExtractsLastHumanUserTitle(t *testing.T) {
+	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>ignore me</INSTRUCTIONS>"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first real prompt"}]}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"latest\nreal   prompt"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "latest real prompt" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+}
+
+func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
+	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "" {
+		t.Fatalf("Title = %q, want empty", got.Title)
+	}
+}
+
 func TestDiscoverReadsHistoryTitleAndLimitsFiles(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
