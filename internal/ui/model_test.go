@@ -195,6 +195,34 @@ func TestModelViewFitsConfiguredViewport(t *testing.T) {
 	}
 }
 
+func TestModelViewFitsNarrowViewport(t *testing.T) {
+	now := time.Now()
+	longTitle := strings.Repeat("帮我看下这个特别长的中文会话标题", 6)
+	m := New([]session.Session{{
+		ID:        "narrow",
+		CWD:       "/repo/very-long-project-name",
+		Title:     longTitle,
+		UpdatedAt: now,
+		Path:      "/root/.codex/sessions/2026/04/02/rollout-very-long-file-name.jsonl",
+	}})
+	m.width = 60
+	m.height = 20
+
+	view := m.View()
+
+	if got := lipgloss.Height(view); got > m.height {
+		t.Fatalf("height = %d, want <= %d\n%s", got, m.height, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > m.width {
+			t.Fatalf("line width = %d, want <= %d\n%s", got, m.width, line)
+		}
+	}
+	if strings.Contains(view, "Projects") {
+		t.Fatalf("narrow view should not render project panel:\n%s", view)
+	}
+}
+
 func TestTruncateUsesDisplayWidth(t *testing.T) {
 	got := truncate("帮我review下ctl里的qqbot配置下发功能", 12)
 

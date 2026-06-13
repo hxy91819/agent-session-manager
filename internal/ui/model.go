@@ -45,6 +45,11 @@ type loadedSessionsMsg struct {
 const defaultWindowDays = 30
 const defaultStepDays = 30
 const maxSessionsPerPage = 20
+const panelGap = 1
+
+// Narrow terminals intentionally fall back to the sessions panel only; keeping
+// both panels would force wrapping and break the viewport contract.
+const minTwoColumnWidth = 73
 
 func New(sessions []session.Session) Model {
 	return NewWithLoader(sessions, defaultWindowDays, defaultStepDays, nil)
@@ -210,10 +215,12 @@ func (m Model) View() string {
 	if panelContentHeight < 8 {
 		panelContentHeight = 8
 	}
-	leftWidth := clamp(m.width/3, 28, 48)
-	rightWidth := m.width - leftWidth - 5
-	if rightWidth < 44 {
-		rightWidth = 44
+	twoColumn := m.width >= minTwoColumnWidth
+	leftWidth := 0
+	rightWidth := m.width
+	if twoColumn {
+		leftWidth = clamp(m.width/3, 28, 48)
+		rightWidth = m.width - leftWidth - panelGap
 	}
 	leftContentWidth := leftWidth - panelStyle.GetHorizontalFrameSize()
 	rightContentWidth := rightWidth - panelStyle.GetHorizontalFrameSize()
@@ -256,15 +263,24 @@ func (m Model) View() string {
 	}
 	meta := mutedStyle.Render(truncate(strings.Join(metaParts, " · "), m.width))
 
-	left := renderPanel(leftWidth, panelContentHeight, m.projectsView(panelContentHeight, leftContentWidth))
 	right := renderPanel(rightWidth, panelContentHeight, m.sessionsView(panelContentHeight, rightContentWidth))
+	if !twoColumn {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			header,
+			searchLine,
+			meta,
+			right,
+		)
+	}
+	left := renderPanel(leftWidth, panelContentHeight, m.projectsView(panelContentHeight, leftContentWidth))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		searchLine,
 		meta,
-		lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right),
+		lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", panelGap), right),
 	)
 }
 
