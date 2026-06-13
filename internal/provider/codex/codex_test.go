@@ -167,7 +167,7 @@ func TestDiscoverMarksMissingCWD(t *testing.T) {
 	}
 }
 
-func TestDiscoverSkipsSessionDateDirectoriesBeforeSince(t *testing.T) {
+func TestDiscoverFiltersByFileModTimeNotDateDirectory(t *testing.T) {
 	home := t.TempDir()
 	oldDir := filepath.Join(home, "sessions", "2025", "01", "01")
 	newDir := filepath.Join(home, "sessions", "2026", "06", "13")
@@ -180,29 +180,24 @@ func TestDiscoverSkipsSessionDateDirectoriesBeforeSince(t *testing.T) {
 	writeSession(t, filepath.Join(oldDir, "old.jsonl"), "old", "/repo/old")
 	writeSession(t, filepath.Join(newDir, "new.jsonl"), "new", "/repo/new")
 
+	since := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	recent := since.Add(time.Hour)
+	stale := since.Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(oldDir, "old.jsonl"), recent, recent); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(newDir, "new.jsonl"), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
 	got, err := New(home).Discover(session.DiscoverOptions{
-		Since: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+		Since: since,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "new" {
+	if len(got) != 1 || got[0].ID != "old" {
 		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestShouldSkipSessionDateDir(t *testing.T) {
-	root := filepath.Join("root", "sessions")
-	since := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-
-	if !shouldSkipSessionDateDir(root, filepath.Join(root, "2026", "05", "31"), since) {
-		t.Fatal("expected older day to be skipped")
-	}
-	if shouldSkipSessionDateDir(root, filepath.Join(root, "2026", "06", "01"), since) {
-		t.Fatal("expected since day to be kept")
-	}
-	if shouldSkipSessionDateDir(root, filepath.Join(root, "2026", "06"), since) {
-		t.Fatal("expected month directory to be kept")
 	}
 }
 
