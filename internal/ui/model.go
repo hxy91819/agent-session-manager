@@ -419,7 +419,7 @@ func (m Model) sessionsView(height int, width int) string {
 		if cwdUnavailable(s) {
 			status = "!"
 		}
-		line := truncate(fmt.Sprintf("%s %s %s  %s", formatTime(s.UpdatedAt), status, shortID(s.ID), title), width)
+		line := truncate(fmt.Sprintf("%s %s %-6s %s  %s", formatTime(s.UpdatedAt), status, providerTag(s.Provider), shortID(s.ID), title), width)
 		if i == m.sessionIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
@@ -433,6 +433,8 @@ func (m Model) sessionsView(height int, width int) string {
 		end = len(items)
 	}
 	selected := items[m.sessionIdx]
+	b.WriteByte('\n')
+	b.WriteString(mutedStyle.Render(detailLine("provider", providerTag(selected.Provider), width)))
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(detailLine("cwd", selected.CWD, width)))
 	if cwdUnavailable(selected) {
@@ -451,7 +453,7 @@ func (m Model) sessionsView(height int, width int) string {
 }
 
 func sessionListLimit(height int) int {
-	limit := height - 8
+	limit := height - 9
 	if limit < 1 {
 		return 1
 	}
@@ -547,6 +549,14 @@ func shortID(id string) string {
 		return id
 	}
 	return id[:8]
+}
+
+func providerTag(provider string) string {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return "unknown"
+	}
+	return provider
 }
 
 func formatTime(t time.Time) string {

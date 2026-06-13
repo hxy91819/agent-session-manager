@@ -3,9 +3,14 @@
 A local TUI for finding, inspecting, and resuming coding-agent sessions across
 projects.
 
-First provider: Codex CLI sessions stored under `$CODEX_HOME/sessions`.
-Titles prefer Codex's native `$CODEX_HOME/session_index.jsonl` thread names,
-then fall back to `history.jsonl` and rollout user messages.
+Providers:
+
+- Codex CLI sessions stored under `$CODEX_HOME/sessions` or `~/.codex/sessions`.
+  Titles prefer Codex's native `$CODEX_HOME/session_index.jsonl` thread names,
+  then fall back to `history.jsonl` and rollout user messages.
+- Claude Code sessions stored under `$CLAUDE_HOME/projects` or
+  `~/.claude/projects`. Resume runs from the original session cwd with
+  `claude --resume <session-id>`.
 
 ## Usage
 
@@ -18,6 +23,7 @@ Useful non-interactive checks:
 ```sh
 go run ./cmd/session-manager --json --query openclaw
 go run ./cmd/session-manager --resume <session-id> --print-exec
+go run ./cmd/session-manager --claude-home /tmp/fake-claude --json
 ```
 
 Developer checks:
@@ -40,7 +46,8 @@ go run ./cmd/session-manager --limit 1000 --since-days 30
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
-ordering. By default only sessions active in the last 30 days are shown.
+ordering. Use `--codex-home` or `--claude-home` to point at alternate provider
+stores. By default only sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
 
 TUI keys:

@@ -12,6 +12,7 @@ import (
 
 func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	home := t.TempDir()
+	claudeHome := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -31,16 +32,17 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runCommand(t, "--codex-home", home, "--json", "--query", "openclaw")
+	out := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json", "--query", "openclaw")
 	var payload struct {
 		Projects []struct {
 			CWD   string `json:"cwd"`
 			Count int    `json:"count"`
 		} `json:"projects"`
 		Sessions []struct {
-			ID    string `json:"id"`
-			CWD   string `json:"cwd"`
-			Title string `json:"title"`
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
 		} `json:"sessions"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -49,18 +51,63 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "openclaw-session" {
 		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
 	}
+	if payload.Sessions[0].Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", payload.Sessions[0].Provider)
+	}
 	if len(payload.Projects) != 1 || payload.Projects[0].CWD != "/data/code/openclaw/openclaw" || payload.Projects[0].Count != 1 {
 		t.Fatalf("unexpected projects: %#v", payload.Projects)
 	}
 
-	cmd := runCommand(t, "--codex-home", home, "--resume", "openclaw-session", "--print-exec")
+	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--resume", "openclaw-session", "--print-exec")
 	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'codex' 'resume' 'openclaw-session'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
+func TestCLIIndexesClaudeAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	claudeDir := filepath.Join(claudeHome, "projects", "-data-code-openclaw-openclaw")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeSession(t, filepath.Join(claudeDir, "claude-session.jsonl"), "claude-session", "/data/code/openclaw/openclaw", "fix openclaw with claude")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--json", "--query", "claude")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "claude-session" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "claude" {
+		t.Fatalf("provider = %q, want claude", payload.Sessions[0].Provider)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--resume", "claude-session", "--print-exec")
+	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'claude' '--resume' 'claude-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 }
 
 func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 	home := t.TempDir()
+	claudeHome := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2025", "01", "01")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -71,12 +118,12 @@ func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runCommand(t, "--codex-home", home, "--json")
+	out := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json")
 	if strings.Contains(out, "old-session") {
 		t.Fatalf("default window should hide old sessions: %s", out)
 	}
 
-	out = runCommand(t, "--codex-home", home, "--json", "--since-days", "0")
+	out = runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json", "--since-days", "0")
 	if !strings.Contains(out, "old-session") {
 		t.Fatalf("since-days=0 should include old sessions: %s", out)
 	}
@@ -84,6 +131,7 @@ func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 
 func TestCLIUsesRolloutUserMessageWhenHistoryIsMissing(t *testing.T) {
 	home := t.TempDir()
+	claudeHome := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -97,7 +145,7 @@ func TestCLIUsesRolloutUserMessageWhenHistoryIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runCommand(t, "--codex-home", home, "--json", "--query", "missing title")
+	out := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json", "--query", "missing title")
 	var payload struct {
 		Sessions []struct {
 			ID    string `json:"id"`
@@ -117,6 +165,7 @@ func TestCLIUsesRolloutUserMessageWhenHistoryIsMissing(t *testing.T) {
 
 func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
 	home := t.TempDir()
+	claudeHome := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -131,7 +180,7 @@ func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runCommand(t, "--codex-home", home, "--json", "--query", "Native Codex")
+	out := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json", "--query", "Native Codex")
 	var payload struct {
 		Sessions []struct {
 			ID    string `json:"id"`
@@ -164,6 +213,12 @@ func runCommand(t *testing.T, args ...string) string {
 func writeSession(t *testing.T, path, id, cwd string) {
 	t.Helper()
 	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"`+id+`","timestamp":"2026-06-13T01:00:00Z","cwd":"`+cwd+`"}}
+`)
+}
+
+func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
+	t.Helper()
+	writeFile(t, path, `{"type":"user","sessionId":"`+id+`","cwd":"`+cwd+`","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"`+title+`"}}
 `)
 }
 

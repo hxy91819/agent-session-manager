@@ -50,6 +50,24 @@ func TestModelSearchFiltersSessions(t *testing.T) {
 	}
 }
 
+func TestModelSearchFiltersProvider(t *testing.T) {
+	m := New([]session.Session{
+		{ID: "codex-one", Provider: "codex", CWD: "/repo", Title: "review", UpdatedAt: time.Now()},
+		{ID: "claude-one", Provider: "claude", CWD: "/repo", Title: "review", UpdatedAt: time.Now()},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = next.(Model)
+	for _, r := range "claude" {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+
+	if len(m.sessions) != 1 || m.sessions[0].Provider != "claude" {
+		t.Fatalf("filtered sessions = %#v", m.sessions)
+	}
+}
+
 func TestModelCyclesSortMode(t *testing.T) {
 	m := New([]session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}})
 
@@ -187,6 +205,23 @@ func TestSessionsViewFitsContentHeightAndWidth(t *testing.T) {
 	}
 	if !strings.Contains(view, "page 1/") {
 		t.Fatalf("view missing page status:\n%s", view)
+	}
+}
+
+func TestSessionsViewShowsProviderTags(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := New([]session.Session{
+		{ID: "codex-session", Provider: "codex", CWD: "/repo", Title: "codex work", UpdatedAt: base},
+		{ID: "claude-session", Provider: "claude", CWD: "/repo", Title: "claude work", UpdatedAt: base.Add(time.Hour)},
+	})
+
+	view := m.sessionsView(14, 80)
+
+	if !strings.Contains(view, "claude") || !strings.Contains(view, "codex") {
+		t.Fatalf("view missing provider tags:\n%s", view)
+	}
+	if !strings.Contains(view, "provider: claude") {
+		t.Fatalf("view missing selected provider detail:\n%s", view)
 	}
 }
 
@@ -347,7 +382,7 @@ func TestModelViewMarksMissingCWDSessions(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "missing cwd") && !strings.Contains(view, "! missing") {
+	if !strings.Contains(view, "cwd missing") && !strings.Contains(view, "! unknown missing") {
 		t.Fatalf("view missing unavailable marker:\n%s", view)
 	}
 }

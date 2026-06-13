@@ -55,3 +55,23 @@ func TestGroupProjectsSortsByMostRecentSession(t *testing.T) {
 		t.Fatalf("unexpected projects: %#v", got)
 	}
 }
+
+func TestGroupProjectsMixesProvidersByCWD(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessions := []session.Session{
+		{ID: "codex", Provider: "codex", CWD: "/repo", UpdatedAt: base},
+		{ID: "claude", Provider: "claude", CWD: "/repo", UpdatedAt: base.Add(time.Hour)},
+	}
+
+	got := GroupProjects(FilterAndSort(sessions, Query{Sort: SortActive}))
+
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Count != 2 {
+		t.Fatalf("Count = %d, want 2", got[0].Count)
+	}
+	if got[0].Sessions[0].ID != "claude" || got[0].Sessions[1].ID != "codex" {
+		t.Fatalf("unexpected session order: %#v", got[0].Sessions)
+	}
+}

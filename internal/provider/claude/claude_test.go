@@ -1,0 +1,148 @@
+package claude
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hxy91819/agent-session-manager/internal/session"
+)
+
+func TestParseSessionExtractsClaudeFields(t *testing.T) {
+	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:00:00Z","gitBranch":"main","message":{"role":"user","content":[{"type":"text","text":"first prompt"}]}}
+{"type":"assistant","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:01:00Z","message":{"role":"assistant","model":"claude-sonnet-4","content":[]}}
+{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:02:00Z","message":{"role":"user","content":"latest   user prompt"}}
+{"type":"summary","sessionId":"sid","summary":"Native Claude Title"}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "sid" {
+		t.Fatalf("ID = %q", got.ID)
+	}
+	if got.CWD != "/repo" {
+		t.Fatalf("CWD = %q", got.CWD)
+	}
+	if got.Title != "Native Claude Title" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+	if got.Metadata["title_source"] != "summary" {
+		t.Fatalf("title_source = %q", got.Metadata["title_source"])
+	}
+	if got.Metadata["model"] != "claude-sonnet-4" {
+		t.Fatalf("model = %q", got.Metadata["model"])
+	}
+	if got.Metadata["git_branch"] != "main" {
+		t.Fatalf("git_branch = %q", got.Metadata["git_branch"])
+	}
+	if got.CreatedAt.Format(time.RFC3339) != "2026-06-13T01:00:00Z" {
+		t.Fatalf("CreatedAt = %s", got.CreatedAt.Format(time.RFC3339))
+	}
+	if got.UpdatedAt.Format(time.RFC3339) != "2026-06-13T01:02:00Z" {
+		t.Fatalf("UpdatedAt = %s", got.UpdatedAt.Format(time.RFC3339))
+	}
+}
+
+func TestParseSessionUsesLastHumanUserTitle(t *testing.T) {
+	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:00:00Z","isMeta":true,"message":{"role":"user","content":"ignored meta"}}
+{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:01:00Z","message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>"}}
+{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:02:00Z","message":{"role":"user","content":[{"type":"text","text":"real\nprompt"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "real prompt" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+	if got.Metadata["title_source"] != "user" {
+		t.Fatalf("title_source = %q", got.Metadata["title_source"])
+	}
+}
+
+func TestDiscoverFiltersAndLimitsByFileModTime(t *testing.T) {
+	home := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	oldPath := filepath.Join(projectDir, "old.jsonl")
+	newPath := filepath.Join(projectDir, "new.jsonl")
+	writeClaudeSession(t, oldPath, "old", repo, "old title")
+	writeClaudeSession(t, newPath, "new", repo, "new title")
+
+	since := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	oldTime := since.Add(-time.Hour)
+	newTime := since.Add(time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := New(home).Discover(session.DiscoverOptions{Since: since, LimitFiles: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].ID != "new" || got[0].Title != "new title" {
+		t.Fatalf("unexpected session: %#v", got[0])
+	}
+	if !got[0].UpdatedAt.Equal(newTime) {
+		t.Fatalf("UpdatedAt = %s, want %s", got[0].UpdatedAt, newTime)
+	}
+}
+
+func TestDiscoverMarksMissingCWD(t *testing.T) {
+	home := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(home, "missing")
+	writeClaudeSession(t, filepath.Join(projectDir, "session.jsonl"), "sid", missing, "title")
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Metadata["cwd_missing"] != "true" {
+		t.Fatalf("cwd_missing = %q", got[0].Metadata["cwd_missing"])
+	}
+}
+
+func TestResumeCommandUsesClaudeResumeFromSessionCWD(t *testing.T) {
+	spec := New("").ResumeCommand(session.Session{ID: "sid", CWD: "/repo"})
+
+	if spec.Dir != "/repo" {
+		t.Fatalf("Dir = %q", spec.Dir)
+	}
+	if strings.Join(spec.Args, " ") != "claude --resume sid" {
+		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
+func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
+	t.Helper()
+	writeFile(t, path, `{"type":"user","sessionId":"`+id+`","cwd":"`+cwd+`","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"`+title+`"}}
+`)
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
