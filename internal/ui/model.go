@@ -356,9 +356,6 @@ func (m *Model) moveSessionPage(direction int) {
 }
 
 func (m Model) currentSessions() []session.Session {
-	if m.searchActive() {
-		return m.sessions
-	}
 	if len(m.projects) == 0 || m.projectIdx >= len(m.projects) {
 		return nil
 	}
@@ -476,11 +473,16 @@ func (m Model) searchActive() bool {
 }
 
 func (m Model) sessionsHeader(width int) string {
-	if m.searchActive() {
-		return truncate("Search results", width)
-	}
 	if len(m.projects) == 0 || m.projectIdx >= len(m.projects) {
 		return ""
+	}
+	if m.searchActive() {
+		prefix := "Search results in "
+		pathWidth := width - lipgloss.Width(prefix)
+		if pathWidth < 1 {
+			return truncate("Search results", width)
+		}
+		return truncate(prefix+shortPath(m.projects[m.projectIdx].CWD, pathWidth), width)
 	}
 	return shortPath(m.projects[m.projectIdx].CWD, width)
 }

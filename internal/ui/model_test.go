@@ -68,7 +68,7 @@ func TestModelSearchFiltersProvider(t *testing.T) {
 	}
 }
 
-func TestSearchViewShowsMatchingSessionsAcrossProjects(t *testing.T) {
+func TestSearchViewShowsMatchingSessionsForCurrentProject(t *testing.T) {
 	now := time.Now()
 	m := New([]session.Session{
 		{ID: "one", Provider: "codex", CWD: "/repo/a", Title: "needle first", UpdatedAt: now},
@@ -85,16 +85,51 @@ func TestSearchViewShowsMatchingSessionsAcrossProjects(t *testing.T) {
 
 	view := m.sessionsView(16, 96)
 
-	if !strings.Contains(view, "Search results") {
+	if !strings.Contains(view, "Search results in /repo/a") {
 		t.Fatalf("view missing search header:\n%s", view)
 	}
-	for _, want := range []string{"needle first", "needle second", "/repo/a", "/repo/b"} {
+	for _, want := range []string{"needle first", "/repo/a"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "unrelated") {
-		t.Fatalf("view should not include unrelated session:\n%s", view)
+	for _, unwanted := range []string{"needle second", "unrelated"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("view should not include %q:\n%s", unwanted, view)
+		}
+	}
+}
+
+func TestSearchViewRefreshesWhenProjectChanges(t *testing.T) {
+	now := time.Now()
+	m := New([]session.Session{
+		{ID: "one", Provider: "codex", CWD: "/repo/a", Title: "needle first", UpdatedAt: now},
+		{ID: "two", Provider: "claude", CWD: "/repo/b", Title: "needle second", UpdatedAt: now.Add(-time.Minute)},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = next.(Model)
+	for _, r := range "needle" {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+
+	firstView := m.sessionsView(16, 96)
+	if !strings.Contains(firstView, "needle first") || strings.Contains(firstView, "needle second") {
+		t.Fatalf("first project view is wrong:\n%s", firstView)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+	secondView := m.sessionsView(16, 96)
+
+	if !strings.Contains(secondView, "needle second") {
+		t.Fatalf("second project view missing refreshed session:\n%s", secondView)
+	}
+	if strings.Contains(secondView, "needle first") {
+		t.Fatalf("second project view should not keep first project session:\n%s", secondView)
 	}
 }
 
