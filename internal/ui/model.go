@@ -140,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 			return m, nil
 		case "m":
-			if m.loadMore == nil || m.loading {
+			if m.loadMore == nil || m.loading || m.windowDays <= 0 {
 				return m, nil
 			}
 			nextDays := m.windowDays + m.stepDays
@@ -207,20 +207,16 @@ func (m Model) View() string {
 		return ""
 	}
 
-	panelOuterHeight := m.height - 3
-	if panelOuterHeight < 10 {
-		panelOuterHeight = 10
+	viewportWidth := m.width
+	if viewportWidth < 1 {
+		viewportWidth = 1
 	}
-	panelContentHeight := panelOuterHeight - panelStyle.GetVerticalBorderSize()
-	if panelContentHeight < 8 {
-		panelContentHeight = 8
-	}
-	twoColumn := m.width >= minTwoColumnWidth
+	twoColumn := viewportWidth >= minTwoColumnWidth
 	leftWidth := 0
-	rightWidth := m.width
+	rightWidth := viewportWidth
 	if twoColumn {
-		leftWidth = clamp(m.width/3, 28, 48)
-		rightWidth = m.width - leftWidth - panelGap
+		leftWidth = clamp(viewportWidth/3, 28, 48)
+		rightWidth = viewportWidth - leftWidth - panelGap
 	}
 	leftContentWidth := leftWidth - panelStyle.GetHorizontalFrameSize()
 	rightContentWidth := rightWidth - panelStyle.GetHorizontalFrameSize()
@@ -234,11 +230,11 @@ func (m Model) View() string {
 	headerTitle := "Session Manager"
 	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter resume · / search · s sort · q quit"
 	header := titleStyle.Render(headerTitle)
-	if hintWidth := m.width - lipgloss.Width(headerTitle) - 2; hintWidth > 0 {
+	if hintWidth := viewportWidth - lipgloss.Width(headerTitle) - 2; hintWidth > 0 {
 		header += "  " + mutedStyle.Render(truncate(headerHint, hintWidth))
 	}
 	search := m.search
-	search.Width = m.width - 2
+	search.Width = viewportWidth - 2
 	searchLine := search.View()
 	if !search.Focused() && search.Value() == "" {
 		searchLine = mutedStyle.Render("/ search")
@@ -249,7 +245,7 @@ func (m Model) View() string {
 		fmt.Sprintf("sort %s", m.sortMode),
 		fmt.Sprintf("%d days", m.windowDays),
 	}
-	if m.loadMore != nil {
+	if m.loadMore != nil && m.windowDays > 0 {
 		metaParts = append(metaParts, fmt.Sprintf("m +%dd", m.stepDays))
 	}
 	if m.loading {
@@ -261,8 +257,14 @@ func (m Model) View() string {
 	if m.message != "" {
 		metaParts = append(metaParts, m.message)
 	}
-	meta := mutedStyle.Render(truncate(strings.Join(metaParts, " · "), m.width))
+	meta := mutedStyle.Render(truncate(strings.Join(metaParts, " · "), viewportWidth))
 
+	base := []string{header, searchLine, meta}
+	panelOuterHeight := m.height - len(base)
+	if panelOuterHeight <= panelStyle.GetVerticalBorderSize() {
+		return fitLines(strings.Join(base, "\n"), m.height)
+	}
+	panelContentHeight := panelOuterHeight - panelStyle.GetVerticalBorderSize()
 	right := renderPanel(rightWidth, panelContentHeight, m.sessionsView(panelContentHeight, rightContentWidth))
 	if !twoColumn {
 		return lipgloss.JoinVertical(
@@ -358,12 +360,9 @@ func (m Model) currentSessions() []session.Session {
 
 func (m Model) sessionPageSize() int {
 	panelOuterHeight := m.height - 3
-	if panelOuterHeight < 10 {
-		panelOuterHeight = 10
-	}
 	contentHeight := panelOuterHeight - panelStyle.GetVerticalBorderSize()
-	if contentHeight < 8 {
-		contentHeight = 8
+	if contentHeight < 1 {
+		contentHeight = 1
 	}
 	return sessionListLimit(contentHeight)
 }

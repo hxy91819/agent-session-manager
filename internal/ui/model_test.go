@@ -110,6 +110,31 @@ func TestModelLoadMoreExtendsWindow(t *testing.T) {
 	}
 }
 
+func TestModelLoadMoreDisabledForUnboundedWindow(t *testing.T) {
+	m := NewWithLoader(
+		[]session.Session{{ID: "all", CWD: "/repo", UpdatedAt: time.Now()}},
+		0,
+		30,
+		func(days int) ([]session.Session, error) {
+			t.Fatalf("loader should not run for unbounded window, got days=%d", days)
+			return nil, nil
+		},
+	)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = next.(Model)
+
+	if cmd != nil {
+		t.Fatal("expected no load-more command")
+	}
+	if m.loading {
+		t.Fatal("expected loading to remain false")
+	}
+	if strings.Contains(m.View(), "m +30d") {
+		t.Fatalf("unbounded view should not advertise load more:\n%s", m.View())
+	}
+}
+
 func TestModelPageDownMovesByVisiblePage(t *testing.T) {
 	sessions := make([]session.Session, 0, 20)
 	now := time.Now()
@@ -220,6 +245,28 @@ func TestModelViewFitsNarrowViewport(t *testing.T) {
 	}
 	if strings.Contains(view, "Projects") {
 		t.Fatalf("narrow view should not render project panel:\n%s", view)
+	}
+}
+
+func TestModelViewFitsShortViewport(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "short",
+		CWD:       "/repo",
+		Title:     "short viewport",
+		UpdatedAt: time.Now(),
+	}})
+	m.width = 80
+	m.height = 5
+
+	view := m.View()
+
+	if got := lipgloss.Height(view); got > m.height {
+		t.Fatalf("height = %d, want <= %d\n%s", got, m.height, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > m.width {
+			t.Fatalf("line width = %d, want <= %d\n%s", got, m.width, line)
+		}
 	}
 }
 
