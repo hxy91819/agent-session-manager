@@ -229,15 +229,19 @@ func (m Model) View() string {
 
 	headerTitle := "Session Manager"
 	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter resume · / search · s sort · q quit"
-	header := titleStyle.Render(headerTitle)
-	if hintWidth := viewportWidth - lipgloss.Width(headerTitle) - 2; hintWidth > 0 {
+	displayTitle := truncate(headerTitle, viewportWidth)
+	header := titleStyle.Render(displayTitle)
+	if hintWidth := viewportWidth - lipgloss.Width(displayTitle) - 2; hintWidth > 0 {
 		header += "  " + mutedStyle.Render(truncate(headerHint, hintWidth))
 	}
 	search := m.search
 	search.Width = viewportWidth - 2
+	if search.Width < 1 {
+		search.Width = 1
+	}
 	searchLine := search.View()
 	if !search.Focused() && search.Value() == "" {
-		searchLine = mutedStyle.Render("/ search")
+		searchLine = mutedStyle.Render(truncate("/ search", viewportWidth))
 	}
 	metaParts := []string{
 		fmt.Sprintf("%d sessions", len(m.sessions)),
@@ -415,8 +419,7 @@ func (m Model) sessionsView(height int, width int) string {
 		if cwdUnavailable(s) {
 			status = "!"
 		}
-		prefix := fmt.Sprintf("%s %s %s  ", formatTime(s.UpdatedAt), status, shortID(s.ID))
-		line := prefix + truncate(title, width-lipgloss.Width(prefix))
+		line := truncate(fmt.Sprintf("%s %s %s  %s", formatTime(s.UpdatedAt), status, shortID(s.ID), title), width)
 		if i == m.sessionIdx {
 			b.WriteString(selectedStyle.Render(line))
 		} else {

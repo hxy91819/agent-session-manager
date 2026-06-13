@@ -248,6 +248,28 @@ func TestModelViewFitsNarrowViewport(t *testing.T) {
 	}
 }
 
+func TestModelViewFitsVeryNarrowViewport(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "tiny",
+		CWD:       "/repo",
+		Title:     "tiny",
+		UpdatedAt: time.Now(),
+	}})
+	m.width = 8
+	m.height = 10
+
+	view := m.View()
+
+	if got := lipgloss.Height(view); got > m.height {
+		t.Fatalf("height = %d, want <= %d\n%s", got, m.height, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > m.width {
+			t.Fatalf("line width = %d, want <= %d\n%s", got, m.width, line)
+		}
+	}
+}
+
 func TestModelViewFitsShortViewport(t *testing.T) {
 	m := New([]session.Session{{
 		ID:        "short",

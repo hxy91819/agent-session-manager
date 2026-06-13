@@ -54,7 +54,7 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	}
 
 	cmd := runCommand(t, "--codex-home", home, "--resume", "openclaw-session", "--print-exec")
-	if !strings.Contains(cmd, `cd "/data/code/openclaw/openclaw" && "codex" "resume" "openclaw-session"`) {
+	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 }

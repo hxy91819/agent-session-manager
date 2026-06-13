@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"session-manager/internal/session"
 )
@@ -23,9 +24,9 @@ func Run(ctx context.Context, spec session.ExecSpec, printOnly bool) error {
 		}
 	}
 	if printOnly {
-		fmt.Printf("cd %q &&", spec.Dir)
+		fmt.Printf("cd %s &&", shellQuote(spec.Dir))
 		for _, arg := range spec.Args {
-			fmt.Printf(" %q", arg)
+			fmt.Printf(" %s", shellQuote(arg))
 		}
 		fmt.Println()
 		return nil
@@ -36,4 +37,11 @@ func Run(ctx context.Context, spec session.ExecSpec, printOnly bool) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
