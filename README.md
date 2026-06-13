@@ -22,11 +22,11 @@ go run ./cmd/session-manager --resume <session-id> --print-exec
 Performance controls:
 
 ```sh
-go run ./cmd/session-manager --limit 1000 --since-days 45
+go run ./cmd/session-manager --limit 1000 --since-days 30
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
-ordering. By default only sessions active in the last 45 days are shown.
+ordering. By default only sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
 
 TUI keys:
@@ -34,9 +34,11 @@ TUI keys:
 - `enter`: resume selected session
 - `left` / `right`: switch projects
 - `up` / `down`: switch sessions
+- `pgup` / `pgdown`: switch session pages
+- `home` / `end`: jump to first or last session in the project
 - `/`: search sessions
 - `s`: cycle sort mode
-- `m`: load 45 more days of history
+- `m`: load 30 more days of history
 - `q`: quit
 
 Sessions or project counts marked with `!` have a missing or unavailable cwd and

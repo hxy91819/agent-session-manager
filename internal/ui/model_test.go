@@ -60,15 +60,26 @@ func TestModelCyclesSortMode(t *testing.T) {
 	}
 }
 
+func TestModelDefaultsToThirtyDayWindow(t *testing.T) {
+	m := New([]session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}})
+
+	if m.windowDays != 30 {
+		t.Fatalf("windowDays = %d, want 30", m.windowDays)
+	}
+	if m.stepDays != 30 {
+		t.Fatalf("stepDays = %d, want 30", m.stepDays)
+	}
+}
+
 func TestModelLoadMoreExtendsWindow(t *testing.T) {
 	now := time.Now()
 	m := NewWithLoader(
 		[]session.Session{{ID: "recent", CWD: "/repo", UpdatedAt: now}},
-		45,
-		45,
+		30,
+		30,
 		func(days int) ([]session.Session, error) {
-			if days != 90 {
-				t.Fatalf("days = %d, want 90", days)
+			if days != 60 {
+				t.Fatalf("days = %d, want 60", days)
 			}
 			return []session.Session{
 				{ID: "recent", CWD: "/repo", UpdatedAt: now},
@@ -90,11 +101,50 @@ func TestModelLoadMoreExtendsWindow(t *testing.T) {
 	if m.loading {
 		t.Fatal("expected loading to finish")
 	}
-	if m.windowDays != 90 {
-		t.Fatalf("windowDays = %d, want 90", m.windowDays)
+	if m.windowDays != 60 {
+		t.Fatalf("windowDays = %d, want 60", m.windowDays)
 	}
 	if len(m.sessions) != 2 {
 		t.Fatalf("sessions = %#v", m.sessions)
+	}
+}
+
+func TestModelPageDownMovesByVisiblePage(t *testing.T) {
+	sessions := make([]session.Session, 0, 20)
+	now := time.Now()
+	for i := range 20 {
+		sessions = append(sessions, session.Session{
+			ID:        string(rune('a' + i)),
+			CWD:       "/repo",
+			UpdatedAt: now.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	m := New(sessions)
+	m.height = 20
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = next.(Model)
+
+	if m.sessionIdx != sessionListLimit(m.height-7) {
+		t.Fatalf("sessionIdx = %d, want %d", m.sessionIdx, sessionListLimit(m.height-7))
+	}
+	if !strings.Contains(m.View(), "page 2/") {
+		t.Fatalf("view missing page status:\n%s", m.View())
+	}
+}
+
+func TestModelEndMovesToLastSession(t *testing.T) {
+	now := time.Now()
+	m := New([]session.Session{
+		{ID: "first", CWD: "/repo", UpdatedAt: now},
+		{ID: "last", CWD: "/repo", UpdatedAt: now.Add(-time.Minute)},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = next.(Model)
+
+	if m.sessionIdx != 1 {
+		t.Fatalf("sessionIdx = %d, want 1", m.sessionIdx)
 	}
 }
 

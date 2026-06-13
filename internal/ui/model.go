@@ -42,8 +42,11 @@ type loadedSessionsMsg struct {
 	err      error
 }
 
+const defaultWindowDays = 30
+const defaultStepDays = 30
+
 func New(sessions []session.Session) Model {
-	return NewWithLoader(sessions, 45, 45, nil)
+	return NewWithLoader(sessions, defaultWindowDays, defaultStepDays, nil)
 }
 
 func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMore LoadMoreFunc) Model {
@@ -63,7 +66,7 @@ func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMor
 		loadMore:    loadMore,
 	}
 	if m.stepDays <= 0 {
-		m.stepDays = 45
+		m.stepDays = defaultStepDays
 	}
 	m.refresh()
 	return m
@@ -149,6 +152,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sessionIdx++
 			}
 			return m, nil
+		case "pgup", "pageup", "ctrl+u":
+			m.moveSessionPage(-1)
+			return m, nil
+		case "pgdown", "pagedown", "ctrl+d":
+			m.moveSessionPage(1)
+			return m, nil
+		case "home", "g":
+			m.sessionIdx = 0
+			return m, nil
+		case "end", "G":
+			if items := m.currentSessions(); len(items) > 0 {
+				m.sessionIdx = len(items) - 1
+			}
+			return m, nil
 		case "left", "h":
 			if m.projectIdx > 0 {
 				m.projectIdx--
@@ -194,7 +211,7 @@ func (m Model) View() string {
 		rightWidth = 44
 	}
 
-	header := titleStyle.Render("Session Manager") + "  " + mutedStyle.Render("←/→ projects · ↑/↓ sessions · enter resume · / search · s sort · q quit")
+	header := titleStyle.Render("Session Manager") + "  " + mutedStyle.Render("←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter resume · / search · s sort · q quit")
 	searchLine := m.search.View()
 	if !m.search.Focused() && m.search.Value() == "" {
 		searchLine = mutedStyle.Render("/ search")
@@ -206,7 +223,7 @@ func (m Model) View() string {
 		fmt.Sprintf("%d days", m.windowDays),
 	}
 	if m.loadMore != nil {
-		metaParts = append(metaParts, "m load more")
+		metaParts = append(metaParts, fmt.Sprintf("m +%dd", m.stepDays))
 	}
 	if m.loading {
 		metaParts = append(metaParts, "loading...")
@@ -269,11 +286,38 @@ func (m *Model) cycleSort() {
 	}
 }
 
+func (m *Model) moveSessionPage(direction int) {
+	items := m.currentSessions()
+	if len(items) == 0 {
+		return
+	}
+	limit := m.sessionPageSize()
+	if direction < 0 {
+		m.sessionIdx -= limit
+	} else {
+		m.sessionIdx += limit
+	}
+	if m.sessionIdx < 0 {
+		m.sessionIdx = 0
+	}
+	if m.sessionIdx >= len(items) {
+		m.sessionIdx = len(items) - 1
+	}
+}
+
 func (m Model) currentSessions() []session.Session {
 	if len(m.projects) == 0 || m.projectIdx >= len(m.projects) {
 		return nil
 	}
 	return m.projects[m.projectIdx].Sessions
+}
+
+func (m Model) sessionPageSize() int {
+	availableHeight := m.height - 7
+	if availableHeight < 8 {
+		availableHeight = 8
+	}
+	return sessionListLimit(availableHeight)
 }
 
 func (m Model) projectsView(height int, width int) string {
@@ -311,11 +355,8 @@ func (m Model) sessionsView(height int, width int) string {
 	project := m.projects[m.projectIdx]
 	b.WriteString(sectionStyle.Render(shortPath(project.CWD, width)))
 	b.WriteByte('\n')
-	limit := height - 7
-	if limit < 1 {
-		limit = 1
-	}
-	start := windowStart(m.sessionIdx, limit, len(items))
+	limit := sessionListLimit(height)
+	start := sessionPageStart(m.sessionIdx, limit)
 	for i := start; i < len(items) && i < start+limit; i++ {
 		s := items[i]
 		title := s.Title
@@ -335,20 +376,54 @@ func (m Model) sessionsView(height int, width int) string {
 		b.WriteByte('\n')
 	}
 
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
 	selected := items[m.sessionIdx]
 	b.WriteByte('\n')
-	b.WriteString(mutedStyle.Render("cwd: " + selected.CWD))
+	b.WriteString(mutedStyle.Render(detailLine("cwd", selected.CWD, width)))
 	if cwdUnavailable(selected) {
 		b.WriteByte('\n')
-		b.WriteString(mutedStyle.Render(missingCWDMessage(selected)))
+		b.WriteString(mutedStyle.Render(truncate(missingCWDMessage(selected), width)))
 	}
 	b.WriteByte('\n')
-	b.WriteString(mutedStyle.Render("id:  " + selected.ID))
+	b.WriteString(mutedStyle.Render(detailLine("id", selected.ID, width)))
 	if selected.Path != "" {
 		b.WriteByte('\n')
-		b.WriteString(mutedStyle.Render("file: " + selected.Path))
+		b.WriteString(mutedStyle.Render(detailLine("file", selected.Path, width)))
 	}
+	b.WriteByte('\n')
+	b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, len(items), limit), width)))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func sessionListLimit(height int) int {
+	limit := height - 8
+	if limit < 1 {
+		return 1
+	}
+	return limit
+}
+
+func sessionPageStart(cursor, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	return cursor / limit * limit
+}
+
+func sessionPageStatus(start, end, total, limit int) string {
+	if total == 0 {
+		return "0/0"
+	}
+	page := start/limit + 1
+	pages := (total + limit - 1) / limit
+	return fmt.Sprintf("showing %d-%d/%d · page %d/%d · pgup/pgdn", start+1, end, total, page, pages)
+}
+
+func detailLine(label, value string, width int) string {
+	return truncate(label+": "+value, width)
 }
 
 func cwdUnavailable(s session.Session) bool {
