@@ -17,21 +17,23 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/provider/claude"
 	"github.com/hxy91819/agent-session-manager/internal/provider/codex"
 	"github.com/hxy91819/agent-session-manager/internal/provider/kimi"
+	"github.com/hxy91819/agent-session-manager/internal/provider/opencode"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
 
 type config struct {
-	codexHome  string
-	claudeHome string
-	kimiHome   string
-	query      string
-	sortMode   index.SortMode
-	resumeID   string
-	json       bool
-	printExec  bool
-	sinceDays  int
-	limit      int
+	codexHome    string
+	claudeHome   string
+	kimiHome     string
+	opencodeHome string
+	query        string
+	sortMode     index.SortMode
+	resumeID     string
+	json         bool
+	printExec    bool
+	sinceDays    int
+	limit        int
 }
 
 type output struct {
@@ -56,6 +58,7 @@ func run(ctx context.Context, args []string) error {
 		codex.New(cfg.codexHome),
 		claude.New(cfg.claudeHome),
 		kimi.New(cfg.kimiHome),
+		opencode.New(cfg.opencodeHome),
 	}
 	loadSessions := func(days int) ([]session.Session, error) {
 		items, err := discoverAll(providers, cfg.limit, days)
@@ -117,6 +120,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
 	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
+	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
 	fs.BoolVar(&cfg.json, "json", false, "print indexed sessions as JSON")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")

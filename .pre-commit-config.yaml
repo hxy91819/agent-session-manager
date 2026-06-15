@@ -29,6 +29,12 @@ repos:
         language: system
         pass_filenames: false
 
+      - id: provider-performance-contract
+        name: provider performance contract
+        entry: go run ./tools/check-provider-performance
+        language: system
+        pass_filenames: false
+
       - id: go-test
         name: go test
         entry: go test ./...

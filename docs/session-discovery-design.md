@@ -2,7 +2,7 @@
 
 This document records the core discovery model used by
 `agent-session-manager`. The manager reads provider session stores directly; it
-does not call Codex, Claude, or Kimi to list or parse sessions.
+does not call Codex, Claude, Kimi, or opencode to list or parse sessions.
 
 ## Goals
 
@@ -20,6 +20,7 @@ The CLI registers all providers in `cmd/session-manager/main.go`:
 - Codex: `internal/provider/codex`
 - Claude Code: `internal/provider/claude`
 - Kimi Code: `internal/provider/kimi`
+- opencode: `internal/provider/opencode`
 
 `discoverAll` runs providers concurrently. Each provider receives the same
 `session.DiscoverOptions`:
@@ -47,21 +48,26 @@ Each provider parses its own local storage format directly:
   per-session `*.jsonl` files, and parses `sessionId`, `cwd`, native summary or
   title records, user messages, model, and branch metadata.
 - Kimi reads `~/.kimi-code/session_index.jsonl` plus per-session `state.json`.
+- opencode scans `$OPENCODE_HOME/storage` or
+  `~/.local/share/opencode/storage`, reads session JSON files, and falls back to
+  project worktree and message part JSON when a session does not carry cwd or
+  title directly.
 
 External provider commands are only used for resume:
 
 - `codex resume <session-id>`
 - `claude --resume <session-id>`
 - `kimi --session <session-id>`
+- `opencode -s <session-id>`
 
 This keeps listing independent from provider CLI startup time and makes JSON
 output and tests deterministic.
 
 ## File-Level Parse Cache
 
-Codex and Claude JSONL parsing can dominate startup because stores may contain
-large active histories. To avoid reparsing unchanged files, discovery uses a
-file-level cache in `internal/sessioncache`.
+Codex, Claude, and opencode parsing can dominate startup when stores contain
+many sessions or large active histories. To avoid reparsing unchanged files,
+discovery uses a file-level cache in `internal/sessioncache`.
 
 Cache identity:
 
@@ -80,6 +86,7 @@ The persistent cache is a simple JSON file under the user cache directory:
 
 - `agent-session-manager/codex-sessions.json`
 - `agent-session-manager/claude-sessions.json`
+- `agent-session-manager/opencode-sessions.json`
 
 The cache stores parse results only. Discovery still reapplies dynamic state on
 each run:
@@ -89,6 +96,8 @@ each run:
   repeating the same filesystem check for many sessions from the same project.
 - Codex title overrides from `history.jsonl` and `session_index.jsonl` are
   applied every time, including cache hits.
+- opencode project worktree and message title fallbacks are applied every time
+  when the cached session JSON does not include cwd or title directly.
 
 Default 30-day discovery does not prune older cache entries because those files
 were intentionally not scanned and may be needed by TUI load-more. Cache pruning
@@ -114,11 +123,12 @@ Benchmarks live next to the providers:
 
 - `internal/provider/codex/codex_benchmark_test.go`
 - `internal/provider/claude/claude_benchmark_test.go`
+- `internal/provider/opencode/opencode_benchmark_test.go`
 
 Run them with:
 
 ```sh
-go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude
+go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode
 ```
 
 Every new discovery optimization should add or update a benchmark that captures
@@ -135,3 +145,28 @@ checker benchmark lives in `internal/cwdstatus`.
   changed-file parsing remains a real bottleneck after caching.
 - Do not implement append-only incremental JSONL parsing unless the additional
   complexity is justified by measured large-file changed-session costs.
+
+## Adding Providers
+
+New providers automatically participate in provider-level concurrency once they
+are registered in `cmd/session-manager/main.go`, but file-level parse caching is
+not automatic. A provider should use `internal/sessioncache` when it repeatedly
+parses per-session files whose identity can be represented by path, size, and
+mtime.
+
+`tools/check-provider-performance` enforces this contract in pre-commit and CI:
+providers must use `internal/cwdstatus`, and must either use
+`internal/sessioncache` or declare a code comment of the form
+`sessioncache: not required - <reason>`.
+
+When using `sessioncache`, cache only the stable parse result for the primary
+session file. Reapply dynamic side inputs after every cache hit. Examples:
+
+- project/worktree files used to derive cwd
+- message files used as title fallback
+- native title indexes outside the primary session file
+- CWD availability checks
+
+Every new provider should also use `internal/cwdstatus` for missing-cwd
+metadata, add provider benchmarks for cold and hot discovery, and keep UI code
+dependent only on normalized `session.Session` values.

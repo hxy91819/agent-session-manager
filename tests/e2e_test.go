@@ -144,6 +144,45 @@ func TestCLIIndexesKimiAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	writeOpencodeSession(t, opencodeHome, "project_one", "ses_opencode", "/data/code/openclaw/openclaw", "fix openclaw with opencode")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--json", "--query", "opencode")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_opencode" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "opencode" {
+		t.Fatalf("provider = %q, want opencode", payload.Sessions[0].Provider)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--resume", "ses_opencode", "--print-exec")
+	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'opencode' '-s' 'ses_opencode'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
 func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
@@ -255,6 +294,7 @@ func runCommand(t *testing.T, args ...string) string {
 		"XDG_CACHE_HOME="+t.TempDir(),
 		"KIMI_CODE_HOME="+t.TempDir(),
 		"KIMI_HOME="+t.TempDir(),
+		"OPENCODE_HOME="+t.TempDir(),
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -283,6 +323,22 @@ func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, title string) {
 	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"sessionId":"`+id+`","sessionDir":"`+sessionDir+`","workDir":"`+cwd+`"}
 `)
 	writeFile(t, filepath.Join(sessionDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","title":"`+title+`"}
+`)
+}
+
+func writeOpencodeSession(t *testing.T, home, projectID, id, cwd, title string) {
+	t.Helper()
+	sessionDir := filepath.Join(home, "storage", "session", projectID)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := filepath.Join(home, "storage", "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, projectID+".json"), `{"id":"`+projectID+`","worktree":"`+cwd+`","time":{"created":1781322000000,"updated":1781322000000}}
+`)
+	writeFile(t, filepath.Join(sessionDir, id+".json"), `{"id":"`+id+`","projectID":"`+projectID+`","directory":"`+cwd+`","title":"`+title+`","time":{"created":1781322000000,"updated":1781322060000}}
 `)
 }
 

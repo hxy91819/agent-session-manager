@@ -17,6 +17,7 @@ import (
 
 const Name = "kimi"
 
+// sessioncache: not required - Kimi discovery reads a compact index plus small per-session state.json files.
 type Provider struct {
 	Home string
 }
