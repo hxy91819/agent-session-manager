@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -145,13 +146,33 @@ func discoverAll(providers []session.Provider, limit int, sinceDays int) ([]sess
 		since = time.Now().Add(-time.Duration(sinceDays) * 24 * time.Hour)
 	}
 	opts := session.DiscoverOptions{LimitFiles: limit, Since: since}
+
+	type result struct {
+		items []session.Session
+		err   error
+	}
+	results := make([]result, len(providers))
+	var wg sync.WaitGroup
+	wg.Add(len(providers))
+	for i, provider := range providers {
+		go func(i int, provider session.Provider) {
+			defer wg.Done()
+			items, err := provider.Discover(opts)
+			if err != nil {
+				results[i].err = fmt.Errorf("%s discover: %w", provider.Name(), err)
+				return
+			}
+			results[i].items = items
+		}(i, provider)
+	}
+	wg.Wait()
+
 	var out []session.Session
-	for _, provider := range providers {
-		items, err := provider.Discover(opts)
-		if err != nil {
-			return nil, fmt.Errorf("%s discover: %w", provider.Name(), err)
+	for _, result := range results {
+		if result.err != nil {
+			return nil, result.err
 		}
-		out = append(out, items...)
+		out = append(out, result.items...)
 	}
 	return out, nil
 }
