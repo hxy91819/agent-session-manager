@@ -69,3 +69,10 @@ TUI keys:
 
 Sessions or project counts marked with `!` have a missing or unavailable cwd and
 cannot be resumed until the path exists again.
+
+## Design Notes
+
+Session discovery parses provider stores directly instead of asking provider
+CLIs to list sessions. See
+[`docs/session-discovery-design.md`](docs/session-discovery-design.md) for the
+provider discovery, parsing, concurrency, and cache model.

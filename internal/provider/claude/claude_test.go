@@ -10,6 +10,19 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
+func TestMain(m *testing.M) {
+	cacheDir, err := os.MkdirTemp("", "asm-claude-cache-*")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("XDG_CACHE_HOME", cacheDir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(cacheDir)
+	os.Exit(code)
+}
+
 func TestParseSessionExtractsClaudeFields(t *testing.T) {
 	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:00:00Z","gitBranch":"main","message":{"role":"user","content":[{"type":"text","text":"first prompt"}]}}
 {"type":"assistant","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:01:00Z","message":{"role":"assistant","model":"claude-sonnet-4","content":[]}}
@@ -120,6 +133,42 @@ func TestDiscoverMarksMissingCWD(t *testing.T) {
 	}
 	if got[0].Metadata["cwd_missing"] != "true" {
 		t.Fatalf("cwd_missing = %q", got[0].Metadata["cwd_missing"])
+	}
+}
+
+func TestDiscoverRefreshesCWDStatusWhenUsingCache(t *testing.T) {
+	home := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(home, "repo")
+	writeClaudeSession(t, filepath.Join(projectDir, "session.jsonl"), "sid", repo, "title")
+	provider := Provider{
+		Home:      home,
+		CachePath: filepath.Join(t.TempDir(), "cache.json"),
+	}
+
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Metadata["cwd_missing"] != "true" {
+		t.Fatalf("first discovery did not mark missing cwd: %#v", got)
+	}
+
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err = provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Metadata["cwd_missing"] != "" || got[0].Metadata["cwd_error"] != "" {
+		t.Fatalf("cached discovery kept stale cwd metadata: %#v", got[0].Metadata)
 	}
 }
 

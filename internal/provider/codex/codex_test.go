@@ -10,6 +10,19 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
+func TestMain(m *testing.M) {
+	cacheDir, err := os.MkdirTemp("", "asm-codex-cache-*")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("XDG_CACHE_HOME", cacheDir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(cacheDir)
+	os.Exit(code)
+}
+
 func TestParseSessionPrefersLatestTurnContextCWD(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/old"}}
 {"timestamp":"2026-06-13T01:01:00Z","type":"turn_context","payload":{"cwd":"/new","model":"gpt-5"}}
@@ -164,6 +177,43 @@ func TestDiscoverMarksMissingCWD(t *testing.T) {
 	}
 	if got[0].Metadata["cwd_missing"] != "true" {
 		t.Fatalf("cwd_missing = %q", got[0].Metadata["cwd_missing"])
+	}
+}
+
+func TestDiscoverRefreshesCWDStatusWhenUsingCache(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := filepath.Join(home, "repo")
+	writeSession(t, filepath.Join(sessionDir, "session.jsonl"), "sid", repo)
+	provider := Provider{
+		Home:      home,
+		CachePath: filepath.Join(t.TempDir(), "cache.json"),
+	}
+
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Metadata["cwd_missing"] != "true" {
+		t.Fatalf("first discovery did not mark missing cwd: %#v", got)
+	}
+
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err = provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Metadata["cwd_missing"] != "" || got[0].Metadata["cwd_error"] != "" {
+		t.Fatalf("cached discovery kept stale cwd metadata: %#v", got[0].Metadata)
 	}
 }
 

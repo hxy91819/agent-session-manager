@@ -242,7 +242,17 @@ func runCommand(t *testing.T, args ...string) string {
 	cmdArgs := append([]string{"run", "./cmd/session-manager"}, args...)
 	cmd := exec.Command("go", cmdArgs...)
 	cmd.Dir = ".."
+	goCache := os.Getenv("GOCACHE")
+	if goCache == "" {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		goCache = filepath.Join(cacheDir, "go-build")
+	}
 	cmd.Env = append(os.Environ(),
+		"GOCACHE="+goCache,
+		"XDG_CACHE_HOME="+t.TempDir(),
 		"KIMI_CODE_HOME="+t.TempDir(),
 		"KIMI_HOME="+t.TempDir(),
 	)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hxy91819/agent-session-manager/internal/cwdstatus"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
@@ -61,6 +62,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		files = files[:opts.LimitFiles]
 	}
 
+	cwdChecker := cwdstatus.NewChecker()
 	sessions := make([]session.Session, 0, len(files))
 	for _, file := range files {
 		state, err := readState(file.StatePath)
@@ -90,7 +92,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if updated := parseTime(state.UpdatedAt); !updated.IsZero() {
 			s.Metadata["kimi_updated_at"] = updated.Format(time.RFC3339Nano)
 		}
-		markCWDStatus(&s)
+		cwdChecker.Mark(&s)
 		sessions = append(sessions, s)
 	}
 	return sessions, nil
@@ -206,18 +208,6 @@ func isInjectedContext(text string) bool {
 		}
 	}
 	return false
-}
-
-func markCWDStatus(s *session.Session) {
-	info, err := os.Stat(s.CWD)
-	if err == nil && info.IsDir() {
-		return
-	}
-	if errors.Is(err, fs.ErrNotExist) || err == nil {
-		s.Metadata["cwd_missing"] = "true"
-		return
-	}
-	s.Metadata["cwd_error"] = err.Error()
 }
 
 func parseTime(value string) time.Time {

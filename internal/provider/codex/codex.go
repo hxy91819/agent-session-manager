@@ -12,13 +12,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hxy91819/agent-session-manager/internal/cwdstatus"
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
 const Name = "codex"
 
 type Provider struct {
-	Home string
+	Home      string
+	CachePath string
 }
 
 func New(home string) Provider {
@@ -53,19 +56,41 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 
 	history := readHistoryTitles(filepath.Join(home, "history.jsonl"))
 	threadNames := readSessionIndexTitles(filepath.Join(home, "session_index.jsonl"))
+	cachePath := p.cachePath()
+	cache := sessioncache.Load(cachePath)
+	keep := make(map[string]struct{}, len(files))
+	cwdChecker := cwdstatus.NewChecker()
 	sessions := make([]session.Session, 0, len(files))
 	for _, file := range files {
-		s, err := parseSessionFile(file.Path)
-		if err != nil || s.ID == "" || s.CWD == "" {
+		id := sessioncache.FileIdentity{
+			Provider: Name,
+			Path:     file.Path,
+			Size:     file.Size,
+			ModTime:  file.ModTime,
+		}
+		s, ok := cache.Get(id)
+		if !ok {
+			var err error
+			s, err = parseSessionFile(file.Path)
+			if err != nil || s.ID == "" || s.CWD == "" {
+				continue
+			}
+			cache.Put(id, s)
+		}
+		if s.ID == "" || s.CWD == "" {
 			continue
 		}
+		if s.Metadata == nil {
+			s.Metadata = make(map[string]string)
+		}
+		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		s.Provider = Name
 		s.Path = file.Path
 		s.UpdatedAt = file.ModTime
 		if s.CreatedAt.IsZero() {
 			s.CreatedAt = file.ModTime
 		}
-		markCWDStatus(&s)
+		cwdChecker.Mark(&s)
 		if title := history[s.ID]; title != "" {
 			s.Title = title
 			s.Metadata["title_source"] = "history"
@@ -76,19 +101,26 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		sessions = append(sessions, s)
 	}
+	if shouldPruneCache(opts, len(files)) {
+		cache.Keep(keep)
+	}
+	_ = cache.Save(cachePath)
 	return sessions, nil
 }
 
-func markCWDStatus(s *session.Session) {
-	info, err := os.Stat(s.CWD)
-	if err == nil && info.IsDir() {
-		return
+func shouldPruneCache(opts session.DiscoverOptions, fileCount int) bool {
+	return opts.Since.IsZero() && (opts.LimitFiles <= 0 || fileCount < opts.LimitFiles)
+}
+
+func (p Provider) cachePath() string {
+	if p.CachePath != "" {
+		return p.CachePath
 	}
-	if errors.Is(err, fs.ErrNotExist) || err == nil {
-		s.Metadata["cwd_missing"] = "true"
-		return
+	path, err := sessioncache.DefaultPath(Name)
+	if err != nil {
+		return ""
 	}
-	s.Metadata["cwd_error"] = err.Error()
+	return path
 }
 
 func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
@@ -100,6 +132,7 @@ func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
 
 type fileInfo struct {
 	Path    string
+	Size    int64
 	ModTime time.Time
 }
 
@@ -126,7 +159,7 @@ func collectJSONL(root string, opts session.DiscoverOptions) ([]fileInfo, error)
 		if !opts.Since.IsZero() && info.ModTime().Before(opts.Since) {
 			return nil
 		}
-		files = append(files, fileInfo{Path: path, ModTime: info.ModTime()})
+		files = append(files, fileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime()})
 		return nil
 	})
 	if err != nil {
