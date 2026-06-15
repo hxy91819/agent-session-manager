@@ -159,7 +159,6 @@ fi
 mkdir -p "$(dirname "${output}")"
 
 {
-  printf '# %s\n\n' "${version}"
   printf '%s.\n\n' "${range_label}"
 
   if [[ -n "${compare_url}" ]]; then
@@ -176,7 +175,6 @@ mkdir -p "$(dirname "${output}")"
 
 if ! grep -q '^- ' "${output}"; then
   {
-    printf '# %s\n\n' "${version}"
     printf '%s.\n\n' "${range_label}"
     if [[ -n "${compare_url}" ]]; then
       printf '[Full diff](%s)\n\n' "${compare_url}"
