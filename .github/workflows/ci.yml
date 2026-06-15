@@ -30,4 +30,4 @@ jobs:
         run: go test ./...
 
       - name: Build
-        run: go build ./cmd/session-manager
+        run: go build ./cmd/asm

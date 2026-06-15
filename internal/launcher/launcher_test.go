@@ -13,7 +13,7 @@ import (
 
 func TestRunReportsMissingCWD(t *testing.T) {
 	err := Run(context.Background(), session.ExecSpec{
-		Dir:  "/definitely/missing/session-manager-test",
+		Dir:  "/definitely/missing/asm-test",
 		Args: []string{"codex", "resume", "sid"},
 	}, false)
 

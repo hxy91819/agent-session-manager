@@ -1,7 +1,7 @@
 # Session Discovery Design
 
 This document records the core discovery model used by
-`agent-session-manager`. The manager reads provider session stores directly; it
+`asm`. The manager reads provider session stores directly; it
 does not call Codex, Claude, Kimi, or opencode to list or parse sessions.
 
 ## Goals
@@ -15,7 +15,7 @@ does not call Codex, Claude, Kimi, or opencode to list or parse sessions.
 
 ## Provider Discovery
 
-The CLI registers all providers in `cmd/session-manager/main.go`:
+The CLI registers all providers in `cmd/asm/main.go`:
 
 - Codex: `internal/provider/codex`
 - Claude Code: `internal/provider/claude`
@@ -84,9 +84,9 @@ tail parser. If a large active JSONL changes, that whole JSONL file is reparsed.
 
 The persistent cache is a simple JSON file under the user cache directory:
 
-- `agent-session-manager/codex-sessions.json`
-- `agent-session-manager/claude-sessions.json`
-- `agent-session-manager/opencode-sessions.json`
+- `asm/codex-sessions.json`
+- `asm/claude-sessions.json`
+- `asm/opencode-sessions.json`
 
 The cache stores parse results only. Discovery still reapplies dynamic state on
 each run:
@@ -149,7 +149,7 @@ checker benchmark lives in `internal/cwdstatus`.
 ## Adding Providers
 
 New providers automatically participate in provider-level concurrency once they
-are registered in `cmd/session-manager/main.go`, but file-level parse caching is
+are registered in `cmd/asm/main.go`, but file-level parse caching is
 not automatic. A provider should use `internal/sessioncache` when it repeatedly
 parses per-session files whose identity can be represented by path, size, and
 mtime.

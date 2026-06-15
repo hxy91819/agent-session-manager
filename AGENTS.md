@@ -1,12 +1,12 @@
 # AGENTS.md
 
-This repository contains `agent-session-manager`, a local TUI for finding,
+This repository contains `asm`, a local TUI for finding,
 inspecting, and resuming coding-agent sessions across projects. Keep changes
 small, testable, and compatible with future providers.
 
 ## Project Shape
 
-- Entry point: `cmd/session-manager/main.go`
+- Entry point: `cmd/asm/main.go`
 - Provider implementations: `internal/provider/<name>/`
 - Shared session model and provider contract: `internal/session/session.go`
 - Filtering, sorting, and project grouping: `internal/index/`
@@ -38,7 +38,7 @@ gofmt -w cmd internal tests
 go run ./tools/check-provider-performance
 golangci-lint run ./...
 go test ./...
-go build ./cmd/session-manager
+go build ./cmd/asm
 ```
 
 For full repository hygiene, run:
@@ -54,11 +54,11 @@ basic file checks, `gofmt`, `go vet`, `go test`, and the repository's
 Useful local checks:
 
 ```sh
-go run ./cmd/session-manager --json --query openclaw
-go run ./cmd/session-manager --resume <session-id> --print-exec
-go run ./cmd/session-manager --since-days 0 --json
-go run ./cmd/session-manager --json --query kimi
-go run ./cmd/session-manager --json --query opencode
+go run ./cmd/asm --json --query openclaw
+go run ./cmd/asm --resume <session-id> --print-exec
+go run ./cmd/asm --since-days 0 --json
+go run ./cmd/asm --json --query kimi
+go run ./cmd/asm --json --query opencode
 ```
 
 Do not rely only on manual TUI inspection. Add focused tests for provider
@@ -159,7 +159,7 @@ For a provider such as another coding agent:
    `sessioncache: not required - <reason>` comment for explicitly lightweight
    stores.
 8. Add CLI or index tests only when the shared behavior changes.
-9. Register the provider in `cmd/session-manager/main.go`, add a `--<name>-home`
+9. Register the provider in `cmd/asm/main.go`, add a `--<name>-home`
    flag for test isolation, and update CLI e2e tests so real local stores do
    not pollute test results.
 
@@ -238,7 +238,6 @@ For UI layout bugs, include tests that assert rendered width and height using
 - Do not revert unrelated user changes.
 - Keep generated binaries and local artifacts out of commits unless explicitly
   requested.
-- Keep `.gitignore` patterns anchored for root binaries, for example
-  `/session-manager`, so directories such as `cmd/session-manager/` remain
-  trackable.
+- Keep `.gitignore` patterns anchored for root binaries, for example `/asm`,
+  so directories such as `cmd/asm/` remain trackable.
 - Prefer concise commit messages that describe the behavior change.

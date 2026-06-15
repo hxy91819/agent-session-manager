@@ -278,7 +278,7 @@ func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
 
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
-	cmdArgs := append([]string{"run", "./cmd/session-manager"}, args...)
+	cmdArgs := append([]string{"run", "./cmd/asm"}, args...)
 	cmd := exec.Command("go", cmdArgs...)
 	cmd.Dir = ".."
 	goCache := os.Getenv("GOCACHE")

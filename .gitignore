@@ -1,5 +1,4 @@
-/session-manager
-/agent-session-manager
+/asm
 dist/
 coverage.out
 tmp/

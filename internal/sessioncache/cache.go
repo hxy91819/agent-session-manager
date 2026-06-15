@@ -37,7 +37,7 @@ func DefaultPath(provider string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "agent-session-manager", provider+"-sessions.json"), nil
+	return filepath.Join(dir, "asm", provider+"-sessions.json"), nil
 }
 
 func Load(path string) Cache {

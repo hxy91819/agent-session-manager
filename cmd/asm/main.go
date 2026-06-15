@@ -115,7 +115,7 @@ func run(ctx context.Context, args []string) error {
 func parseFlags(args []string) (config, error) {
 	var cfg config
 	var sortMode string
-	fs := flag.NewFlagSet("session-manager", flag.ContinueOnError)
+	fs := flag.NewFlagSet("asm", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")

@@ -1,4 +1,4 @@
-# agent-session-manager
+# asm
 
 A local TUI for finding, inspecting, and resuming coding-agent sessions across
 projects.
@@ -21,17 +21,17 @@ Providers:
 ## Usage
 
 ```sh
-go run ./cmd/session-manager
+go run ./cmd/asm
 ```
 
 Useful non-interactive checks:
 
 ```sh
-go run ./cmd/session-manager --json --query openclaw
-go run ./cmd/session-manager --resume <session-id> --print-exec
-go run ./cmd/session-manager --claude-home /tmp/fake-claude --json
-go run ./cmd/session-manager --kimi-home /tmp/fake-kimi --json
-go run ./cmd/session-manager --opencode-home /tmp/fake-opencode --json
+go run ./cmd/asm --json --query openclaw
+go run ./cmd/asm --resume <session-id> --print-exec
+go run ./cmd/asm --claude-home /tmp/fake-claude --json
+go run ./cmd/asm --kimi-home /tmp/fake-kimi --json
+go run ./cmd/asm --opencode-home /tmp/fake-opencode --json
 ```
 
 Developer checks:
@@ -40,7 +40,7 @@ Developer checks:
 pre-commit install
 pre-commit run --all-files
 go test ./...
-go build ./cmd/session-manager
+go build ./cmd/asm
 go run ./tools/check-provider-performance
 go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode
 ```
@@ -52,7 +52,7 @@ It runs staged secret scanning, basic file hygiene checks, `gofmt`, `go vet`,
 Performance controls:
 
 ```sh
-go run ./cmd/session-manager --limit 1000 --since-days 30
+go run ./cmd/asm --limit 1000 --since-days 30
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
