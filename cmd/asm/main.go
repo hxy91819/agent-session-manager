@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/provider/opencode"
 	reportpkg "github.com/hxy91819/agent-session-manager/internal/report"
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/skillinstall"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
 
@@ -64,6 +66,19 @@ type resumeConfig struct {
 	limit        int
 }
 
+type skillsInstallConfig struct {
+	source  string
+	ref     string
+	path    string
+	scope   string
+	target  string
+	skill   string
+	version string
+	all     bool
+	yes     bool
+	dryRun  bool
+}
+
 type output struct {
 	Projects []session.Project `json:"projects"`
 	Sessions []session.Session `json:"sessions"`
@@ -82,6 +97,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if len(args) > 0 && args[0] == "resume" {
 		return runResume(ctx, args[1:])
+	}
+	if len(args) > 0 && args[0] == "skills" {
+		return runSkills(ctx, args[1:])
 	}
 
 	cfg, err := parseFlags(args)
@@ -161,6 +179,64 @@ func runResume(ctx context.Context, args []string) error {
 		return fmt.Errorf("no provider registered for %q", selected.Provider)
 	}
 	return resumeSession(ctx, provider, selected, cfg.printExec)
+}
+
+func runSkills(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "install" {
+		return fmt.Errorf("usage: asm skills install [flags] [skill-name|github-url]")
+	}
+	return runSkillsInstall(ctx, args[1:])
+}
+
+func runSkillsInstall(ctx context.Context, args []string) error {
+	cfg, err := parseSkillsInstallFlags(args)
+	if err != nil {
+		return err
+	}
+	fetcher := skillinstall.Fetcher{Token: os.Getenv("GITHUB_TOKEN")}
+	var skills []skillinstall.Skill
+	if cfg.source != "" {
+		var source skillinstall.GitHubSource
+		source, err = skillinstall.ParseGitHubSource(cfg.source, cfg.ref, cfg.path)
+		if err != nil {
+			return err
+		}
+		skills, err = fetcher.Fetch(ctx, source)
+	} else {
+		skills, err = fetcher.FetchRelease(ctx, cfg.version)
+	}
+	if err != nil {
+		return err
+	}
+	reader := bufio.NewReader(os.Stdin)
+	selected, err := chooseSkills(skills, cfg, reader)
+	if err != nil {
+		return err
+	}
+	scopes, err := chooseInstallScopes(cfg.scope, cfg.yes, reader)
+	if err != nil {
+		return err
+	}
+	targets, err := chooseInstallTargets(cfg.target, cfg.yes, reader)
+	if err != nil {
+		return err
+	}
+	results, err := skillinstall.Install(selected, skillinstall.InstallOptions{
+		Scopes:  scopes,
+		Targets: targets,
+		DryRun:  cfg.dryRun,
+	})
+	if err != nil {
+		return err
+	}
+	for _, result := range results {
+		action := "installed"
+		if cfg.dryRun {
+			action = "would install"
+		}
+		fmt.Fprintf(os.Stdout, "%s %s -> %s\n", action, result.Skill, result.Path)
+	}
+	return nil
 }
 
 func runReport(args []string) error {
@@ -255,6 +331,111 @@ func parseResumeFlags(args []string) (resumeConfig, error) {
 	}
 	cfg.sessionID = fs.Arg(0)
 	return cfg, nil
+}
+
+func parseSkillsInstallFlags(args []string) (skillsInstallConfig, error) {
+	var cfg skillsInstallConfig
+	normalized, err := normalizeSkillsInstallArgs(args)
+	if err != nil {
+		return skillsInstallConfig{}, err
+	}
+	fs := flag.NewFlagSet("asm skills install", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&cfg.ref, "ref", "", "git ref to download; defaults to the repository default branch")
+	fs.StringVar(&cfg.path, "path", "", "repository path to a skill directory or parent skills directory")
+	fs.StringVar(&cfg.scope, "scope", "", "install scope: current, user, both")
+	fs.StringVar(&cfg.target, "target", "", "install target: agents, claude, both")
+	fs.StringVar(&cfg.skill, "skill", "", "skill name to install when the source contains multiple skills")
+	fs.StringVar(&cfg.version, "version", "", "asm release tag to install skills from; defaults to latest release")
+	fs.BoolVar(&cfg.all, "all", false, "install all skills found in the source")
+	fs.BoolVar(&cfg.yes, "yes", false, "use defaults for omitted choices")
+	fs.BoolVar(&cfg.dryRun, "dry-run", false, "print install destinations without writing files")
+	if err := fs.Parse(normalized); err != nil {
+		return skillsInstallConfig{}, err
+	}
+	if fs.NArg() > 1 {
+		return skillsInstallConfig{}, fmt.Errorf("usage: asm skills install [flags] [skill-name|github-url]")
+	}
+	if cfg.all && cfg.skill != "" {
+		return skillsInstallConfig{}, fmt.Errorf("--all and --skill cannot be used together")
+	}
+	if fs.NArg() == 1 {
+		arg := fs.Arg(0)
+		if looksLikeGitHubSource(arg) {
+			cfg.source = arg
+		} else {
+			if cfg.skill != "" {
+				return skillsInstallConfig{}, fmt.Errorf("skill name provided twice")
+			}
+			cfg.skill = arg
+		}
+	}
+	if cfg.source != "" && cfg.version != "" {
+		return skillsInstallConfig{}, fmt.Errorf("--version is only supported for default release installs")
+	}
+	if cfg.source == "" && (cfg.ref != "" || cfg.path != "") {
+		return skillsInstallConfig{}, fmt.Errorf("--ref and --path require a github source")
+	}
+	return cfg, nil
+}
+
+func normalizeSkillsInstallArgs(args []string) ([]string, error) {
+	valueFlags := map[string]struct{}{
+		"-ref":      {},
+		"--ref":     {},
+		"-path":     {},
+		"--path":    {},
+		"-scope":    {},
+		"--scope":   {},
+		"-target":   {},
+		"--target":  {},
+		"-skill":    {},
+		"--skill":   {},
+		"-version":  {},
+		"--version": {},
+	}
+	var out []string
+	var source string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			if i+2 != len(args) {
+				return nil, fmt.Errorf("usage: asm skills install [flags] <github-url>")
+			}
+			if source != "" {
+				return nil, fmt.Errorf("usage: asm skills install [flags] <github-url>")
+			}
+			source = args[i+1]
+			break
+		}
+		if strings.HasPrefix(arg, "-") {
+			out = append(out, arg)
+			name := arg
+			if before, _, ok := strings.Cut(arg, "="); ok {
+				name = before
+			}
+			if _, ok := valueFlags[name]; ok && !strings.Contains(arg, "=") {
+				if i+1 >= len(args) {
+					return nil, fmt.Errorf("flag needs an argument: %s", arg)
+				}
+				out = append(out, args[i+1])
+				i++
+			}
+			continue
+		}
+		if source != "" {
+			return nil, fmt.Errorf("usage: asm skills install [flags] <github-url>")
+		}
+		source = arg
+	}
+	if source != "" {
+		out = append(out, source)
+	}
+	return out, nil
+}
+
+func looksLikeGitHubSource(value string) bool {
+	return strings.Contains(value, "/") || strings.Contains(value, "github.com") || strings.HasPrefix(value, "git@github.com:")
 }
 
 func parseReportFlags(args []string) (reportConfig, error) {
@@ -392,6 +573,116 @@ func shellQuote(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func chooseSkills(skills []skillinstall.Skill, cfg skillsInstallConfig, reader *bufio.Reader) ([]skillinstall.Skill, error) {
+	if len(skills) == 0 {
+		return nil, fmt.Errorf("no skills found")
+	}
+	if cfg.all {
+		return skills, nil
+	}
+	if cfg.skill != "" {
+		for _, skill := range skills {
+			if skill.Name == cfg.skill {
+				return []skillinstall.Skill{skill}, nil
+			}
+		}
+		return nil, fmt.Errorf("skill %q not found", cfg.skill)
+	}
+	if len(skills) == 1 {
+		return skills, nil
+	}
+	if cfg.yes {
+		return nil, fmt.Errorf("multiple skills found; pass --skill <name> or --all")
+	}
+	fmt.Fprintln(os.Stderr, "Select skill to install:")
+	fmt.Fprintln(os.Stderr, "  0) all")
+	for i, skill := range skills {
+		fmt.Fprintf(os.Stderr, "  %d) %s\n", i+1, skill.Name)
+	}
+	choice, err := promptInt(reader, "Choice")
+	if err != nil {
+		return nil, err
+	}
+	if choice == 0 {
+		return skills, nil
+	}
+	if choice < 1 || choice > len(skills) {
+		return nil, fmt.Errorf("invalid skill choice %d", choice)
+	}
+	return []skillinstall.Skill{skills[choice-1]}, nil
+}
+
+func chooseInstallScopes(value string, yes bool, reader *bufio.Reader) ([]string, error) {
+	if value != "" {
+		return parseInstallSelection(value, skillinstall.ValidScope, skillinstall.ScopeCurrent, skillinstall.ScopeUser)
+	}
+	if yes {
+		return []string{skillinstall.ScopeCurrent}, nil
+	}
+	return promptSelection(reader, "Install location", []string{
+		"current directory",
+		"user directory",
+		"both",
+	}, [][]string{
+		{skillinstall.ScopeCurrent},
+		{skillinstall.ScopeUser},
+		{skillinstall.ScopeCurrent, skillinstall.ScopeUser},
+	})
+}
+
+func chooseInstallTargets(value string, yes bool, reader *bufio.Reader) ([]string, error) {
+	if value != "" {
+		return parseInstallSelection(value, skillinstall.ValidTarget, skillinstall.TargetAgents, skillinstall.TargetClaude)
+	}
+	if yes {
+		return []string{skillinstall.TargetAgents}, nil
+	}
+	return promptSelection(reader, "Install target", []string{
+		".agents",
+		".claude",
+		"both",
+	}, [][]string{
+		{skillinstall.TargetAgents},
+		{skillinstall.TargetClaude},
+		{skillinstall.TargetAgents, skillinstall.TargetClaude},
+	})
+}
+
+func parseInstallSelection(value string, valid func(string) bool, first string, second string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "both" {
+		return []string{first, second}, nil
+	}
+	if valid(value) {
+		return []string{value}, nil
+	}
+	return nil, fmt.Errorf("invalid install selection %q", value)
+}
+
+func promptSelection(reader *bufio.Reader, label string, labels []string, values [][]string) ([]string, error) {
+	fmt.Fprintf(os.Stderr, "%s:\n", label)
+	for i, item := range labels {
+		fmt.Fprintf(os.Stderr, "  %d) %s\n", i+1, item)
+	}
+	choice, err := promptInt(reader, "Choice")
+	if err != nil {
+		return nil, err
+	}
+	if choice < 1 || choice > len(values) {
+		return nil, fmt.Errorf("invalid %s choice %d", strings.ToLower(label), choice)
+	}
+	return values[choice-1], nil
+}
+
+func promptInt(reader *bufio.Reader, label string) (int, error) {
+	fmt.Fprintf(os.Stderr, "%s: ", label)
+	var choice int
+	if _, err := fmt.Fscan(reader, &choice); err != nil {
+		return 0, err
+	}
+	return choice, nil
 }
 
 func providerByName(providers []session.Provider, name string) session.Provider {

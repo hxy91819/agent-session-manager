@@ -92,6 +92,7 @@ jobs:
             fi
           done
 
+          zip -qr "dist/asm_skills_${VERSION}.zip" skills
           (cd dist && sha256sum ./*.tar.gz ./*.zip > sha256sums.txt)
 
       - name: Publish GitHub release

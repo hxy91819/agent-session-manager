@@ -36,6 +36,7 @@ go run ./cmd/asm --opencode-home /tmp/fake-opencode --json
 go run ./cmd/asm report --period yesterday
 go run ./cmd/asm report --period today
 go run ./cmd/asm report --period last-week --query openclaw
+go run ./cmd/asm skills install agent-work-report
 ```
 
 Developer checks:
@@ -75,6 +76,21 @@ go run ./cmd/asm resume --provider claude <session-id> --print-exec
 The provider flag disambiguates session IDs across agent providers. Report JSON
 includes a `resume_command` for each session so agents can surface copyable
 commands in follow-up sections.
+
+Skill install:
+
+```sh
+go run ./cmd/asm skills install agent-work-report
+go run ./cmd/asm skills install --all
+go run ./cmd/asm skills install agent-work-report --scope current --target agents
+go run ./cmd/asm skills install hxy91819/agent-session-manager --path skills/agent-work-report --scope current --target agents
+go run ./cmd/asm skills install hxy91819/agent-session-manager --path skills --all --scope both --target both
+```
+
+By default, `asm skills install` downloads the standalone skills bundle from
+the latest `agent-session-manager` GitHub Release. When `--scope` or `--target`
+is omitted, `asm` prompts for current directory vs user directory and `.agents`
+vs `.claude`. Use `--yes` for defaults (`current` + `.agents`) in scripts.
 
 Agent report export:
 

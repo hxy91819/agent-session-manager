@@ -107,6 +107,31 @@ func TestResumeCLICommandQuotesProviderAndID(t *testing.T) {
 	}
 }
 
+func TestParseSkillsInstallFlagsAllowsURLBeforeFlags(t *testing.T) {
+	got, err := parseSkillsInstallFlags([]string{
+		"hxy91819/agent-session-manager",
+		"--path", "skills/agent-work-report",
+		"--scope", "current",
+		"--target", "agents",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.source != "hxy91819/agent-session-manager" || got.path != "skills/agent-work-report" || got.scope != "current" || got.target != "agents" {
+		t.Fatalf("config = %#v", got)
+	}
+}
+
+func TestParseSkillsInstallFlagsTreatsSingleNameAsReleaseSkill(t *testing.T) {
+	got, err := parseSkillsInstallFlags([]string{"agent-work-report", "--scope", "current", "--target", "agents"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.source != "" || got.skill != "agent-work-report" {
+		t.Fatalf("config = %#v", got)
+	}
+}
+
 type staticProvider struct {
 	name  string
 	err   error
