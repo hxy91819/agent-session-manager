@@ -11,6 +11,10 @@ type Session struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 	Path      string            `json:"path"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+	Previews  []MessagePreview  `json:"previews,omitempty"`
+	// ResumeCommand is a user-facing asm command, populated only for report
+	// output so agents can hand users a precise way back into a session.
+	ResumeCommand string `json:"resume_command,omitempty"`
 }
 
 type Project struct {
@@ -34,4 +38,19 @@ type Provider interface {
 type DiscoverOptions struct {
 	LimitFiles int
 	Since      time.Time
+	Preview    PreviewOptions
+}
+
+type MessagePreview struct {
+	Text   string    `json:"text"`
+	At     time.Time `json:"at,omitempty"`
+	Source string    `json:"source,omitempty"`
+}
+
+type PreviewOptions struct {
+	UserMessagesPerEdge int
+	MaxChars            int
+	EdgeOffset          int
+	Since               time.Time
+	Before              time.Time
 }

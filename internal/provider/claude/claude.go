@@ -58,6 +58,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	cache := sessioncache.Load(cachePath)
 	keep := make(map[string]struct{}, len(files))
 	cwdChecker := cwdstatus.NewChecker()
+	seen := make(map[string]struct{}, len(files))
 	sessions := make([]session.Session, 0, len(files))
 	for _, file := range files {
 		id := sessioncache.FileIdentity{
@@ -78,10 +79,17 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.ID == "" || s.CWD == "" {
 			continue
 		}
+		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
+		if _, ok := seen[s.ID]; ok {
+			continue
+		}
+		// Claude can leave the same session ID in multiple project files after
+		// cwd/project changes. Resume targets the ID, so expose only the newest
+		// file to avoid showing one Claude conversation as several sessions.
+		seen[s.ID] = struct{}{}
 		if s.Metadata == nil {
 			s.Metadata = make(map[string]string)
 		}
-		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		s.Provider = Name
 		s.Path = file.Path
 		s.UpdatedAt = file.ModTime
@@ -89,6 +97,11 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.CreatedAt = file.ModTime
 		}
 		cwdChecker.Mark(&s)
+		if opts.Preview.Enabled() {
+			s.Previews = readUserPreviews(file.Path, opts.Preview)
+		} else {
+			s.Previews = nil
+		}
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {
@@ -285,6 +298,40 @@ func messageText(raw json.RawMessage) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func readUserPreviews(path string, opts session.PreviewOptions) []session.MessagePreview {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	var messages []session.MessagePreview
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var rec rawRecord
+		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "user" || rec.IsMeta {
+			continue
+		}
+		msg := parseMessage(rec.Message)
+		if msg.Role != "user" {
+			continue
+		}
+		if text := cleanTitle(messageText(msg.Content)); text != "" {
+			messages = append(messages, session.MessagePreview{
+				Text:   text,
+				At:     parseTime(rec.Timestamp),
+				Source: "claude:user",
+			})
+		}
+	}
+	return session.SelectMessagePreviews(messages, opts)
 }
 
 func cleanTitle(text string) string {

@@ -78,6 +78,37 @@ func TestParseSessionUsesLastHumanUserTitle(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsUserPreviews(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "session.jsonl"), `{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:00Z","isMeta":true,"message":{"role":"user","content":"ignored meta"}}
+{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:01Z","message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>"}}
+{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"first prompt"}}
+{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:03Z","message":{"role":"user","content":"second prompt"}}
+{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:04Z","message":{"role":"user","content":"third prompt"}}
+{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:05Z","message":{"role":"user","content":"fourth prompt"}}
+{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:06Z","message":{"role":"user","content":"fifth prompt"}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2, MaxChars: 500},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	want := []string{"first prompt", "second prompt", "fourth prompt", "fifth prompt"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
 func TestDiscoverFiltersAndLimitsByFileModTime(t *testing.T) {
 	home := t.TempDir()
 	projectDir := filepath.Join(home, "projects", "-repo")
@@ -112,6 +143,42 @@ func TestDiscoverFiltersAndLimitsByFileModTime(t *testing.T) {
 	}
 	if !got[0].UpdatedAt.Equal(newTime) {
 		t.Fatalf("UpdatedAt = %s, want %s", got[0].UpdatedAt, newTime)
+	}
+}
+
+func TestDiscoverDeduplicatesSessionIDByNewestFile(t *testing.T) {
+	home := t.TempDir()
+	projectA := filepath.Join(home, "projects", "-repo-a")
+	projectB := filepath.Join(home, "projects", "-repo-b")
+	if err := os.MkdirAll(projectA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	oldPath := filepath.Join(projectA, "sid.jsonl")
+	newPath := filepath.Join(projectB, "sid-copy.jsonl")
+	writeClaudeSession(t, oldPath, "sid", repo, "old title")
+	writeClaudeSession(t, newPath, "sid", repo, "new title")
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldPath, base, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, base.Add(time.Hour), base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].ID != "sid" || got[0].Title != "new title" || got[0].Path != newPath {
+		t.Fatalf("unexpected session: %#v", got[0])
 	}
 }
 
@@ -187,6 +254,14 @@ func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
 	t.Helper()
 	writeFile(t, path, `{"type":"user","sessionId":"`+id+`","cwd":"`+cwd+`","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"`+title+`"}}
 `)
+}
+
+func previewTexts(previews []session.MessagePreview) []string {
+	out := make([]string, 0, len(previews))
+	for _, preview := range previews {
+		out = append(out, preview.Text)
+	}
+	return out
 }
 
 func writeFile(t *testing.T, path, content string) {

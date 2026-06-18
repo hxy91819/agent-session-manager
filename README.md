@@ -29,9 +29,13 @@ Useful non-interactive checks:
 ```sh
 go run ./cmd/asm --json --query openclaw
 go run ./cmd/asm --resume <session-id> --print-exec
+go run ./cmd/asm resume --provider codex <session-id>
 go run ./cmd/asm --claude-home /tmp/fake-claude --json
 go run ./cmd/asm --kimi-home /tmp/fake-kimi --json
 go run ./cmd/asm --opencode-home /tmp/fake-opencode --json
+go run ./cmd/asm report --period yesterday
+go run ./cmd/asm report --period today
+go run ./cmd/asm report --period last-week --query openclaw
 ```
 
 Developer checks:
@@ -60,6 +64,35 @@ ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`, or
 `--opencode-home` to point at alternate provider stores. By default only
 sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
+
+Direct resume:
+
+```sh
+go run ./cmd/asm resume --provider codex <session-id>
+go run ./cmd/asm resume --provider claude <session-id> --print-exec
+```
+
+The provider flag disambiguates session IDs across agent providers. Report JSON
+includes a `resume_command` for each session so agents can surface copyable
+commands in follow-up sections.
+
+Agent report export:
+
+```sh
+go run ./cmd/asm report --period yesterday
+go run ./cmd/asm report --period today
+go run ./cmd/asm report --period last-week
+go run ./cmd/asm report --period yesterday --preview-messages-per-edge 4 --preview-max-chars 1000
+go run ./cmd/asm report --period yesterday --preview-messages-per-edge 2 --preview-edge-offset 2
+```
+
+`asm report` prints JSON for agent consumption. It uses local-time natural
+windows and includes bounded user-message previews only for the report path.
+`today` covers local midnight through the command's current time.
+If the default previews are not enough for a reliable summary, increase
+`--preview-messages-per-edge` or `--preview-max-chars` and rerun the report.
+For incremental context loading, keep `--preview-messages-per-edge` fixed and
+increase `--preview-edge-offset` to fetch the next layer from both ends.
 
 TUI keys:
 

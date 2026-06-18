@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Work Report"
+  short_description: "Generate Chinese daily and weekly agent work reports"
+  default_prompt: "Use $agent-work-report to summarize yesterday's agent sessions into a Chinese work report."

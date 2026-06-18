@@ -99,6 +99,11 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.Title = title
 			s.Metadata["title_source"] = "session_index"
 		}
+		if opts.Preview.Enabled() {
+			s.Previews = readUserPreviews(file.Path, opts.Preview)
+		} else {
+			s.Previews = nil
+		}
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {
@@ -276,6 +281,40 @@ func titleFromMessageContent(content []messageContent) string {
 		}
 	}
 	return cleanUserTitle(strings.Join(parts, "\n"))
+}
+
+func readUserPreviews(path string, opts session.PreviewOptions) []session.MessagePreview {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	var messages []session.MessagePreview
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var rec rawRecord
+		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "response_item" {
+			continue
+		}
+		var msg responseMessage
+		if json.Unmarshal(rec.Payload, &msg) != nil || msg.Type != "message" || msg.Role != "user" {
+			continue
+		}
+		if text := titleFromMessageContent(msg.Content); text != "" {
+			messages = append(messages, session.MessagePreview{
+				Text:   text,
+				At:     parseTime(rec.Timestamp),
+				Source: "codex:response_item",
+			})
+		}
+	}
+	return session.SelectMessagePreviews(messages, opts)
 }
 
 func cleanUserTitle(text string) string {

@@ -85,6 +85,28 @@ func TestDiscoverAllWrapsProviderErrorWithName(t *testing.T) {
 	}
 }
 
+func TestFindSessionFiltersProvider(t *testing.T) {
+	sessions := []session.Session{
+		{ID: "sid", Provider: "codex"},
+		{ID: "sid", Provider: "claude"},
+	}
+
+	got, err := findSession(sessions, "sid", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != "claude" {
+		t.Fatalf("provider = %q", got.Provider)
+	}
+}
+
+func TestResumeCLICommandQuotesProviderAndID(t *testing.T) {
+	got := resumeCLICommand(session.Session{ID: "abc'123", Provider: "codex"})
+	if got != "asm resume --provider 'codex' 'abc'\\''123'" {
+		t.Fatalf("command = %q", got)
+	}
+}
+
 type staticProvider struct {
 	name  string
 	err   error

@@ -91,6 +91,11 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.Title == "" {
 			delete(s.Metadata, "title_source")
 		}
+		if opts.Preview.Enabled() {
+			s.Previews = userPreviewsFromMessages(storageRoot, s.ID, opts.Preview)
+		} else {
+			s.Previews = nil
+		}
 		cwdChecker.Mark(&s)
 		sessions = append(sessions, s)
 	}
@@ -283,6 +288,35 @@ func fallbackTitleFromMessages(storageRoot, sessionID string) string {
 		}
 	}
 	return title
+}
+
+func userPreviewsFromMessages(storageRoot, sessionID string, opts session.PreviewOptions) []session.MessagePreview {
+	messages, err := collectMessageJSON(filepath.Join(storageRoot, "message", sessionID))
+	if err != nil {
+		return nil
+	}
+	var previews []session.MessagePreview
+	for _, message := range messages {
+		rec, err := readMessage(message.Path)
+		if err != nil || rec.Role != "user" {
+			continue
+		}
+		if text := titleFromMessageParts(filepath.Join(storageRoot, "part", rec.ID)); text != "" {
+			at := unixMillis(rec.Time.Created)
+			if at.IsZero() {
+				at = unixMillis(rec.Time.Updated)
+			}
+			if at.IsZero() {
+				at = message.ModTime
+			}
+			previews = append(previews, session.MessagePreview{
+				Text:   text,
+				At:     at,
+				Source: "opencode:message",
+			})
+		}
+	}
+	return session.SelectMessagePreviews(previews, opts)
 }
 
 func collectMessageJSON(root string) ([]fileInfo, error) {

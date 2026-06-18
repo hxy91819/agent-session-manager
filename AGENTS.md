@@ -210,6 +210,11 @@ consume normalized sessions.
 
 ## Testing Guidance
 
+For every bug fix, first add or update a focused regression test that reproduces
+the broken behavior, then change the implementation to make that test pass. Do
+not treat a bug fix as complete without a regression test unless the behavior is
+not testable in this repository; in that case, document why in the change.
+
 Add tests near the behavior being changed:
 
 - Provider parsing and metadata: `internal/provider/<name>/*_test.go`

@@ -62,6 +62,11 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
+
+	cmd = runCommand(t, "resume", "--codex-home", home, "--claude-home", claudeHome, "--provider", "codex", "--print-exec", "openclaw-session")
+	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'codex' 'resume' 'openclaw-session'`) {
+		t.Fatalf("unexpected resume subcommand: %s", cmd)
+	}
 }
 
 func TestCLIIndexesClaudeAndPrintsResumeCommand(t *testing.T) {
@@ -204,6 +209,160 @@ func TestCLISinceDaysFiltersOldSessions(t *testing.T) {
 	out = runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json", "--since-days", "0")
 	if !strings.Contains(out, "old-session") {
 		t.Fatalf("since-days=0 should include old sessions: %s", out)
+	}
+}
+
+func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
+	home := t.TempDir()
+	claudeHome := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	yesterday := today.AddDate(0, 0, -1)
+	ts := func(offset time.Duration) string {
+		return yesterday.Add(offset).Format(time.RFC3339Nano)
+	}
+	inWindowPath := filepath.Join(sessionDir, "in-window.jsonl")
+	endPath := filepath.Join(sessionDir, "at-end.jsonl")
+	writeFile(t, inWindowPath, `{"timestamp":"`+yesterday.Add(-time.Hour).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"stale report prompt"}]}}
+{"timestamp":"`+ts(time.Hour)+`","type":"session_meta","payload":{"id":"report-session","timestamp":"`+ts(time.Hour)+`","cwd":"/repo/report"}}
+{"timestamp":"`+ts(time.Hour+time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first report prompt"}]}}
+{"timestamp":"`+ts(time.Hour+2*time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second report prompt"}]}}
+{"timestamp":"`+ts(time.Hour+3*time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"third report prompt"}]}}
+{"timestamp":"`+ts(time.Hour+4*time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fourth report prompt"}]}}
+{"timestamp":"`+ts(time.Hour+5*time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fifth report prompt"}]}}
+`)
+	writeSession(t, endPath, "excluded-session", "/repo/excluded")
+
+	if err := os.Chtimes(inWindowPath, yesterday.Add(time.Hour), yesterday.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(endPath, today, today); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--period", "yesterday")
+	var payload struct {
+		Period string `json:"period"`
+		Totals struct {
+			Sessions  int            `json:"sessions"`
+			Projects  int            `json:"projects"`
+			Providers map[string]int `json:"providers"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID            string `json:"id"`
+			Provider      string `json:"provider"`
+			ResumeCommand string `json:"resume_command"`
+			Previews      []struct {
+				Text string `json:"text"`
+			} `json:"previews"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Period != "yesterday" {
+		t.Fatalf("period = %q", payload.Period)
+	}
+	if payload.Totals.Sessions != 1 || payload.Totals.Projects != 1 || payload.Totals.Providers["codex"] != 1 {
+		t.Fatalf("unexpected totals: %#v", payload.Totals)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "report-session" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].ResumeCommand != "asm resume --provider 'codex' 'report-session'" {
+		t.Fatalf("resume_command = %q", payload.Sessions[0].ResumeCommand)
+	}
+	want := []string{"first report prompt", "second report prompt", "fourth report prompt", "fifth report prompt"}
+	var previews []string
+	for _, preview := range payload.Sessions[0].Previews {
+		previews = append(previews, preview.Text)
+	}
+	if strings.Join(previews, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", previews, want)
+	}
+
+	out = runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--period", "yesterday", "--preview-messages-per-edge", "3")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	previews = previews[:0]
+	for _, preview := range payload.Sessions[0].Previews {
+		previews = append(previews, preview.Text)
+	}
+	want = []string{"first report prompt", "second report prompt", "third report prompt", "fourth report prompt", "fifth report prompt"}
+	if strings.Join(previews, "|") != strings.Join(want, "|") {
+		t.Fatalf("expanded previews = %#v, want %#v", previews, want)
+	}
+
+	out = runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--period", "yesterday", "--preview-messages-per-edge", "2", "--preview-edge-offset", "2")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	previews = previews[:0]
+	for _, preview := range payload.Sessions[0].Previews {
+		previews = append(previews, preview.Text)
+	}
+	want = []string{"third report prompt"}
+	if strings.Join(previews, "|") != strings.Join(want, "|") {
+		t.Fatalf("incremental previews = %#v, want %#v", previews, want)
+	}
+}
+
+func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
+	home := t.TempDir()
+	claudeHome := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "18")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	if now.Sub(today) < 2*time.Second {
+		t.Skip("too close to local midnight for stable today report timestamps")
+	}
+	inWindow := now.Add(-time.Second)
+	future := now.Add(time.Hour)
+	inWindowPath := filepath.Join(sessionDir, "today.jsonl")
+	futurePath := filepath.Join(sessionDir, "future.jsonl")
+	writeFile(t, inWindowPath, `{"timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"today-session","timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","cwd":"/repo/today"}}
+{"timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"today report prompt"}]}}
+`)
+	writeFile(t, futurePath, `{"timestamp":"`+future.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"future-session","timestamp":"`+future.Format(time.RFC3339Nano)+`","cwd":"/repo/future"}}
+{"timestamp":"`+future.Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"future report prompt"}]}}
+`)
+	if err := os.Chtimes(inWindowPath, inWindow, inWindow); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(futurePath, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--period", "today")
+	var payload struct {
+		Period   string `json:"period"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Previews []struct {
+				Text string `json:"text"`
+			} `json:"previews"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Period != "today" {
+		t.Fatalf("period = %q", payload.Period)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "today-session" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if len(payload.Sessions[0].Previews) != 1 || payload.Sessions[0].Previews[0].Text != "today report prompt" {
+		t.Fatalf("unexpected previews: %#v", payload.Sessions[0].Previews)
 	}
 }
 

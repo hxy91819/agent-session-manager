@@ -100,6 +100,48 @@ func TestDiscoverFallsBackToProjectWorktreeAndMessageTitle(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsUserPreviews(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	writeOpencodeSession(t, home, "project_one", "ses_one", repo, `{
+  "id": "ses_one",
+  "projectID": "project_one",
+  "directory": "`+repo+`",
+  "title": "opencode title"
+}`)
+	messageIDs := []string{"msg_ignored", "msg_one", "msg_two", "msg_three", "msg_four", "msg_five"}
+	texts := []string{
+		"# AGENTS.md instructions\nignore",
+		"first prompt",
+		"second prompt",
+		"third prompt",
+		"fourth prompt",
+		"fifth prompt",
+	}
+	base := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC)
+	for i, id := range messageIDs {
+		writeOpencodeMessage(t, home, "ses_one", id, "user", texts[i])
+		path := filepath.Join(home, "storage", "message", "ses_one", id+".json")
+		if err := os.Chtimes(path, base.Add(time.Duration(i)*time.Minute), base.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2, MaxChars: 500},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	want := []string{"first prompt", "second prompt", "fourth prompt", "fifth prompt"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
 func TestDiscoverFiltersAndLimitsBySessionModTime(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -240,6 +282,14 @@ func writeOpencodeMessage(t *testing.T, home, sessionID, messageID, role, text s
 func quote(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return `"` + replacer.Replace(value) + `"`
+}
+
+func previewTexts(previews []session.MessagePreview) []string {
+	out := make([]string, 0, len(previews))
+	for _, preview := range previews {
+		out = append(out, preview.Text)
+	}
+	return out
 }
 
 func writeFile(t *testing.T, path, content string) {

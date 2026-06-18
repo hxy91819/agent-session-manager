@@ -72,6 +72,36 @@ func TestDiscoverUsesLastPromptTitleFallback(t *testing.T) {
 	}
 }
 
+func TestDiscoverUsesLastPromptPreview(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "wd_repo", "ses_one")
+	writeKimiSession(t, home, sessionDir, "ses_one", repo, `{
+  "updatedAt": "2026-06-13T01:10:00.000Z",
+  "title": "Kimi title",
+  "lastPrompt": "latest\nprompt with extra text"
+}`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2, MaxChars: 13},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if len(got[0].Previews) != 1 {
+		t.Fatalf("previews = %#v", got[0].Previews)
+	}
+	if got[0].Previews[0].Text != "latest prompt" {
+		t.Fatalf("preview text = %q", got[0].Previews[0].Text)
+	}
+	if got[0].Previews[0].At.Format(time.RFC3339) != "2026-06-13T01:10:00Z" {
+		t.Fatalf("preview time = %s", got[0].Previews[0].At.Format(time.RFC3339))
+	}
+}
+
 func TestDiscoverFiltersAndLimitsByStateModTime(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()

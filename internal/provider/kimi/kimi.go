@@ -93,6 +93,9 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if updated := parseTime(state.UpdatedAt); !updated.IsZero() {
 			s.Metadata["kimi_updated_at"] = updated.Format(time.RFC3339Nano)
 		}
+		if opts.Preview.Enabled() {
+			s.Previews = statePreviews(state, file.ModTime, opts.Preview)
+		}
 		cwdChecker.Mark(&s)
 		sessions = append(sessions, s)
 	}
@@ -185,6 +188,22 @@ func titleFromState(state stateRecord) string {
 		return title
 	}
 	return cleanTitle(state.LastPrompt)
+}
+
+func statePreviews(state stateRecord, fallbackTime time.Time, opts session.PreviewOptions) []session.MessagePreview {
+	text := cleanTitle(state.LastPrompt)
+	if text == "" {
+		return nil
+	}
+	at := parseTime(state.UpdatedAt)
+	if at.IsZero() {
+		at = fallbackTime
+	}
+	return session.SelectMessagePreviews([]session.MessagePreview{{
+		Text:   text,
+		At:     at,
+		Source: "kimi:last_prompt",
+	}}, opts)
 }
 
 func cleanTitle(text string) string {

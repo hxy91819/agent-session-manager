@@ -76,6 +76,37 @@ func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsUserPreviews(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sessionDir, "session.jsonl"), `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"`+repo+`"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\nignore"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first prompt"}]}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second prompt with extra words"}]}}
+{"timestamp":"2026-06-13T01:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"third prompt"}]}}
+{"timestamp":"2026-06-13T01:00:05Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fourth prompt"}]}}
+{"timestamp":"2026-06-13T01:00:06Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fifth prompt"}]}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2, MaxChars: 20},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	want := []string{"first prompt", "second prompt with e", "fourth prompt", "fifth prompt"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
 func TestDiscoverReadsHistoryTitleAndLimitsFiles(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
@@ -266,6 +297,14 @@ func writeSession(t *testing.T, path, id, cwd string) {
 	t.Helper()
 	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"`+id+`","timestamp":"2026-06-13T01:00:00Z","cwd":"`+cwd+`"}}
 `)
+}
+
+func previewTexts(previews []session.MessagePreview) []string {
+	out := make([]string, 0, len(previews))
+	for _, preview := range previews {
+		out = append(out, preview.Text)
+	}
+	return out
 }
 
 func writeFile(t *testing.T, path, content string) {
