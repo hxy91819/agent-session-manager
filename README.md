@@ -17,6 +17,11 @@ Providers:
 - opencode sessions stored under `$OPENCODE_HOME/storage` or
   `~/.local/share/opencode/storage`. Resume runs from the original session cwd
   with `opencode -s <session-id>`.
+- ZCode sessions stored in a SQLite database under `$ZCODE_HOME/cli/db/db.sqlite`
+  or `~/.zcode/cli/db/db.sqlite`. ZCode is an Electron desktop app without a CLI
+  or documented resume path, so asm treats zcode as discover-only; the reported
+  resume command (`zcode --resume <session-id>`) is a future-compatible
+  placeholder.
 
 ## Usage
 
@@ -91,6 +96,7 @@ go run ./cmd/asm resume --provider codex <session-id>
 go run ./cmd/asm --claude-home /tmp/fake-claude --json
 go run ./cmd/asm --kimi-home /tmp/fake-kimi --json
 go run ./cmd/asm --opencode-home /tmp/fake-opencode --json
+go run ./cmd/asm --zcode-home /tmp/fake-zcode --json
 go run ./cmd/asm report --period yesterday
 go run ./cmd/asm report --period today
 go run ./cmd/asm report --period last-week --query openclaw
@@ -105,7 +111,7 @@ pre-commit run --all-files
 go test ./...
 go build ./cmd/asm
 go run ./tools/check-provider-performance
-go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode
+go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode ./internal/provider/zcode
 ```
 
 The pre-commit setup expects `gitleaks` and `golangci-lint` to be installed.
@@ -119,9 +125,9 @@ go run ./cmd/asm --limit 1000 --since-days 30
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
-ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`, or
-`--opencode-home` to point at alternate provider stores. By default only
-sessions active in the last 30 days are shown.
+ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`,
+`--opencode-home`, or `--zcode-home` to point at alternate provider stores. By
+default only sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
 
 macOS Gatekeeper:
