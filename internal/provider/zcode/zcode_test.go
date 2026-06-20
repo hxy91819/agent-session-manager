@@ -155,6 +155,44 @@ func TestDiscoverFiltersBySinceAndLimit(t *testing.T) {
 	}
 }
 
+func TestDiscoverAllHistoryWithLimit(t *testing.T) {
+	// Regression: --since-days 0 (zero Since) plus --limit must still return
+	// sessions. A bug bound the unset since value to the LIMIT placeholder and
+	// returned zero sessions.
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createZCodeDB(t, home)
+	writeZCodeSession(t, db, zcodeSession{
+		ID: "sess_old", Directory: repo, Title: "old",
+		TitleSource: "generated", TimeCreated: 1781000000000, TimeUpdated: 1781000000000,
+	})
+	writeZCodeSession(t, db, zcodeSession{
+		ID: "sess_new", Directory: repo, Title: "new",
+		TitleSource: "generated", TimeCreated: 1782000000000, TimeUpdated: 1782000000000,
+	})
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{LimitFiles: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].ID != "sess_new" {
+		t.Fatalf("ID = %q, want sess_new (newest first)", got[0].ID)
+	}
+
+	// No since and no limit: all history.
+	got, err = New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+}
+
 func TestDiscoverMarksMissingCWD(t *testing.T) {
 	home := t.TempDir()
 	missing := filepath.Join(home, "missing")

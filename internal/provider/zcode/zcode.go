@@ -48,28 +48,23 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 	dbMtime := info.ModTime()
 
-	// Push --since and --limit into SQL so default discovery only scans rows in
-	// the active window instead of the full ZCode history. ZCode stores
-	// time_updated as a millisecond Unix epoch.
-	var sinceMillis int64
-	if !opts.Since.IsZero() {
-		sinceMillis = opts.Since.UnixMilli()
-	}
-	var limitArg any
-	if opts.LimitFiles > 0 {
-		limitArg = opts.LimitFiles
-	}
-
 	db, err := openDB(dbPath)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
+	// Push --since and --limit into SQL so default discovery only scans rows in
+	// the active window instead of the full ZCode history. ZCode stores
+	// time_updated as a millisecond Unix epoch; --since-days 0 leaves Since zero
+	// and the query unbounded, matching the documented all-history mode.
 	query := sessionQuery(opts)
-	queryArgs := []any{sinceMillis}
-	if limitArg != nil {
-		queryArgs = append(queryArgs, limitArg)
+	var queryArgs []any
+	if !opts.Since.IsZero() {
+		queryArgs = append(queryArgs, opts.Since.UnixMilli())
+	}
+	if opts.LimitFiles > 0 {
+		queryArgs = append(queryArgs, opts.LimitFiles)
 	}
 	rows, err := db.Query(query, queryArgs...)
 	if err != nil {
