@@ -24,6 +24,64 @@ Providers:
 go run ./cmd/asm
 ```
 
+## Install
+
+Download a prebuilt binary from the
+[latest GitHub Release](https://github.com/hxy91819/agent-session-manager/releases/latest).
+Release archives are published for Linux, macOS, and Windows on amd64 and arm64,
+with checksums in `sha256sums.txt`.
+
+Linux and macOS:
+
+```sh
+version="${ASM_VERSION:-$(curl -fsSL https://api.github.com/repos/hxy91819/agent-session-manager/releases/latest | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')}"
+case "$(uname -s)" in
+  Linux) os="linux" ;;
+  Darwin) os="darwin" ;;
+  *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) arch="amd64" ;;
+  arm64|aarch64) arch="arm64" ;;
+  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+curl -fL -o "${tmpdir}/asm.tar.gz" "https://github.com/hxy91819/agent-session-manager/releases/download/${version}/asm_${version}_${os}_${arch}.tar.gz"
+tar -C "${tmpdir}" -xzf "${tmpdir}/asm.tar.gz"
+sudo install -m 0755 "${tmpdir}/asm_${version}_${os}_${arch}/asm" /usr/local/bin/asm
+```
+
+Windows PowerShell:
+
+```powershell
+$Version = (Invoke-RestMethod "https://api.github.com/repos/hxy91819/agent-session-manager/releases/latest").tag_name
+$Arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) {
+  "X64" { "amd64" }
+  "Arm64" { "arm64" }
+  default { throw "unsupported architecture: $_" }
+}
+$Zip = Join-Path $env:TEMP "asm.zip"
+$Extract = Join-Path $env:TEMP "asm-release"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\asm"
+Invoke-WebRequest -Uri "https://github.com/hxy91819/agent-session-manager/releases/download/$Version/asm_${Version}_windows_${Arch}.zip" -OutFile $Zip
+Expand-Archive -Path $Zip -DestinationPath $Extract -Force
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Copy-Item -Force (Join-Path $Extract "asm_${Version}_windows_${Arch}\asm.exe") (Join-Path $InstallDir "asm.exe")
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($UserPath -split ";") -notcontains $InstallDir) {
+  $NewUserPath = if ([string]::IsNullOrWhiteSpace($UserPath)) { $InstallDir } else { "$UserPath;$InstallDir" }
+  [Environment]::SetEnvironmentVariable("Path", $NewUserPath, "User")
+  $env:Path = "$env:Path;$InstallDir"
+}
+```
+
+Developers with Go installed can also install from source:
+
+```sh
+go install github.com/hxy91819/agent-session-manager/cmd/asm@latest
+```
+
 Useful non-interactive checks:
 
 ```sh

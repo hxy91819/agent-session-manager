@@ -464,13 +464,13 @@ func runCommand(t *testing.T, args ...string) string {
 
 func writeSession(t *testing.T, path, id, cwd string) {
 	t.Helper()
-	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"`+id+`","timestamp":"2026-06-13T01:00:00Z","cwd":"`+cwd+`"}}
+	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(cwd)+`}}
 `)
 }
 
 func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
 	t.Helper()
-	writeFile(t, path, `{"type":"user","sessionId":"`+id+`","cwd":"`+cwd+`","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"`+title+`"}}
+	writeFile(t, path, `{"type":"user","sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":`+jsonString(title)+`}}
 `)
 }
 
@@ -479,9 +479,9 @@ func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, title string) {
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"sessionId":"`+id+`","sessionDir":"`+sessionDir+`","workDir":"`+cwd+`"}
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"sessionId":`+jsonString(id)+`,"sessionDir":`+jsonString(sessionDir)+`,"workDir":`+jsonString(cwd)+`}
 `)
-	writeFile(t, filepath.Join(sessionDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","title":"`+title+`"}
+	writeFile(t, filepath.Join(sessionDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","title":`+jsonString(title)+`}
 `)
 }
 
@@ -495,10 +495,18 @@ func writeOpencodeSession(t *testing.T, home, projectID, id, cwd, title string) 
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(projectDir, projectID+".json"), `{"id":"`+projectID+`","worktree":"`+cwd+`","time":{"created":1781322000000,"updated":1781322000000}}
+	writeFile(t, filepath.Join(projectDir, projectID+".json"), `{"id":`+jsonString(projectID)+`,"worktree":`+jsonString(cwd)+`,"time":{"created":1781322000000,"updated":1781322000000}}
 `)
-	writeFile(t, filepath.Join(sessionDir, id+".json"), `{"id":"`+id+`","projectID":"`+projectID+`","directory":"`+cwd+`","title":"`+title+`","time":{"created":1781322000000,"updated":1781322060000}}
+	writeFile(t, filepath.Join(sessionDir, id+".json"), `{"id":`+jsonString(id)+`,"projectID":`+jsonString(projectID)+`,"directory":`+jsonString(cwd)+`,"title":`+jsonString(title)+`,"time":{"created":1781322000000,"updated":1781322060000}}
 `)
+}
+
+func jsonString(value string) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 func writeFile(t *testing.T, path, content string) {

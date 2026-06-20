@@ -1,6 +1,7 @@
 package kimi
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,7 +182,7 @@ func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, state string) {
 		t.Fatal(err)
 	}
 	indexPath := filepath.Join(home, "session_index.jsonl")
-	line := `{"sessionId":"` + id + `","sessionDir":"` + sessionDir + `","workDir":"` + cwd + `"}`
+	line := `{"sessionId":` + jsonString(id) + `,"sessionDir":` + jsonString(sessionDir) + `,"workDir":` + jsonString(cwd) + `}`
 	f, err := os.OpenFile(indexPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)
@@ -201,4 +202,12 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func jsonString(value string) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }

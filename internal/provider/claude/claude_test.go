@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,13 +86,13 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(projectDir, "session.jsonl"), `{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:00Z","isMeta":true,"message":{"role":"user","content":"ignored meta"}}
-{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:01Z","message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>"}}
-{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"first prompt"}}
-{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:03Z","message":{"role":"user","content":"second prompt"}}
-{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:04Z","message":{"role":"user","content":"third prompt"}}
-{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:05Z","message":{"role":"user","content":"fourth prompt"}}
-{"type":"user","sessionId":"sid","cwd":"`+repo+`","timestamp":"2026-06-13T01:00:06Z","message":{"role":"user","content":"fifth prompt"}}
+	writeFile(t, filepath.Join(projectDir, "session.jsonl"), `{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","isMeta":true,"message":{"role":"user","content":"ignored meta"}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>"}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"first prompt"}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:03Z","message":{"role":"user","content":"second prompt"}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:04Z","message":{"role":"user","content":"third prompt"}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:05Z","message":{"role":"user","content":"fourth prompt"}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:06Z","message":{"role":"user","content":"fifth prompt"}}
 `)
 
 	got, err := New(home).Discover(session.DiscoverOptions{
@@ -263,8 +264,16 @@ func TestNewCommandUsesProjectCWD(t *testing.T) {
 
 func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
 	t.Helper()
-	writeFile(t, path, `{"type":"user","sessionId":"`+id+`","cwd":"`+cwd+`","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"`+title+`"}}
+	writeFile(t, path, `{"type":"user","sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":`+jsonString(title)+`}}
 `)
+}
+
+func jsonString(value string) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 func previewTexts(previews []session.MessagePreview) []string {
