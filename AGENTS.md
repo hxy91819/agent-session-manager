@@ -28,6 +28,11 @@ Current providers:
   `~/.local/share/opencode/storage`, using session JSON plus project and message
   fallback files, and resumes with `opencode -s <session-id>` from the original
   cwd.
+- ZCode scans `$ZCODE_HOME/cli/db/db.sqlite` or `~/.zcode/cli/db/db.sqlite`, a
+  SQLite store. It reads the `session` table and falls back to the first user
+  message (via the `message` and `part` tables) for titles. ZCode has no CLI or
+  documented resume path, so resume is a future-compatible placeholder
+  (`zcode --resume <session-id>`) and the provider is effectively discover-only.
 
 ## Development Commands
 
@@ -207,6 +212,30 @@ consume normalized sessions.
   reapply them after cache hits instead of storing their derived values as the
   cached primary parse result.
 - Keep opencode resume as `opencode -s <session-id>` from the original cwd.
+
+## ZCode Provider Notes
+
+- Treat `$ZCODE_HOME/cli/db/db.sqlite` or `~/.zcode/cli/db/db.sqlite` as the
+  supported store. ZCode is an Electron desktop app, not a CLI.
+- The `session` table is the primary source: `id`, `directory` (cwd), `title`,
+  `title_source`, `time_created`, and `time_updated` are millisecond Unix
+  epochs. Read the database read-only (`?mode=ro`) so concurrent app writes are
+  safe.
+- User message text lives in the `part` table (`data.type == "text"`,
+  `data.text`) joined to `message` rows whose `data.role == "user"`. The first
+  user message is the `first_input` title fallback, mirroring ZCode's own
+  semantics.
+- Prefer `session.title` when present; record the DB `title_source` in
+  metadata. Skip archived sessions (`time_archived` set) since they are not
+  active history.
+- Use `modernc.org/sqlite` (pure Go) so the release build stays `CGO_ENABLED=0`.
+  Do not introduce a CGO sqlite driver.
+- `sessioncache` is not required because discovery reads a single SQLite
+  database with indexed queries, not per-session files; declare the exemption
+  with a reason.
+- ZCode has no CLI or documented deep-link resume path. Keep
+  `ResumeCommand` as the future-compatible `zcode --resume <session-id>` from
+  the original cwd, and document that resume is effectively unsupported today.
 
 ## Testing Guidance
 

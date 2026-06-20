@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
@@ -220,6 +223,50 @@ func TestCLIIndexesCodeBuddyAndPrintsResumeCommand(t *testing.T) {
 
 	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--resume", "ses_codebuddy", "--print-exec")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'codebuddy' '--resume' 'ses_codebuddy'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
+func TestCLIIndexesZCodeAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	writeZCodeSession(t, zcodeHome, "ses_zcode", repo, "fix openclaw with zcode")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--zcode-home", zcodeHome, "--json", "--query", "zcode")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_zcode" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "zcode" {
+		t.Fatalf("provider = %q, want zcode", payload.Sessions[0].Provider)
+	}
+	if payload.Sessions[0].Title != "fix openclaw with zcode" {
+		t.Fatalf("title = %q", payload.Sessions[0].Title)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].CWD != repo || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--zcode-home", zcodeHome, "--resume", "ses_zcode", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'zcode' '--resume' 'ses_zcode'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 }
@@ -580,6 +627,7 @@ func runCommandAllowError(t *testing.T, args ...string) (string, error) {
 		"OPENCLAW_STATE_DIR="+t.TempDir(),
 		"ASM_CODEX_EXTRA_HOMES=",
 		"ASM_CLAUDE_EXTRA_HOMES=",
+		"ZCODE_HOME="+t.TempDir(),
 	)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -654,8 +702,77 @@ func writeOpenClawSession(t *testing.T, stateDir, id, nativeID, title string) {
     "sessionId": `+jsonString(nativeID)+`,
     "updatedAt": 1781312460000,
     "displayName": `+jsonString(title)+`
-  }
-}`)
+	  }
+	}`)
+}
+
+func writeZCodeSession(t *testing.T, home, id, cwd, title string) {
+	t.Helper()
+	dbDir := filepath.Join(home, "cli", "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dbDir, "db.sqlite")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	schema := `
+CREATE TABLE session (
+  id text primary key,
+  project_id text not null,
+  workspace_id text,
+  parent_id text,
+  slug text not null,
+  directory text not null,
+  path text,
+  title text not null,
+  version text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  time_archived integer,
+  title_source text not null default 'default'
+);
+CREATE TABLE message (
+  id text primary key,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+CREATE TABLE part (
+  id text primary key,
+  message_id text not null,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+
+	created := int64(1781322000000)
+	updated := int64(1781322060000)
+	if _, err := db.Exec(`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated, title_source)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, "proj_"+id, id, cwd, title, "1", created, updated, "generated"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgData, _ := json.Marshal(map[string]any{"role": "user", "time": map[string]any{"created": created}})
+	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		"msg_"+id, id, created, created, string(msgData)); err != nil {
+		t.Fatal(err)
+	}
+	partData, _ := json.Marshal(map[string]any{"type": "text", "text": title})
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_"+id, "msg_"+id, id, created, created, string(partData)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeFile(t *testing.T, path, content string) {

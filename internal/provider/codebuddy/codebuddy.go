@@ -210,7 +210,7 @@ func parseSessionFile(path string) (session.Session, error) {
 	if err != nil {
 		return session.Session{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return parseSession(f)
 }
 
@@ -288,7 +288,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) []session.Messag
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)

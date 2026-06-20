@@ -96,7 +96,7 @@ func (f Fetcher) FetchRelease(ctx context.Context, version string) ([]Skill, err
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("github skills asset download failed: %s", resp.Status)
 	}
@@ -191,7 +191,7 @@ func (f Fetcher) releaseAssetURL(ctx context.Context, version string) (string, e
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("github release lookup failed: %s", resp.Status)
 	}
@@ -222,7 +222,7 @@ func (f Fetcher) defaultBranch(ctx context.Context, source GitHubSource) (string
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("github repo lookup failed: %s", resp.Status)
 	}
@@ -301,7 +301,7 @@ func (f Fetcher) matchingRefNames(ctx context.Context, source GitHubSource, name
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("github ref lookup failed: %s", resp.Status)
 	}
@@ -339,7 +339,7 @@ func (f Fetcher) downloadArchive(ctx context.Context, source GitHubSource) ([]by
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("github archive download failed: %s", resp.Status)
 	}
@@ -480,7 +480,7 @@ func readZipFile(file *zip.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	return io.ReadAll(rc)
 }
 
