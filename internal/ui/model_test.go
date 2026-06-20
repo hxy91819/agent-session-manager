@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -85,10 +86,11 @@ func TestSearchViewShowsMatchingSessionsForCurrentProject(t *testing.T) {
 
 	view := m.sessionsView(16, 96)
 
-	if !strings.Contains(view, "Search results in /repo/a") {
+	wantPath := filepath.Clean("/repo/a")
+	if !strings.Contains(view, "Search results in "+wantPath) {
 		t.Fatalf("view missing search header:\n%s", view)
 	}
-	for _, want := range []string{"needle first", "/repo/a"} {
+	for _, want := range []string{"needle first", wantPath} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

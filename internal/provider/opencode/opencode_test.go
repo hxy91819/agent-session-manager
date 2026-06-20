@@ -30,7 +30,7 @@ func TestDiscoverReadsSessionStorage(t *testing.T) {
   "id": "ses_one",
   "version": "1.1.11",
   "projectID": "project_one",
-  "directory": "`+repo+`",
+  "directory": `+quote(repo)+`,
   "title": "opencode title",
   "time": {"created": 1781312400000, "updated": 1781312460000}
 }`)
@@ -106,7 +106,7 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	writeOpencodeSession(t, home, "project_one", "ses_one", repo, `{
   "id": "ses_one",
   "projectID": "project_one",
-  "directory": "`+repo+`",
+  "directory": `+quote(repo)+`,
   "title": "opencode title"
 }`)
 	messageIDs := []string{"msg_ignored", "msg_one", "msg_two", "msg_three", "msg_four", "msg_five"}
@@ -145,8 +145,8 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 func TestDiscoverFiltersAndLimitsBySessionModTime(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
-	writeOpencodeSession(t, home, "project_one", "ses_old", repo, `{"id":"ses_old","directory":"`+repo+`","title":"old"}`)
-	writeOpencodeSession(t, home, "project_one", "ses_new", repo, `{"id":"ses_new","directory":"`+repo+`","title":"new"}`)
+	writeOpencodeSession(t, home, "project_one", "ses_old", repo, `{"id":"ses_old","directory":`+quote(repo)+`,"title":"old"}`)
+	writeOpencodeSession(t, home, "project_one", "ses_new", repo, `{"id":"ses_new","directory":`+quote(repo)+`,"title":"new"}`)
 
 	since := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	oldTime := since.Add(-time.Hour)
@@ -176,7 +176,7 @@ func TestDiscoverFiltersAndLimitsBySessionModTime(t *testing.T) {
 func TestDiscoverMarksMissingCWD(t *testing.T) {
 	home := t.TempDir()
 	missing := filepath.Join(home, "missing")
-	writeOpencodeSession(t, home, "project_one", "ses_one", missing, `{"id":"ses_one","directory":"`+missing+`","title":"missing"}`)
+	writeOpencodeSession(t, home, "project_one", "ses_one", missing, `{"id":"ses_one","directory":`+quote(missing)+`,"title":"missing"}`)
 
 	got, err := New(home).Discover(session.DiscoverOptions{})
 	if err != nil {
@@ -250,7 +250,7 @@ func writeOpencodeProject(t *testing.T, home, projectID, cwd string) {
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(projectDir, projectID+".json"), `{"id":"`+projectID+`","worktree":"`+cwd+`"}`)
+	writeFile(t, filepath.Join(projectDir, projectID+".json"), `{"id":`+quote(projectID)+`,"worktree":`+quote(cwd)+`}`)
 }
 
 func writeOpencodeSession(t *testing.T, home, projectID, id, cwd, content string) {
@@ -260,7 +260,7 @@ func writeOpencodeSession(t *testing.T, home, projectID, id, cwd, content string
 		t.Fatal(err)
 	}
 	if content == "" {
-		content = `{"id":"` + id + `","projectID":"` + projectID + `","directory":"` + cwd + `"}`
+		content = `{"id":` + quote(id) + `,"projectID":` + quote(projectID) + `,"directory":` + quote(cwd) + `}`
 	}
 	writeFile(t, filepath.Join(sessionDir, id+".json"), content)
 }
