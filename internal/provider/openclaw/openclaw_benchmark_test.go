@@ -41,8 +41,8 @@ func makeBenchmarkStore(b *testing.B) string {
 				body.WriteString(",")
 			}
 			key := fmt.Sprintf("agent:agent-%d:session-%03d", agent, i)
-			body.WriteString(fmt.Sprintf("%q:{%q:%q,%q:1781312460000,%q:%q,%q:%q}",
-				key, "sessionId", fmt.Sprintf("native-%d-%03d", agent, i), "updatedAt", "spawnedCwd", repo, "displayName", key))
+			fmt.Fprintf(&body, "%q:{%q:%q,%q:1781312460000,%q:%q,%q:%q}",
+				key, "sessionId", fmt.Sprintf("native-%d-%03d", agent, i), "updatedAt", "spawnedCwd", repo, "displayName", key)
 		}
 		body.WriteString("}")
 		writeBenchmarkFile(b, filepath.Join(stateDir, "agents", fmt.Sprintf("agent-%d", agent), "sessions", "sessions.json"), body.String())

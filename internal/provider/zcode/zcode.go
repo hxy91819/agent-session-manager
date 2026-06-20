@@ -52,7 +52,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Push --since and --limit into SQL so default discovery only scans rows in
 	// the active window instead of the full ZCode history. ZCode stores
@@ -70,7 +70,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	if err != nil {
 		return nil, fmt.Errorf("zcode query sessions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type pending struct {
 		rec sessionRecord
@@ -274,7 +274,7 @@ func earliestUserPreview(db *sql.DB, sessionID string, limit int) ([]session.Mes
 	if err != nil {
 		return nil, false
 	}
-	defer msgRows.Close()
+	defer func() { _ = msgRows.Close() }()
 
 	var messages []messageRow
 	for msgRows.Next() {

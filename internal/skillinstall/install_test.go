@@ -25,10 +25,10 @@ func TestFetcherDownloadsSkillsFromGitHubArchive(t *testing.T) {
 		"repo-main/skills/report/.codex-plugin/skip.md": "kept\n",
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/repos/acme/tools":
+		switch r.URL.Path {
+		case "/repos/acme/tools":
 			_ = json.NewEncoder(w).Encode(map[string]string{"default_branch": "main"})
-		case r.URL.Path == "/acme/tools/zip/main":
+		case "/acme/tools/zip/main":
 			_, _ = w.Write(archive)
 		default:
 			http.NotFound(w, r)

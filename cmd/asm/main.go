@@ -246,7 +246,9 @@ func runSkillsInstall(ctx context.Context, args []string) error {
 		if cfg.dryRun {
 			action = "would install"
 		}
-		fmt.Fprintf(os.Stdout, "%s %s -> %s\n", action, result.Skill, result.Path)
+		if _, err := fmt.Fprintf(os.Stdout, "%s %s -> %s\n", action, result.Skill, result.Path); err != nil {
+			return err
+		}
 	}
 	return nil
 }

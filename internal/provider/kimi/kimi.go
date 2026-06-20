@@ -157,7 +157,7 @@ func readSessionIndex(path string) ([]indexRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var out []indexRecord
 	scanner := bufio.NewScanner(f)
