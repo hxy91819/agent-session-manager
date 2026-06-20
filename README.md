@@ -66,6 +66,24 @@ ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`, or
 sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
 
+macOS Gatekeeper:
+
+Release binaries are not Apple Developer ID signed or notarized yet. If macOS
+shows "Apple could not verify `asm` is free of malware", remove the quarantine
+attribute after you have verified the release checksum:
+
+```sh
+grep 'asm_v0.5.0_darwin_arm64.tar.gz' sha256sums.txt
+shasum -a 256 asm_v0.5.0_darwin_arm64.tar.gz
+tar -xzf asm_v0.5.0_darwin_arm64.tar.gz
+xattr -dr com.apple.quarantine asm_v0.5.0_darwin_arm64/asm
+```
+
+The long-term fix is to sign and notarize the Darwin release artifacts with an
+Apple Developer ID certificate. Until then, building locally with
+`go install github.com/hxy91819/agent-session-manager/cmd/asm@latest` also
+avoids the browser-download quarantine path.
+
 Direct resume:
 
 ```sh
@@ -91,6 +109,18 @@ By default, `asm skills install` downloads the standalone skills bundle from
 the latest `agent-session-manager` GitHub Release. When `--scope` or `--target`
 is omitted, `asm` prompts for current directory vs user directory and `.agents`
 vs `.claude`. Use `--yes` for defaults (`current` + `.agents`) in scripts.
+
+Example workflow:
+
+```sh
+asm skills install agent-work-report --scope current --target agents --yes
+```
+
+After installing the bundled `agent-work-report` skill, ask your coding agent
+for "生成上周 Agent 工作周报" or "总结昨天的工作". The skill calls
+`asm report --period last-week` or `asm report --period yesterday`, classifies
+the session previews by project and topic, and returns a Chinese work report
+with overview, completed work, ongoing/risk items, and next-step suggestions.
 
 Agent report export:
 
