@@ -153,11 +153,7 @@ func run(ctx context.Context, args []string) error {
 	if !ok {
 		return nil
 	}
-	provider := providerByName(providers, selected.Provider)
-	if provider == nil {
-		return fmt.Errorf("no provider registered for %q", selected.Provider)
-	}
-	return resumeSession(ctx, provider, selected, cfg.printExec)
+	return dispatchSelection(ctx, providers, selected, cfg.printExec)
 }
 
 func runResume(ctx context.Context, args []string) error {
@@ -702,6 +698,33 @@ func resumeSession(ctx context.Context, provider session.Provider, selected sess
 	return launcher.Run(ctx, spec, printOnly)
 }
 
+func dispatchSelection(ctx context.Context, providers []session.Provider, selected ui.Selection, printOnly bool) error {
+	provider := providerByName(providers, selected.Provider)
+	if provider == nil {
+		return fmt.Errorf("no provider registered for %q", selected.Provider)
+	}
+	switch selected.Kind {
+	case ui.SelectionResume:
+		return resumeSession(ctx, provider, selected.Session, printOnly)
+	case ui.SelectionNew:
+		return newSession(ctx, provider, selected.CWD, printOnly)
+	default:
+		return fmt.Errorf("unknown selection kind %q", selected.Kind)
+	}
+}
+
+func newSession(ctx context.Context, provider session.Provider, cwd string, printOnly bool) error {
+	spec := provider.NewCommand(cwd)
+	if !printOnly {
+		fmt.Fprintln(os.Stderr, newNotice(provider.Name(), cwd))
+	}
+	return launcher.Run(ctx, spec, printOnly)
+}
+
 func resumeNotice(selected session.Session) string {
 	return fmt.Sprintf("Starting %s session %s from %s ... this can take a few seconds.", selected.Provider, selected.ID, selected.CWD)
+}
+
+func newNotice(provider string, cwd string) string {
+	return fmt.Sprintf("Starting new %s session from %s ... this can take a few seconds.", provider, cwd)
 }

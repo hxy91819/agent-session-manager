@@ -164,6 +164,17 @@ func TestResumeCommandUsesKimiSessionFromSessionCWD(t *testing.T) {
 	}
 }
 
+func TestNewCommandUsesProjectCWD(t *testing.T) {
+	spec := New("").NewCommand("/repo")
+
+	if spec.Dir != "/repo" {
+		t.Fatalf("Dir = %q", spec.Dir)
+	}
+	if strings.Join(spec.Args, " ") != "kimi" {
+		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
 func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, state string) {
 	t.Helper()
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {

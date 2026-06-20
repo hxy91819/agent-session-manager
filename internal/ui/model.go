@@ -30,8 +30,22 @@ type Model struct {
 	loadErr     string
 	message     string
 	loadMore    LoadMoreFunc
-	selected    *session.Session
+	selected    *Selection
 	quitting    bool
+}
+
+type SelectionKind string
+
+const (
+	SelectionResume SelectionKind = "resume"
+	SelectionNew    SelectionKind = "new"
+)
+
+type Selection struct {
+	Kind     SelectionKind
+	Session  session.Session
+	Provider string
+	CWD      string
 }
 
 type LoadMoreFunc func(days int) ([]session.Session, error)
@@ -63,6 +77,7 @@ func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMor
 
 	m := Model{
 		allSessions: sessions,
+		sessionIdx:  1,
 		sortMode:    index.SortActive,
 		search:      search,
 		width:       120,
@@ -75,12 +90,13 @@ func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMor
 		m.stepDays = defaultStepDays
 	}
 	m.refresh()
+	m.sessionIdx = m.defaultSessionIdx()
 	return m
 }
 
-func (m Model) Selected() (session.Session, bool) {
+func (m Model) Selected() (Selection, bool) {
 	if m.selected == nil {
-		return session.Session{}, false
+		return Selection{}, false
 	}
 	return *m.selected, true
 }
@@ -150,11 +166,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, loadMoreCmd(m.loadMore, nextDays)
 		case "up", "k":
 			if m.sessionIdx > 0 {
-				m.sessionIdx--
+				if m.sessionIdx == m.defaultSessionIdx() {
+					m.sessionIdx = 0
+				} else {
+					m.sessionIdx--
+				}
 			}
 			return m, nil
 		case "down", "j":
-			if m.sessionIdx < len(m.currentSessions())-1 {
+			if m.sessionIdx < m.maxSessionIdx() {
 				m.sessionIdx++
 			}
 			return m, nil
@@ -169,19 +189,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "end", "G":
 			if items := m.currentSessions(); len(items) > 0 {
-				m.sessionIdx = len(items) - 1
+				m.sessionIdx = len(items)
 			}
 			return m, nil
 		case "left", "h":
 			if m.projectIdx > 0 {
 				m.projectIdx--
-				m.sessionIdx = 0
+				m.sessionIdx = m.defaultSessionIdx()
 			}
 			return m, nil
 		case "right", "l":
 			if m.projectIdx < len(m.projects)-1 {
 				m.projectIdx++
-				m.sessionIdx = 0
+				m.sessionIdx = m.defaultSessionIdx()
 			}
 			return m, nil
 		case "enter":
@@ -189,12 +209,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(items) == 0 {
 				return m, nil
 			}
-			selected := items[m.sessionIdx]
+			if m.sessionIdx == 0 {
+				providerSession, ok := m.currentProjectNewSession()
+				if !ok {
+					return m, nil
+				}
+				if cwdUnavailable(providerSession) {
+					m.message = missingCWDMessage(providerSession)
+					return m, nil
+				}
+				m.selected = &Selection{
+					Kind:     SelectionNew,
+					Provider: providerSession.Provider,
+					CWD:      providerSession.CWD,
+				}
+				m.quitting = true
+				return m, tea.Quit
+			}
+			selected := items[m.sessionIdx-1]
 			if cwdUnavailable(selected) {
 				m.message = missingCWDMessage(selected)
 				return m, nil
 			}
-			m.selected = &selected
+			m.selected = &Selection{
+				Kind:     SelectionResume,
+				Session:  selected,
+				Provider: selected.Provider,
+				CWD:      selected.CWD,
+			}
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -228,7 +270,7 @@ func (m Model) View() string {
 	}
 
 	headerTitle := "Session Manager"
-	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter resume · / search · s sort · q quit"
+	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter open · / search · s sort · q quit"
 	displayTitle := truncate(headerTitle, viewportWidth)
 	header := titleStyle.Render(displayTitle)
 	if hintWidth := viewportWidth - lipgloss.Width(displayTitle) - 2; hintWidth > 0 {
@@ -317,8 +359,8 @@ func (m *Model) refresh() {
 	if m.projectIdx < 0 {
 		m.projectIdx = 0
 	}
-	if m.sessionIdx >= len(m.currentSessions()) {
-		m.sessionIdx = len(m.currentSessions()) - 1
+	if m.sessionIdx > m.maxSessionIdx() {
+		m.sessionIdx = m.maxSessionIdx()
 	}
 	if m.sessionIdx < 0 {
 		m.sessionIdx = 0
@@ -350,8 +392,8 @@ func (m *Model) moveSessionPage(direction int) {
 	if m.sessionIdx < 0 {
 		m.sessionIdx = 0
 	}
-	if m.sessionIdx >= len(items) {
-		m.sessionIdx = len(items) - 1
+	if m.sessionIdx > m.maxSessionIdx() {
+		m.sessionIdx = m.maxSessionIdx()
 	}
 }
 
@@ -360,6 +402,51 @@ func (m Model) currentSessions() []session.Session {
 		return nil
 	}
 	return m.projects[m.projectIdx].Sessions
+}
+
+func (m Model) currentProjectNewSession() (session.Session, bool) {
+	if len(m.projects) == 0 || m.projectIdx >= len(m.projects) {
+		return session.Session{}, false
+	}
+	cwd := m.projects[m.projectIdx].CWD
+	var newest session.Session
+	// New sessions use the project's most recently active provider, not the
+	// current display order, because sort/search can reorder visible rows.
+	for _, item := range m.allSessions {
+		if item.CWD != cwd {
+			continue
+		}
+		if newest.ID == "" || item.UpdatedAt.After(newest.UpdatedAt) {
+			newest = item
+		}
+	}
+	if newest.ID != "" {
+		return newest, true
+	}
+	items := m.currentSessions()
+	if len(items) == 0 {
+		return session.Session{}, false
+	}
+	return items[0], true
+}
+
+func (m Model) defaultSessionIdx() int {
+	// Cursor row 0 is the synthetic new-session action; real sessions are
+	// one-based so the default can open work immediately while Up reveals new.
+	items := m.currentSessions()
+	for i, item := range items {
+		if !cwdUnavailable(item) {
+			return i + 1
+		}
+	}
+	if len(items) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func (m Model) maxSessionIdx() int {
+	return len(m.currentSessions())
 }
 
 func (m Model) sessionPageSize() int {
@@ -424,9 +511,24 @@ func (m Model) sessionsView(height int, width int) string {
 	b.WriteString(sectionStyle.Render(m.sessionsHeader(width)))
 	b.WriteByte('\n')
 	limit := sessionListLimit(height)
+	total := len(items) + 1
+	newSession, ok := m.currentProjectNewSession()
+	if !ok {
+		newSession = items[0]
+	}
 	start := sessionPageStart(m.sessionIdx, limit)
-	for i := start; i < len(items) && i < start+limit; i++ {
-		s := items[i]
+	for i := start; i < total && i < start+limit; i++ {
+		if i == 0 {
+			line := truncate(m.newSessionLine(newSession, width), width)
+			if i == m.sessionIdx {
+				b.WriteString(selectedStyle.Render(line))
+			} else {
+				b.WriteString(line)
+			}
+			b.WriteByte('\n')
+			continue
+		}
+		s := items[i-1]
 		title := s.Title
 		if title == "" {
 			title = s.ID
@@ -445,11 +547,26 @@ func (m Model) sessionsView(height int, width int) string {
 	}
 
 	end := start + limit
-	if end > len(items) {
-		end = len(items)
+	if end > total {
+		end = total
 	}
-	selected := items[m.sessionIdx]
 	b.WriteByte('\n')
+	if m.sessionIdx == 0 {
+		selected := newSession
+		b.WriteString(mutedStyle.Render(detailLine("action", "new session", width)))
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Render(detailLine("provider", providerTag(selected.Provider), width)))
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Render(detailLine("cwd", selected.CWD, width)))
+		if cwdUnavailable(selected) {
+			b.WriteByte('\n')
+			b.WriteString(mutedStyle.Render(truncate(missingCWDMessage(selected), width)))
+		}
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, total, limit), width)))
+		return strings.TrimRight(b.String(), "\n")
+	}
+	selected := items[m.sessionIdx-1]
 	b.WriteString(mutedStyle.Render(detailLine("provider", providerTag(selected.Provider), width)))
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(detailLine("cwd", selected.CWD, width)))
@@ -464,7 +581,7 @@ func (m Model) sessionsView(height int, width int) string {
 		b.WriteString(mutedStyle.Render(detailLine("file", selected.Path, width)))
 	}
 	b.WriteByte('\n')
-	b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, len(items), limit), width)))
+	b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, total, limit), width)))
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -497,6 +614,14 @@ func (m Model) sessionLine(s session.Session, status string, title string, width
 		return base
 	}
 	return fmt.Sprintf("%s  %s", base, shortPath(s.CWD, cwdWidth))
+}
+
+func (m Model) newSessionLine(providerSession session.Session, width int) string {
+	status := " "
+	if cwdUnavailable(providerSession) {
+		status = "!"
+	}
+	return fmt.Sprintf("%-11s %s %-6s %-8s %s", "new", status, providerTag(providerSession.Provider), "", "start fresh session")
 }
 
 func sessionListLimit(height int) int {

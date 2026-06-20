@@ -33,6 +33,7 @@ type Provider interface {
 	Name() string
 	Discover(opts DiscoverOptions) ([]Session, error)
 	ResumeCommand(Session) ExecSpec
+	NewCommand(cwd string) ExecSpec
 }
 
 type DiscoverOptions struct {

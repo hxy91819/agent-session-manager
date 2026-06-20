@@ -135,6 +135,13 @@ func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
 	}
 }
 
+func (p Provider) NewCommand(cwd string) session.ExecSpec {
+	return session.ExecSpec{
+		Dir:  cwd,
+		Args: []string{"codex"},
+	}
+}
+
 type fileInfo struct {
 	Path    string
 	Size    int64
