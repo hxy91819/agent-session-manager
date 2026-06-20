@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
 
 func TestResumeNoticeIncludesProviderSessionAndCWD(t *testing.T) {
@@ -132,6 +136,25 @@ func TestParseSkillsInstallFlagsTreatsSingleNameAsReleaseSkill(t *testing.T) {
 	}
 }
 
+func TestDispatchSelectionPrintsNewCommand(t *testing.T) {
+	out := captureStdout(t, func() {
+		err := dispatchSelection(context.Background(), []session.Provider{
+			staticProvider{name: "codex"},
+		}, ui.Selection{
+			Kind:     ui.SelectionNew,
+			Provider: "codex",
+			CWD:      "/repo with spaces",
+		}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(out, `cd '/repo with spaces' && 'codex'`) {
+		t.Fatalf("unexpected command: %s", out)
+	}
+}
+
 type staticProvider struct {
 	name  string
 	err   error
@@ -156,6 +179,10 @@ func (p staticProvider) ResumeCommand(s session.Session) session.ExecSpec {
 	return session.ExecSpec{Dir: s.CWD}
 }
 
+func (p staticProvider) NewCommand(cwd string) session.ExecSpec {
+	return session.ExecSpec{Dir: cwd, Args: []string{p.name}}
+}
+
 type blockingProvider struct {
 	name    string
 	entered chan<- string
@@ -174,4 +201,31 @@ func (p blockingProvider) Discover(session.DiscoverOptions) ([]session.Session, 
 
 func (p blockingProvider) ResumeCommand(s session.Session) session.ExecSpec {
 	return session.ExecSpec{Dir: s.CWD}
+}
+
+func (p blockingProvider) NewCommand(cwd string) session.ExecSpec {
+	return session.ExecSpec{Dir: cwd, Args: []string{p.name}}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = old
+	}()
+
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

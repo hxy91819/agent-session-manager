@@ -24,8 +24,95 @@ func TestModelSelectsMostRecentSessionByDefault(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a selected session")
 	}
-	if got.ID != "new" {
-		t.Fatalf("selected %q, want new", got.ID)
+	if got.Kind != SelectionResume {
+		t.Fatalf("kind = %q, want resume", got.Kind)
+	}
+	if got.Session.ID != "new" {
+		t.Fatalf("selected %q, want new", got.Session.ID)
+	}
+}
+
+func TestModelUpThenEnterSelectsNewSession(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := New([]session.Session{
+		{ID: "old", Provider: "codex", CWD: "/repo", UpdatedAt: base},
+		{ID: "new", Provider: "claude", CWD: "/repo", UpdatedAt: base.Add(time.Hour)},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+
+	if !ok {
+		t.Fatal("expected a selected action")
+	}
+	if got.Kind != SelectionNew {
+		t.Fatalf("kind = %q, want new", got.Kind)
+	}
+	if got.Provider != "claude" || got.CWD != "/repo" {
+		t.Fatalf("selection = %#v, want newest project provider and cwd", got)
+	}
+}
+
+func TestModelNewSessionUsesNewestProjectProviderDespiteSortOrder(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := New([]session.Session{
+		{
+			ID:        "newer-created",
+			Provider:  "codex",
+			CWD:       "/repo",
+			CreatedAt: base.Add(time.Hour),
+			UpdatedAt: base,
+		},
+		{
+			ID:        "newer-active",
+			Provider:  "claude",
+			CWD:       "/repo",
+			CreatedAt: base,
+			UpdatedAt: base.Add(time.Hour),
+		},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+
+	if !ok {
+		t.Fatal("expected a selected action")
+	}
+	if got.Kind != SelectionNew {
+		t.Fatalf("kind = %q, want new", got.Kind)
+	}
+	if got.Provider != "claude" {
+		t.Fatalf("provider = %q, want newest active provider claude", got.Provider)
+	}
+}
+
+func TestModelDefaultSelectionSkipsMissingCWDSession(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := New([]session.Session{
+		{
+			ID:        "missing",
+			Provider:  "codex",
+			CWD:       "/repo",
+			UpdatedAt: base.Add(time.Hour),
+			Metadata:  map[string]string{"cwd_missing": "true"},
+		},
+		{ID: "available", Provider: "codex", CWD: "/repo", UpdatedAt: base},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+
+	if !ok {
+		t.Fatal("expected a selected session")
+	}
+	if got.Session.ID != "available" {
+		t.Fatalf("selected %q, want available", got.Session.ID)
 	}
 }
 
@@ -234,8 +321,8 @@ func TestModelPageDownMovesByVisiblePage(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 	m = next.(Model)
 
-	if m.sessionIdx != m.sessionPageSize() {
-		t.Fatalf("sessionIdx = %d, want %d", m.sessionIdx, m.sessionPageSize())
+	if m.sessionIdx != m.sessionPageSize()+1 {
+		t.Fatalf("sessionIdx = %d, want %d", m.sessionIdx, m.sessionPageSize()+1)
 	}
 	if !strings.Contains(m.View(), "page 2/") {
 		t.Fatalf("view missing page status:\n%s", m.View())
@@ -288,6 +375,31 @@ func TestSessionsViewFitsContentHeightAndWidth(t *testing.T) {
 	}
 	if !strings.Contains(view, "page 1/") {
 		t.Fatalf("view missing page status:\n%s", view)
+	}
+}
+
+func TestSessionsViewShowsNewRowAtTop(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "one",
+		Provider:  "codex",
+		CWD:       "/repo",
+		Title:     "work",
+		UpdatedAt: time.Now(),
+	}})
+
+	view := m.sessionsView(12, 50)
+	lines := strings.Split(view, "\n")
+
+	if len(lines) < 2 || !strings.Contains(lines[1], "new") {
+		t.Fatalf("view missing top new row:\n%s", view)
+	}
+	if got := lipgloss.Height(view); got > 12 {
+		t.Fatalf("height = %d, want <= 12\n%s", got, view)
+	}
+	for _, line := range lines {
+		if got := lipgloss.Width(line); got > 50 {
+			t.Fatalf("line width = %d, want <= 50\n%s", got, line)
+		}
 	}
 }
 
@@ -458,8 +570,8 @@ func TestModelEndMovesToLastSession(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	m = next.(Model)
 
-	if m.sessionIdx != 1 {
-		t.Fatalf("sessionIdx = %d, want 1", m.sessionIdx)
+	if m.sessionIdx != 2 {
+		t.Fatalf("sessionIdx = %d, want 2", m.sessionIdx)
 	}
 }
 
@@ -476,6 +588,28 @@ func TestModelDoesNotSelectMissingCWDSession(t *testing.T) {
 
 	if _, ok := got.Selected(); ok {
 		t.Fatal("expected missing cwd session not to be selected")
+	}
+	if !strings.Contains(got.View(), "cwd missing: /repo/missing") {
+		t.Fatalf("view missing cwd warning:\n%s", got.View())
+	}
+}
+
+func TestModelDoesNotSelectNewSessionForMissingCWD(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "missing",
+		Provider:  "codex",
+		CWD:       "/repo/missing",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"cwd_missing": "true"},
+	}})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if _, ok := got.Selected(); ok {
+		t.Fatal("expected missing cwd new session not to be selected")
 	}
 	if !strings.Contains(got.View(), "cwd missing: /repo/missing") {
 		t.Fatalf("view missing cwd warning:\n%s", got.View())
@@ -502,7 +636,7 @@ func TestModelViewShowsNavigationHints(t *testing.T) {
 
 	view := m.View()
 
-	for _, want := range []string{"←/→ projects", "↑/↓ sessions"} {
+	for _, want := range []string{"←/→ projects", "↑/↓ sessions", "enter open"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

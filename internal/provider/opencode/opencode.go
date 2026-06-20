@@ -157,6 +157,13 @@ func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
 	}
 }
 
+func (p Provider) NewCommand(cwd string) session.ExecSpec {
+	return session.ExecSpec{
+		Dir:  cwd,
+		Args: []string{"opencode"},
+	}
+}
+
 func (p Provider) home() (string, error) {
 	if p.Home != "" {
 		return p.Home, nil

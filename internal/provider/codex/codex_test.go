@@ -293,6 +293,17 @@ func TestResumeCommandUsesSessionCWD(t *testing.T) {
 	}
 }
 
+func TestNewCommandUsesProjectCWD(t *testing.T) {
+	spec := New("").NewCommand("/repo")
+
+	if spec.Dir != "/repo" {
+		t.Fatalf("Dir = %q", spec.Dir)
+	}
+	if strings.Join(spec.Args, " ") != "codex" {
+		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
 func writeSession(t *testing.T, path, id, cwd string) {
 	t.Helper()
 	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"`+id+`","timestamp":"2026-06-13T01:00:00Z","cwd":"`+cwd+`"}}

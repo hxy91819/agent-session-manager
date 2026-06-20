@@ -244,6 +244,17 @@ func TestResumeCommandUsesOpencodeSessionFromSessionCWD(t *testing.T) {
 	}
 }
 
+func TestNewCommandUsesProjectCWD(t *testing.T) {
+	spec := New("").NewCommand("/repo")
+
+	if spec.Dir != "/repo" {
+		t.Fatalf("Dir = %q", spec.Dir)
+	}
+	if strings.Join(spec.Args, " ") != "opencode" {
+		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
 func writeOpencodeProject(t *testing.T, home, projectID, cwd string) {
 	t.Helper()
 	projectDir := filepath.Join(home, "storage", "project")
