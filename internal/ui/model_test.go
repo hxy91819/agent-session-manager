@@ -93,6 +93,40 @@ func TestModelNewSessionUsesNewestProjectProviderDespiteSortOrder(t *testing.T) 
 	}
 }
 
+func TestModelNewSessionSkipsUnsupportedProvider(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := New([]session.Session{
+		{
+			ID:        "openclaw-session",
+			Provider:  "openclaw",
+			CWD:       "/repo",
+			UpdatedAt: base.Add(time.Hour),
+			Metadata:  map[string]string{"resume_unsupported": "OpenClaw resume is not supported by asm yet"},
+		},
+		{
+			ID:        "codex-session",
+			Provider:  "codex",
+			CWD:       "/repo",
+			UpdatedAt: base,
+		},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+
+	if !ok {
+		t.Fatal("expected a selected action")
+	}
+	if got.Kind != SelectionNew {
+		t.Fatalf("kind = %q, want new", got.Kind)
+	}
+	if got.Provider != "codex" {
+		t.Fatalf("provider = %q, want supported provider codex", got.Provider)
+	}
+}
+
 func TestModelDefaultSelectionSkipsMissingCWDSession(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	m := New([]session.Session{
@@ -615,6 +649,45 @@ func TestModelDoesNotSelectNewSessionForMissingCWD(t *testing.T) {
 	}
 	if !strings.Contains(got.View(), "cwd missing: /repo/missing") {
 		t.Fatalf("view missing cwd warning:\n%s", got.View())
+	}
+}
+
+func TestModelDoesNotSelectUnsupportedResumeSession(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "agent:main:main",
+		Provider:  "openclaw",
+		CWD:       "/repo",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"resume_unsupported": "OpenClaw resume is not supported by asm yet"},
+	}})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if _, ok := got.Selected(); ok {
+		t.Fatal("expected unsupported session not to be selected")
+	}
+	if !strings.Contains(got.View(), "OpenClaw resume is not supported by asm yet") {
+		t.Fatalf("view missing unsupported warning:\n%s", got.View())
+	}
+}
+
+func TestModelDoesNotShowNewSessionForUnsupportedOnlyProject(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "agent:main:main",
+		Provider:  "openclaw",
+		CWD:       "/repo",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"resume_unsupported": "OpenClaw resume is not supported by asm yet"},
+	}})
+
+	view := m.sessionsView(12, 96)
+
+	if strings.Contains(view, "start fresh session") || strings.Contains(view, "action: new session") {
+		t.Fatalf("view should not render unsupported new-session action:\n%s", view)
+	}
+	if !strings.Contains(view, "openclaw") || !strings.Contains(view, "OpenClaw resume is not supported by asm yet") {
+		t.Fatalf("view should still render the unavailable session details:\n%s", view)
 	}
 }
 

@@ -155,6 +155,39 @@ func TestDispatchSelectionPrintsNewCommand(t *testing.T) {
 	}
 }
 
+func TestWithResumeCommandsSkipsUnsupportedProviders(t *testing.T) {
+	got := withResumeCommands([]session.Session{
+		{ID: "codex-session", Provider: "codex"},
+		{ID: "agent:main:main", Provider: "openclaw"},
+		{ID: "cursor-session", Provider: "cursor", Metadata: map[string]string{"cwd_error": "cursor project cwd is ambiguous"}},
+	})
+
+	if got[0].ResumeCommand == "" {
+		t.Fatalf("codex resume command was not populated: %#v", got[0])
+	}
+	if got[1].ResumeCommand != "" {
+		t.Fatalf("openclaw resume command = %q, want empty", got[1].ResumeCommand)
+	}
+	if got[2].ResumeCommand != "" {
+		t.Fatalf("unavailable cursor resume command = %q, want empty", got[2].ResumeCommand)
+	}
+}
+
+func TestResumeSessionRejectsUnavailableSession(t *testing.T) {
+	err := resumeSession(context.Background(), executableProvider{name: "cursor"}, session.Session{
+		ID:       "sid",
+		Provider: "cursor",
+		Metadata: map[string]string{"cwd_error": "cursor project cwd encoding is ambiguous"},
+	}, true)
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "session sid cwd is unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 type staticProvider struct {
 	name  string
 	err   error
@@ -228,4 +261,24 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+type executableProvider struct {
+	name string
+}
+
+func (p executableProvider) Name() string {
+	return p.name
+}
+
+func (p executableProvider) Discover(session.DiscoverOptions) ([]session.Session, error) {
+	return nil, nil
+}
+
+func (p executableProvider) ResumeCommand(s session.Session) session.ExecSpec {
+	return session.ExecSpec{Dir: s.CWD, Args: []string{"agent", "resume", s.ID}}
+}
+
+func (p executableProvider) NewCommand(cwd string) session.ExecSpec {
+	return session.ExecSpec{Dir: cwd, Args: []string{"agent"}}
 }

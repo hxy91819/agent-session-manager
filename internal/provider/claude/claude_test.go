@@ -183,6 +183,83 @@ func TestDiscoverDeduplicatesSessionIDByNewestFile(t *testing.T) {
 	}
 }
 
+func TestDiscoverMergesExtraHomesAndDeduplicatesByNewestID(t *testing.T) {
+	defaultHome := t.TempDir()
+	extraHome := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("CLAUDE_HOME", defaultHome)
+	t.Setenv("ASM_CLAUDE_EXTRA_HOMES", extraHome)
+
+	defaultProject := filepath.Join(defaultHome, "projects", "-repo-a")
+	extraProject := filepath.Join(extraHome, "projects", "-repo-b")
+	if err := os.MkdirAll(defaultProject, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extraProject, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(defaultProject, "sid.jsonl")
+	newPath := filepath.Join(extraProject, "sid-copy.jsonl")
+	extraPath := filepath.Join(extraProject, "extra.jsonl")
+	writeClaudeSession(t, oldPath, "sid", repo, "old title")
+	writeClaudeSession(t, newPath, "sid", repo, "new title")
+	writeClaudeSession(t, extraPath, "extra", repo, "extra title")
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldPath, base, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(extraPath, base.Add(time.Hour), base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, base.Add(2*time.Hour), base.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := Provider{CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].ID != "sid" || got[0].Title != "new title" || got[0].Path != newPath {
+		t.Fatalf("unexpected newest duplicate: %#v", got[0])
+	}
+	if got[0].Metadata["source_home"] != extraHome {
+		t.Fatalf("source_home = %q", got[0].Metadata["source_home"])
+	}
+}
+
+func TestDiscoverExplicitHomeIgnoresExtraHomes(t *testing.T) {
+	flagHome := t.TempDir()
+	extraHome := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("CLAUDE_HOME", t.TempDir())
+	t.Setenv("ASM_CLAUDE_EXTRA_HOMES", extraHome)
+
+	flagProject := filepath.Join(flagHome, "projects", "-repo-a")
+	extraProject := filepath.Join(extraHome, "projects", "-repo-b")
+	if err := os.MkdirAll(flagProject, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extraProject, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeSession(t, filepath.Join(flagProject, "flag.jsonl"), "flag", repo, "flag title")
+	writeClaudeSession(t, filepath.Join(extraProject, "extra.jsonl"), "extra", repo, "extra title")
+
+	provider := Provider{Home: flagHome, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "flag" {
+		t.Fatalf("unexpected sessions: %#v", got)
+	}
+}
+
 func TestDiscoverMarksMissingCWD(t *testing.T) {
 	home := t.TempDir()
 	projectDir := filepath.Join(home, "projects", "-repo")

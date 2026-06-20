@@ -11,6 +11,9 @@ import (
 )
 
 func Run(ctx context.Context, spec session.ExecSpec, printOnly bool) error {
+	if spec.UnsupportedReason != "" {
+		return fmt.Errorf("%s", spec.UnsupportedReason)
+	}
 	if len(spec.Args) == 0 {
 		return fmt.Errorf("empty command")
 	}
