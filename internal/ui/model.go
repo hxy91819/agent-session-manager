@@ -188,9 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sessionIdx = 0
 			return m, nil
 		case "end", "G":
-			if items := m.currentSessions(); len(items) > 0 {
-				m.sessionIdx = len(items)
-			}
+			m.sessionIdx = m.maxSessionIdx()
 			return m, nil
 		case "left", "h":
 			if m.projectIdx > 0 {
@@ -209,11 +207,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(items) == 0 {
 				return m, nil
 			}
-			if m.sessionIdx == 0 {
-				providerSession, ok := m.currentProjectNewSession()
-				if !ok {
-					return m, nil
-				}
+			providerSession, hasNewSession := m.currentProjectNewSession()
+			if hasNewSession && m.sessionIdx == 0 {
 				if cwdUnavailable(providerSession) {
 					m.message = missingCWDMessage(providerSession)
 					return m, nil
@@ -226,7 +221,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.quitting = true
 				return m, tea.Quit
 			}
-			selected := items[m.sessionIdx-1]
+			sessionIdx := m.sessionIdx
+			if hasNewSession {
+				sessionIdx--
+			}
+			if sessionIdx < 0 || sessionIdx >= len(items) {
+				return m, nil
+			}
+			selected := items[sessionIdx]
 			if cwdUnavailable(selected) {
 				m.message = missingCWDMessage(selected)
 				return m, nil
@@ -413,40 +415,46 @@ func (m Model) currentProjectNewSession() (session.Session, bool) {
 	// New sessions use the project's most recently active provider, not the
 	// current display order, because sort/search can reorder visible rows.
 	for _, item := range m.allSessions {
-		if item.CWD != cwd {
+		// The synthetic "new" row must inherit a provider that can actually
+		// start work; index-only or missing-cwd sessions remain resumable rows.
+		if item.CWD != cwd || cwdUnavailable(item) {
 			continue
 		}
 		if newest.ID == "" || item.UpdatedAt.After(newest.UpdatedAt) {
 			newest = item
 		}
 	}
-	if newest.ID != "" {
-		return newest, true
-	}
-	items := m.currentSessions()
-	if len(items) == 0 {
-		return session.Session{}, false
-	}
-	return items[0], true
+	return newest, newest.ID != ""
 }
 
 func (m Model) defaultSessionIdx() int {
-	// Cursor row 0 is the synthetic new-session action; real sessions are
-	// one-based so the default can open work immediately while Up reveals new.
+	// When a synthetic new-session row exists, real sessions are one-based so
+	// the default can open work immediately while Up reveals the new action.
 	items := m.currentSessions()
+	offset := 0
+	if _, ok := m.currentProjectNewSession(); ok {
+		offset = 1
+	}
 	for i, item := range items {
 		if !cwdUnavailable(item) {
-			return i + 1
+			return i + offset
 		}
 	}
 	if len(items) > 0 {
-		return 1
+		return offset
 	}
 	return 0
 }
 
 func (m Model) maxSessionIdx() int {
-	return len(m.currentSessions())
+	items := m.currentSessions()
+	if len(items) == 0 {
+		return 0
+	}
+	if _, ok := m.currentProjectNewSession(); ok {
+		return len(items)
+	}
+	return len(items) - 1
 }
 
 func (m Model) sessionPageSize() int {
@@ -511,14 +519,15 @@ func (m Model) sessionsView(height int, width int) string {
 	b.WriteString(sectionStyle.Render(m.sessionsHeader(width)))
 	b.WriteByte('\n')
 	limit := sessionListLimit(height)
-	total := len(items) + 1
-	newSession, ok := m.currentProjectNewSession()
-	if !ok {
-		newSession = items[0]
+	newSession, hasNewSession := m.currentProjectNewSession()
+	offset := 0
+	if hasNewSession {
+		offset = 1
 	}
+	total := len(items) + offset
 	start := sessionPageStart(m.sessionIdx, limit)
 	for i := start; i < total && i < start+limit; i++ {
-		if i == 0 {
+		if hasNewSession && i == 0 {
 			line := truncate(m.newSessionLine(newSession, width), width)
 			if i == m.sessionIdx {
 				b.WriteString(selectedStyle.Render(line))
@@ -528,7 +537,7 @@ func (m Model) sessionsView(height int, width int) string {
 			b.WriteByte('\n')
 			continue
 		}
-		s := items[i-1]
+		s := items[i-offset]
 		title := s.Title
 		if title == "" {
 			title = s.ID
@@ -551,7 +560,7 @@ func (m Model) sessionsView(height int, width int) string {
 		end = total
 	}
 	b.WriteByte('\n')
-	if m.sessionIdx == 0 {
+	if hasNewSession && m.sessionIdx == 0 {
 		selected := newSession
 		b.WriteString(mutedStyle.Render(detailLine("action", "new session", width)))
 		b.WriteByte('\n')
@@ -566,7 +575,11 @@ func (m Model) sessionsView(height int, width int) string {
 		b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, total, limit), width)))
 		return strings.TrimRight(b.String(), "\n")
 	}
-	selected := items[m.sessionIdx-1]
+	sessionIdx := m.sessionIdx - offset
+	if sessionIdx < 0 || sessionIdx >= len(items) {
+		sessionIdx = 0
+	}
+	selected := items[sessionIdx]
 	b.WriteString(mutedStyle.Render(detailLine("provider", providerTag(selected.Provider), width)))
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(detailLine("cwd", selected.CWD, width)))
@@ -674,10 +687,13 @@ func fitLines(value string, height int) string {
 }
 
 func cwdUnavailable(s session.Session) bool {
-	return s.Metadata["cwd_missing"] == "true" || s.Metadata["cwd_error"] != ""
+	return s.Metadata["cwd_missing"] == "true" || s.Metadata["cwd_error"] != "" || s.Metadata["resume_unsupported"] != ""
 }
 
 func missingCWDMessage(s session.Session) string {
+	if s.Metadata["resume_unsupported"] != "" {
+		return s.Metadata["resume_unsupported"]
+	}
 	if s.Metadata["cwd_error"] != "" {
 		return "cwd check failed: " + s.Metadata["cwd_error"]
 	}
@@ -711,6 +727,9 @@ func windowStart(cursor, limit, total int) int {
 func shortPath(path string, width int) string {
 	if width <= 0 {
 		return ""
+	}
+	if strings.TrimSpace(path) == "" {
+		return truncate("unknown", width)
 	}
 	clean := filepath.Clean(path)
 	if lipgloss.Width(clean) <= width {

@@ -25,6 +25,19 @@ func TestRunReportsMissingCWD(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUnsupportedResumeBeforeCommandChecks(t *testing.T) {
+	err := Run(context.Background(), session.ExecSpec{
+		UnsupportedReason: "OpenClaw resume is not supported by asm yet",
+	}, true)
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "OpenClaw resume is not supported by asm yet" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRunPrintExecUsesShellSafeQuoting(t *testing.T) {
 	var out bytes.Buffer
 	restore := captureStdout(t, &out)

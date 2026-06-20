@@ -142,6 +142,129 @@ func TestDiscoverReadsHistoryTitleAndLimitsFiles(t *testing.T) {
 	}
 }
 
+func TestDiscoverMergesExtraHomesAndDeduplicatesByNewestID(t *testing.T) {
+	defaultHome := t.TempDir()
+	extraHome := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("CODEX_HOME", defaultHome)
+	t.Setenv("ASM_CODEX_EXTRA_HOMES", extraHome)
+
+	defaultDir := filepath.Join(defaultHome, "sessions", "2026", "06", "13")
+	extraDir := filepath.Join(extraHome, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(defaultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extraDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defaultDup := filepath.Join(defaultDir, "dup-old.jsonl")
+	extraDup := filepath.Join(extraDir, "dup-new.jsonl")
+	extraOnly := filepath.Join(extraDir, "extra.jsonl")
+	writeSession(t, defaultDup, "dup", repo)
+	writeSession(t, extraDup, "dup", repo)
+	writeSession(t, extraOnly, "extra", repo)
+	writeFile(t, filepath.Join(extraHome, "session_index.jsonl"), `{"id":"dup","thread_name":"extra duplicate title"}
+{"id":"extra","thread_name":"extra only title"}
+`)
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(defaultDup, base, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(extraOnly, base.Add(time.Hour), base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(extraDup, base.Add(2*time.Hour), base.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := Provider{CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].ID != "dup" || got[0].Path != extraDup || got[0].Title != "extra duplicate title" {
+		t.Fatalf("unexpected newest duplicate: %#v", got[0])
+	}
+	if got[0].Metadata["source_home"] != extraHome {
+		t.Fatalf("source_home = %q", got[0].Metadata["source_home"])
+	}
+}
+
+func TestDiscoverExplicitHomeIgnoresExtraHomes(t *testing.T) {
+	flagHome := t.TempDir()
+	extraHome := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("ASM_CODEX_EXTRA_HOMES", extraHome)
+
+	flagDir := filepath.Join(flagHome, "sessions", "2026", "06", "13")
+	extraDir := filepath.Join(extraHome, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(flagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extraDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSession(t, filepath.Join(flagDir, "flag.jsonl"), "flag", repo)
+	writeSession(t, filepath.Join(extraDir, "extra.jsonl"), "extra", repo)
+
+	provider := Provider{Home: flagHome, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "flag" {
+		t.Fatalf("unexpected sessions: %#v", got)
+	}
+}
+
+func TestDiscoverUsesTitleFromOtherHomeForDuplicateNewestFile(t *testing.T) {
+	defaultHome := t.TempDir()
+	extraHome := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("CODEX_HOME", defaultHome)
+	t.Setenv("ASM_CODEX_EXTRA_HOMES", extraHome)
+
+	defaultDir := filepath.Join(defaultHome, "sessions", "2026", "06", "13")
+	extraDir := filepath.Join(extraHome, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(defaultDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extraDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(defaultDir, "sid-old.jsonl")
+	newPath := filepath.Join(extraDir, "sid-new.jsonl")
+	writeSession(t, oldPath, "sid", repo)
+	writeSession(t, newPath, "sid", repo)
+	writeFile(t, filepath.Join(defaultHome, "session_index.jsonl"), `{"id":"sid","thread_name":"default native title"}
+`)
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldPath, base, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, base.Add(time.Hour), base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := Provider{CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1: %#v", len(got), got)
+	}
+	if got[0].Path != newPath || got[0].Title != "default native title" || got[0].Metadata["title_source"] != "session_index" {
+		t.Fatalf("unexpected session: %#v", got[0])
+	}
+}
+
 func TestDiscoverPrefersSessionIndexTitle(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")

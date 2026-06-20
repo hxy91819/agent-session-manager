@@ -17,8 +17,11 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/index"
 	"github.com/hxy91819/agent-session-manager/internal/launcher"
 	"github.com/hxy91819/agent-session-manager/internal/provider/claude"
+	"github.com/hxy91819/agent-session-manager/internal/provider/codebuddy"
 	"github.com/hxy91819/agent-session-manager/internal/provider/codex"
+	"github.com/hxy91819/agent-session-manager/internal/provider/cursor"
 	"github.com/hxy91819/agent-session-manager/internal/provider/kimi"
+	"github.com/hxy91819/agent-session-manager/internal/provider/openclaw"
 	"github.com/hxy91819/agent-session-manager/internal/provider/opencode"
 	reportpkg "github.com/hxy91819/agent-session-manager/internal/report"
 	"github.com/hxy91819/agent-session-manager/internal/session"
@@ -27,17 +30,20 @@ import (
 )
 
 type config struct {
-	codexHome    string
-	claudeHome   string
-	kimiHome     string
-	opencodeHome string
-	query        string
-	sortMode     index.SortMode
-	resumeID     string
-	json         bool
-	printExec    bool
-	sinceDays    int
-	limit        int
+	codexHome     string
+	claudeHome    string
+	kimiHome      string
+	opencodeHome  string
+	codebuddyHome string
+	cursorHome    string
+	openclawHome  string
+	query         string
+	sortMode      index.SortMode
+	resumeID      string
+	json          bool
+	printExec     bool
+	sinceDays     int
+	limit         int
 }
 
 type reportConfig struct {
@@ -45,6 +51,9 @@ type reportConfig struct {
 	claudeHome    string
 	kimiHome      string
 	opencodeHome  string
+	codebuddyHome string
+	cursorHome    string
+	openclawHome  string
 	query         string
 	sortMode      index.SortMode
 	period        string
@@ -55,15 +64,18 @@ type reportConfig struct {
 }
 
 type resumeConfig struct {
-	codexHome    string
-	claudeHome   string
-	kimiHome     string
-	opencodeHome string
-	provider     string
-	sessionID    string
-	printExec    bool
-	sinceDays    int
-	limit        int
+	codexHome     string
+	claudeHome    string
+	kimiHome      string
+	opencodeHome  string
+	codebuddyHome string
+	cursorHome    string
+	openclawHome  string
+	provider      string
+	sessionID     string
+	printExec     bool
+	sinceDays     int
+	limit         int
 }
 
 type skillsInstallConfig struct {
@@ -107,7 +119,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome)
+	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome)
 	loadSessions := func(days int) ([]session.Session, error) {
 		items, err := discoverAll(providers, cfg.limit, days)
 		if err != nil {
@@ -161,7 +173,7 @@ func runResume(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome)
+	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome)
 	sessions, err := discoverAll(providers, cfg.limit, cfg.sinceDays)
 	if err != nil {
 		return err
@@ -244,7 +256,7 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome)
+	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome)
 	items, err := discoverAllWithOptions(providers, session.DiscoverOptions{
 		LimitFiles: cfg.limit,
 		Since:      window.Start,
@@ -275,6 +287,9 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
 	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
 	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
+	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
+	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
+	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
 	fs.BoolVar(&cfg.json, "json", false, "print indexed sessions as JSON")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
@@ -309,6 +324,9 @@ func parseResumeFlags(args []string) (resumeConfig, error) {
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
 	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
 	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
+	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
+	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
+	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
 	fs.StringVar(&cfg.provider, "provider", "", "provider name for disambiguating session ids")
 	fs.BoolVar(&cfg.printExec, "print-exec", false, "print resume command instead of executing it")
 	fs.IntVar(&cfg.limit, "limit", 2000, "maximum session files to scan per provider")
@@ -448,6 +466,9 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
 	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
 	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
+	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
+	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
+	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
 	fs.IntVar(&cfg.limit, "limit", 2000, "maximum session files to scan per provider")
@@ -477,12 +498,15 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	return cfg, nil
 }
 
-func newProviders(codexHome, claudeHome, kimiHome, opencodeHome string) []session.Provider {
+func newProviders(codexHome, claudeHome, kimiHome, opencodeHome, codebuddyHome, cursorHome, openclawHome string) []session.Provider {
 	return []session.Provider{
 		codex.New(codexHome),
 		claude.New(claudeHome),
 		kimi.New(kimiHome),
 		opencode.New(opencodeHome),
+		codebuddy.New(codebuddyHome),
+		cursor.New(cursorHome),
+		openclaw.New(openclawHome),
 	}
 }
 
@@ -554,10 +578,19 @@ func findSession(sessions []session.Session, id string, provider string) (sessio
 func withResumeCommands(sessions []session.Session) []session.Session {
 	out := make([]session.Session, len(sessions))
 	for i, item := range sessions {
-		item.ResumeCommand = resumeCLICommand(item)
+		if sessionSupportsResume(item) {
+			item.ResumeCommand = resumeCLICommand(item)
+		}
 		out[i] = item
 	}
 	return out
+}
+
+func sessionSupportsResume(s session.Session) bool {
+	if s.Provider == "openclaw" {
+		return false
+	}
+	return s.Metadata["cwd_missing"] != "true" && s.Metadata["cwd_error"] == "" && s.Metadata["resume_unsupported"] == ""
 }
 
 func resumeCLICommand(s session.Session) string {
@@ -692,6 +725,12 @@ func providerByName(providers []session.Provider, name string) session.Provider 
 
 func resumeSession(ctx context.Context, provider session.Provider, selected session.Session, printOnly bool) error {
 	spec := provider.ResumeCommand(selected)
+	if spec.UnsupportedReason != "" {
+		return launcher.Run(ctx, spec, printOnly)
+	}
+	if !sessionSupportsResume(selected) {
+		return fmt.Errorf("session %s cwd is unavailable", selected.ID)
+	}
 	if !printOnly {
 		fmt.Fprintln(os.Stderr, resumeNotice(selected))
 	}

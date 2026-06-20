@@ -13,13 +13,15 @@ import (
 func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	helperRepo := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	writeSession(t, filepath.Join(sessionDir, "openclaw.jsonl"), "openclaw-session", "/data/code/openclaw/openclaw")
-	writeSession(t, filepath.Join(sessionDir, "helper.jsonl"), "helper-session", "/data/code/lighthouse/helper")
+	writeSession(t, filepath.Join(sessionDir, "openclaw.jsonl"), "openclaw-session", repo)
+	writeSession(t, filepath.Join(sessionDir, "helper.jsonl"), "helper-session", helperRepo)
 	writeFile(t, filepath.Join(home, "history.jsonl"), `{"session_id":"openclaw-session","text":"fix openclaw bug"}
 {"session_id":"helper-session","text":"helper deployment"}
 `)
@@ -54,17 +56,17 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	if payload.Sessions[0].Provider != "codex" {
 		t.Fatalf("provider = %q, want codex", payload.Sessions[0].Provider)
 	}
-	if len(payload.Projects) != 1 || payload.Projects[0].CWD != "/data/code/openclaw/openclaw" || payload.Projects[0].Count != 1 {
+	if len(payload.Projects) != 1 || payload.Projects[0].CWD != repo || payload.Projects[0].Count != 1 {
 		t.Fatalf("unexpected projects: %#v", payload.Projects)
 	}
 
 	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--resume", "openclaw-session", "--print-exec")
-	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'codex' 'resume' 'openclaw-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 
 	cmd = runCommand(t, "resume", "--codex-home", home, "--claude-home", claudeHome, "--provider", "codex", "--print-exec", "openclaw-session")
-	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'codex' 'resume' 'openclaw-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume subcommand: %s", cmd)
 	}
 }
@@ -72,11 +74,12 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 func TestCLIIndexesClaudeAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
+	repo := t.TempDir()
 	claudeDir := filepath.Join(claudeHome, "projects", "-data-code-openclaw-openclaw")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeClaudeSession(t, filepath.Join(claudeDir, "claude-session.jsonl"), "claude-session", "/data/code/openclaw/openclaw", "fix openclaw with claude")
+	writeClaudeSession(t, filepath.Join(claudeDir, "claude-session.jsonl"), "claude-session", repo, "fix openclaw with claude")
 
 	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--json", "--query", "claude")
 	var payload struct {
@@ -105,7 +108,7 @@ func TestCLIIndexesClaudeAndPrintsResumeCommand(t *testing.T) {
 	}
 
 	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--resume", "claude-session", "--print-exec")
-	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'claude' '--resume' 'claude-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'claude' '--resume' 'claude-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 }
@@ -114,8 +117,9 @@ func TestCLIIndexesKimiAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
 	kimiHome := t.TempDir()
+	repo := t.TempDir()
 	kimiDir := filepath.Join(kimiHome, "sessions", "wd_openclaw", "ses_kimi")
-	writeKimiSession(t, kimiHome, kimiDir, "ses_kimi", "/data/code/openclaw/openclaw", "fix openclaw with kimi")
+	writeKimiSession(t, kimiHome, kimiDir, "ses_kimi", repo, "fix openclaw with kimi")
 
 	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--json", "--query", "kimi")
 	var payload struct {
@@ -144,7 +148,7 @@ func TestCLIIndexesKimiAndPrintsResumeCommand(t *testing.T) {
 	}
 
 	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--resume", "ses_kimi", "--print-exec")
-	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'kimi' '--session' 'ses_kimi'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'kimi' '--session' 'ses_kimi'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 }
@@ -154,7 +158,8 @@ func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 	claudeHome := t.TempDir()
 	kimiHome := t.TempDir()
 	opencodeHome := t.TempDir()
-	writeOpencodeSession(t, opencodeHome, "project_one", "ses_opencode", "/data/code/openclaw/openclaw", "fix openclaw with opencode")
+	repo := t.TempDir()
+	writeOpencodeSession(t, opencodeHome, "project_one", "ses_opencode", repo, "fix openclaw with opencode")
 
 	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--json", "--query", "opencode")
 	var payload struct {
@@ -183,8 +188,112 @@ func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 	}
 
 	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--resume", "ses_opencode", "--print-exec")
-	if !strings.Contains(cmd, `cd '/data/code/openclaw/openclaw' && 'opencode' '-s' 'ses_opencode'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'opencode' '-s' 'ses_opencode'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
+func TestCLIIndexesCodeBuddyAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	codebuddyHome := t.TempDir()
+	repo := t.TempDir()
+	writeCodeBuddySession(t, codebuddyHome, "ses_codebuddy", repo, "fix openclaw with codebuddy")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--json", "--query", "codebuddy")
+	var payload struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_codebuddy" || payload.Sessions[0].Provider != "codebuddy" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--resume", "ses_codebuddy", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'codebuddy' '--resume' 'ses_codebuddy'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
+func TestCLIIndexesCursorAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	codebuddyHome := t.TempDir()
+	cursorHome := t.TempDir()
+	repo := filepath.Join(cursorHome, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCursorSession(t, cursorHome, "cursor-chat", repo, "fix openclaw with cursor")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--json", "--query", "cursor")
+	var payload struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "cursor-chat" || payload.Sessions[0].Provider != "cursor" || payload.Sessions[0].CWD != repo {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--resume", "cursor-chat", "--print-exec")
+	if !strings.Contains(cmd, `'cursor-agent' '--resume' 'cursor-chat'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
+func TestCLIIndexesOpenClawAndRejectsResume(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	codebuddyHome := t.TempDir()
+	cursorHome := t.TempDir()
+	openclawHome := t.TempDir()
+	writeOpenClawSession(t, openclawHome, "agent:main:main", "native-openclaw", "OpenClaw indexed session")
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--openclaw-home", openclawHome, "--json", "--query", "indexed")
+	var payload struct {
+		Sessions []struct {
+			ID       string            `json:"id"`
+			Provider string            `json:"provider"`
+			Title    string            `json:"title"`
+			Metadata map[string]string `json:"metadata"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "agent:main:main" || payload.Sessions[0].Provider != "openclaw" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Metadata["native_session_id"] != "native-openclaw" {
+		t.Fatalf("metadata = %#v", payload.Sessions[0].Metadata)
+	}
+
+	out, err := runCommandAllowError(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--openclaw-home", openclawHome, "--resume", "agent:main:main", "--print-exec")
+	if err == nil {
+		t.Fatalf("expected unsupported resume error, got output: %s", out)
+	}
+	if !strings.Contains(out, "OpenClaw resume is not supported by asm yet") {
+		t.Fatalf("unexpected unsupported resume output: %s", out)
 	}
 }
 
@@ -227,8 +336,9 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	}
 	inWindowPath := filepath.Join(sessionDir, "in-window.jsonl")
 	endPath := filepath.Join(sessionDir, "at-end.jsonl")
+	repo := t.TempDir()
 	writeFile(t, inWindowPath, `{"timestamp":"`+yesterday.Add(-time.Hour).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"stale report prompt"}]}}
-{"timestamp":"`+ts(time.Hour)+`","type":"session_meta","payload":{"id":"report-session","timestamp":"`+ts(time.Hour)+`","cwd":"/repo/report"}}
+{"timestamp":"`+ts(time.Hour)+`","type":"session_meta","payload":{"id":"report-session","timestamp":"`+ts(time.Hour)+`","cwd":`+jsonString(repo)+`}}
 {"timestamp":"`+ts(time.Hour+time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first report prompt"}]}}
 {"timestamp":"`+ts(time.Hour+2*time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second report prompt"}]}}
 {"timestamp":"`+ts(time.Hour+3*time.Second)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"third report prompt"}]}}
@@ -315,6 +425,8 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	futureRepo := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "18")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -329,10 +441,10 @@ func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 	future := now.Add(time.Hour)
 	inWindowPath := filepath.Join(sessionDir, "today.jsonl")
 	futurePath := filepath.Join(sessionDir, "future.jsonl")
-	writeFile(t, inWindowPath, `{"timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"today-session","timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","cwd":"/repo/today"}}
+	writeFile(t, inWindowPath, `{"timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"today-session","timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","cwd":`+jsonString(repo)+`}}
 {"timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"today report prompt"}]}}
 `)
-	writeFile(t, futurePath, `{"timestamp":"`+future.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"future-session","timestamp":"`+future.Format(time.RFC3339Nano)+`","cwd":"/repo/future"}}
+	writeFile(t, futurePath, `{"timestamp":"`+future.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"future-session","timestamp":"`+future.Format(time.RFC3339Nano)+`","cwd":`+jsonString(futureRepo)+`}}
 {"timestamp":"`+future.Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"future report prompt"}]}}
 `)
 	if err := os.Chtimes(inWindowPath, inWindow, inWindow); err != nil {
@@ -437,6 +549,15 @@ func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
 
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
+	out, err := runCommandAllowError(t, args...)
+	if err != nil {
+		t.Fatalf("command failed: %v\n%s", err, out)
+	}
+	return out
+}
+
+func runCommandAllowError(t *testing.T, args ...string) (string, error) {
+	t.Helper()
 	cmdArgs := append([]string{"run", "./cmd/asm"}, args...)
 	cmd := exec.Command("go", cmdArgs...)
 	cmd.Dir = ".."
@@ -454,12 +575,14 @@ func runCommand(t *testing.T, args ...string) string {
 		"KIMI_CODE_HOME="+t.TempDir(),
 		"KIMI_HOME="+t.TempDir(),
 		"OPENCODE_HOME="+t.TempDir(),
+		"CODEBUDDY_HOME="+t.TempDir(),
+		"CURSOR_HOME="+t.TempDir(),
+		"OPENCLAW_STATE_DIR="+t.TempDir(),
+		"ASM_CODEX_EXTRA_HOMES=",
+		"ASM_CLAUDE_EXTRA_HOMES=",
 	)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("command failed: %v\n%s", err, string(out))
-	}
-	return string(out)
+	return string(out), err
 }
 
 func writeSession(t *testing.T, path, id, cwd string) {
@@ -509,8 +632,37 @@ func jsonString(value string) string {
 	return string(data)
 }
 
+func writeCodeBuddySession(t *testing.T, home, id, cwd, title string) {
+	t.Helper()
+	writeFile(t, filepath.Join(home, "projects", "repo", id+".jsonl"), `{"sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-06-13T01:00:00Z","ai-title":`+jsonString(title)+`,"model":"codebuddy"}
+`)
+}
+
+func writeCursorSession(t *testing.T, home, id, cwd, title string) {
+	t.Helper()
+	projectKey := "project-" + id
+	writeFile(t, filepath.Join(home, "projects", projectKey, "worker.log"), `[info] Getting tree structure for workspacePath=`+cwd+`
+`)
+	writeFile(t, filepath.Join(home, "projects", projectKey, "agent-transcripts", id, id+".jsonl"), `{"role":"user","message":{"content":[{"type":"text","text":`+jsonString(title)+`}]}}
+`)
+}
+
+func writeOpenClawSession(t *testing.T, stateDir, id, nativeID, title string) {
+	t.Helper()
+	writeFile(t, filepath.Join(stateDir, "agents", "main", "sessions", "sessions.json"), `{
+  `+jsonString(id)+`: {
+    "sessionId": `+jsonString(nativeID)+`,
+    "updatedAt": 1781312460000,
+    "displayName": `+jsonString(title)+`
+  }
+}`)
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

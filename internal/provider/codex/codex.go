@@ -33,33 +33,26 @@ func (p Provider) Name() string {
 }
 
 func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, error) {
-	home := p.Home
-	if home == "" {
-		home = os.Getenv("CODEX_HOME")
-	}
-	if home == "" {
-		userHome, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		home = filepath.Join(userHome, ".codex")
-	}
-
-	sessionRoot := filepath.Join(home, "sessions")
-	files, err := collectJSONL(sessionRoot, opts)
+	homes, err := p.homes()
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
+		return nil, err
+	}
+	files, err := collectHomeJSONL(homes, opts)
+	if err != nil {
 		return nil, err
 	}
 
-	history := readHistoryTitles(filepath.Join(home, "history.jsonl"))
-	threadNames := readSessionIndexTitles(filepath.Join(home, "session_index.jsonl"))
 	cachePath := p.cachePath()
 	cache := sessioncache.Load(cachePath)
 	keep := make(map[string]struct{}, len(files))
 	cwdChecker := cwdstatus.NewChecker()
+	seen := make(map[string]struct{}, len(files))
+	histories := make(map[string]map[string]string, len(homes))
+	threadNames := make(map[string]map[string]string, len(homes))
+	for _, home := range homes {
+		histories[home] = nonNilTitleMap(readHistoryTitles(filepath.Join(home, "history.jsonl")))
+		threadNames[home] = nonNilTitleMap(readSessionIndexTitles(filepath.Join(home, "session_index.jsonl")))
+	}
 	sessions := make([]session.Session, 0, len(files))
 	for _, file := range files {
 		id := sessioncache.FileIdentity{
@@ -84,20 +77,27 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.Metadata = make(map[string]string)
 		}
 		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
+		if _, ok := seen[s.ID]; ok {
+			continue
+		}
+		// Extra homes can contain synchronized copies of the same Codex thread.
+		// Resume only needs the stable session ID, so the newest rollout file is
+		// the least surprising representation.
+		seen[s.ID] = struct{}{}
 		s.Provider = Name
 		s.Path = file.Path
 		s.UpdatedAt = file.ModTime
 		if s.CreatedAt.IsZero() {
 			s.CreatedAt = file.ModTime
 		}
+		s.Metadata["source_home"] = file.Home
 		cwdChecker.Mark(&s)
-		if title := history[s.ID]; title != "" {
-			s.Title = title
-			s.Metadata["title_source"] = "history"
-		}
-		if title := threadNames[s.ID]; title != "" {
+		if title := titleForID(s.ID, file.Home, homes, threadNames); title != "" {
 			s.Title = title
 			s.Metadata["title_source"] = "session_index"
+		} else if title := titleForID(s.ID, file.Home, homes, histories); title != "" {
+			s.Title = title
+			s.Metadata["title_source"] = "history"
 		}
 		if opts.Preview.Enabled() {
 			s.Previews = readUserPreviews(file.Path, opts.Preview)
@@ -111,6 +111,21 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 	_ = cache.Save(cachePath)
 	return sessions, nil
+}
+
+func (p Provider) homes() ([]string, error) {
+	if p.Home != "" {
+		return []string{p.Home}, nil
+	}
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		home = filepath.Join(userHome, ".codex")
+	}
+	return append([]string{home}, splitHomeList(os.Getenv("ASM_CODEX_EXTRA_HOMES"))...), nil
 }
 
 func shouldPruneCache(opts session.DiscoverOptions, fileCount int) bool {
@@ -144,11 +159,37 @@ func (p Provider) NewCommand(cwd string) session.ExecSpec {
 
 type fileInfo struct {
 	Path    string
+	Home    string
 	Size    int64
 	ModTime time.Time
 }
 
-func collectJSONL(root string, opts session.DiscoverOptions) ([]fileInfo, error) {
+func collectHomeJSONL(homes []string, opts session.DiscoverOptions) ([]fileInfo, error) {
+	var files []fileInfo
+	for _, home := range homes {
+		home = strings.TrimSpace(home)
+		if home == "" {
+			continue
+		}
+		homeFiles, err := collectJSONL(home, filepath.Join(home, "sessions"), opts)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		files = append(files, homeFiles...)
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime.After(files[j].ModTime)
+	})
+	if opts.LimitFiles > 0 && len(files) > opts.LimitFiles {
+		files = files[:opts.LimitFiles]
+	}
+	return files, nil
+}
+
+func collectJSONL(home, root string, opts session.DiscoverOptions) ([]fileInfo, error) {
 	var files []fileInfo
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -171,19 +212,48 @@ func collectJSONL(root string, opts session.DiscoverOptions) ([]fileInfo, error)
 		if !opts.Since.IsZero() && info.ModTime().Before(opts.Since) {
 			return nil
 		}
-		files = append(files, fileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime()})
+		files = append(files, fileInfo{Path: path, Home: home, Size: info.Size(), ModTime: info.ModTime()})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].ModTime.After(files[j].ModTime)
-	})
-	if opts.LimitFiles > 0 && len(files) > opts.LimitFiles {
-		files = files[:opts.LimitFiles]
-	}
 	return files, nil
+}
+
+func splitHomeList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	var out []string
+	for _, item := range filepath.SplitList(value) {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func nonNilTitleMap(titles map[string]string) map[string]string {
+	if titles != nil {
+		return titles
+	}
+	return map[string]string{}
+}
+
+func titleForID(id, preferredHome string, homes []string, titlesByHome map[string]map[string]string) string {
+	if title := titlesByHome[preferredHome][id]; title != "" {
+		return title
+	}
+	for _, home := range homes {
+		if home == preferredHome {
+			continue
+		}
+		if title := titlesByHome[home][id]; title != "" {
+			return title
+		}
+	}
+	return ""
 }
 
 type rawRecord struct {

@@ -1,4 +1,4 @@
-package claude
+package codebuddy
 
 import (
 	"bufio"
@@ -17,7 +17,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
-const Name = "claude"
+const Name = "codebuddy"
 
 type Provider struct {
 	Home      string
@@ -33,12 +33,15 @@ func (p Provider) Name() string {
 }
 
 func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, error) {
-	homes, err := p.homes()
+	home, err := p.home()
 	if err != nil {
 		return nil, err
 	}
-	files, err := collectHomeJSONL(homes, opts)
+	files, err := collectJSONL(filepath.Join(home, "projects"), opts)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -46,7 +49,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	cache := sessioncache.Load(cachePath)
 	keep := make(map[string]struct{}, len(files))
 	cwdChecker := cwdstatus.NewChecker()
-	seen := make(map[string]struct{}, len(files))
 	sessions := make([]session.Session, 0, len(files))
 	for _, file := range files {
 		id := sessioncache.FileIdentity{
@@ -57,35 +59,31 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		s, ok := cache.Get(id)
 		if !ok {
-			var err error
 			s, err = parseSessionFile(file.Path)
-			if err != nil || s.ID == "" || s.CWD == "" {
+			if err != nil || s.ID == "" {
 				continue
 			}
 			cache.Put(id, s)
 		}
-		if s.ID == "" || s.CWD == "" {
+		if s.ID == "" {
 			continue
 		}
-		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
-		if _, ok := seen[s.ID]; ok {
-			continue
-		}
-		// Claude can leave the same session ID in multiple project files after
-		// cwd/project changes. Resume targets the ID, so expose only the newest
-		// file to avoid showing one Claude conversation as several sessions.
-		seen[s.ID] = struct{}{}
 		if s.Metadata == nil {
 			s.Metadata = make(map[string]string)
 		}
-		s.Metadata["source_home"] = file.Home
+		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		s.Provider = Name
 		s.Path = file.Path
 		s.UpdatedAt = file.ModTime
 		if s.CreatedAt.IsZero() {
 			s.CreatedAt = file.ModTime
 		}
-		cwdChecker.Mark(&s)
+		s.Metadata["source_home"] = home
+		if s.CWD == "" {
+			s.Metadata["cwd_missing"] = "true"
+		} else {
+			cwdChecker.Mark(&s)
+		}
 		if opts.Preview.Enabled() {
 			s.Previews = readUserPreviews(file.Path, opts.Preview)
 		} else {
@@ -100,23 +98,32 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	return sessions, nil
 }
 
-func (p Provider) homes() ([]string, error) {
-	if p.Home != "" {
-		return []string{p.Home}, nil
+func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
+	return session.ExecSpec{
+		Dir:  s.CWD,
+		Args: []string{"codebuddy", "--resume", s.ID},
 	}
-	home := os.Getenv("CLAUDE_HOME")
-	if home == "" {
-		userHome, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		home = filepath.Join(userHome, ".claude")
-	}
-	return append([]string{home}, splitHomeList(os.Getenv("ASM_CLAUDE_EXTRA_HOMES"))...), nil
 }
 
-func shouldPruneCache(opts session.DiscoverOptions, fileCount int) bool {
-	return opts.Since.IsZero() && (opts.LimitFiles <= 0 || fileCount < opts.LimitFiles)
+func (p Provider) NewCommand(cwd string) session.ExecSpec {
+	return session.ExecSpec{
+		Dir:  cwd,
+		Args: []string{"codebuddy"},
+	}
+}
+
+func (p Provider) home() (string, error) {
+	if p.Home != "" {
+		return p.Home, nil
+	}
+	if home := os.Getenv("CODEBUDDY_HOME"); home != "" {
+		return home, nil
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(userHome, ".codebuddy"), nil
 }
 
 func (p Provider) cachePath() string {
@@ -130,53 +137,17 @@ func (p Provider) cachePath() string {
 	return path
 }
 
-func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
-	return session.ExecSpec{
-		Dir:  s.CWD,
-		Args: []string{"claude", "--resume", s.ID},
-	}
-}
-
-func (p Provider) NewCommand(cwd string) session.ExecSpec {
-	return session.ExecSpec{
-		Dir:  cwd,
-		Args: []string{"claude"},
-	}
+func shouldPruneCache(opts session.DiscoverOptions, fileCount int) bool {
+	return opts.Since.IsZero() && (opts.LimitFiles <= 0 || fileCount < opts.LimitFiles)
 }
 
 type fileInfo struct {
 	Path    string
-	Home    string
 	Size    int64
 	ModTime time.Time
 }
 
-func collectHomeJSONL(homes []string, opts session.DiscoverOptions) ([]fileInfo, error) {
-	var files []fileInfo
-	for _, home := range homes {
-		home = strings.TrimSpace(home)
-		if home == "" {
-			continue
-		}
-		homeFiles, err := collectJSONL(home, filepath.Join(home, "projects"), opts)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return nil, err
-		}
-		files = append(files, homeFiles...)
-	}
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].ModTime.After(files[j].ModTime)
-	})
-	if opts.LimitFiles > 0 && len(files) > opts.LimitFiles {
-		files = files[:opts.LimitFiles]
-	}
-	return files, nil
-}
-
-func collectJSONL(home, root string, opts session.DiscoverOptions) ([]fileInfo, error) {
+func collectJSONL(root string, opts session.DiscoverOptions) ([]fileInfo, error) {
 	var files []fileInfo
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -195,41 +166,35 @@ func collectJSONL(home, root string, opts session.DiscoverOptions) ([]fileInfo, 
 		if !opts.Since.IsZero() && info.ModTime().Before(opts.Since) {
 			return nil
 		}
-		files = append(files, fileInfo{Path: path, Home: home, Size: info.Size(), ModTime: info.ModTime()})
+		files = append(files, fileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime()})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime.After(files[j].ModTime)
+	})
+	if opts.LimitFiles > 0 && len(files) > opts.LimitFiles {
+		files = files[:opts.LimitFiles]
+	}
 	return files, nil
-}
-
-func splitHomeList(value string) []string {
-	if value == "" {
-		return nil
-	}
-	var out []string
-	for _, item := range filepath.SplitList(value) {
-		if item = strings.TrimSpace(item); item != "" {
-			out = append(out, item)
-		}
-	}
-	return out
 }
 
 type rawRecord struct {
 	Type      string          `json:"type"`
+	Role      string          `json:"role"`
 	SessionID string          `json:"sessionId"`
 	CWD       string          `json:"cwd"`
 	Timestamp string          `json:"timestamp"`
+	AITitle   string          `json:"ai-title"`
 	Summary   string          `json:"summary"`
-	Title     string          `json:"title"`
-	GitBranch string          `json:"gitBranch"`
-	IsMeta    bool            `json:"isMeta"`
+	Model     string          `json:"model"`
+	Content   json.RawMessage `json:"content"`
 	Message   json.RawMessage `json:"message"`
 }
 
-type claudeMessage struct {
+type codebuddyMessage struct {
 	Role    string          `json:"role"`
 	Model   string          `json:"model"`
 	Content json.RawMessage `json:"content"`
@@ -254,6 +219,8 @@ func parseSession(r io.Reader) (session.Session, error) {
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 
 	out := session.Session{Metadata: make(map[string]string)}
+	var aiTitle string
+	var summaryTitle string
 	var lastUserTitle string
 
 	for scanner.Scan() {
@@ -262,17 +229,17 @@ func parseSession(r io.Reader) (session.Session, error) {
 			continue
 		}
 		var rec rawRecord
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+		if json.Unmarshal([]byte(line), &rec) != nil {
 			continue
 		}
 		if rec.SessionID != "" {
-			out.ID = rec.SessionID
+			out.ID = strings.TrimSpace(rec.SessionID)
 		}
 		if rec.CWD != "" {
-			out.CWD = rec.CWD
+			out.CWD = strings.TrimSpace(rec.CWD)
 		}
-		if rec.GitBranch != "" {
-			out.Metadata["git_branch"] = rec.GitBranch
+		if rec.Model != "" {
+			out.Metadata["model"] = strings.TrimSpace(rec.Model)
 		}
 		if t := parseTime(rec.Timestamp); !t.IsZero() {
 			if out.CreatedAt.IsZero() || t.Before(out.CreatedAt) {
@@ -282,18 +249,18 @@ func parseSession(r io.Reader) (session.Session, error) {
 				out.UpdatedAt = t
 			}
 		}
-
-		if title := cleanTitle(firstNonEmpty(rec.Summary, rec.Title)); title != "" {
-			out.Title = title
-			out.Metadata["title_source"] = rec.Type
-			continue
+		if title := cleanTitle(rec.AITitle); title != "" {
+			aiTitle = title
+		}
+		if title := cleanTitle(rec.Summary); title != "" {
+			summaryTitle = title
 		}
 
-		msg := parseMessage(rec.Message)
+		msg := parseMessage(rec)
 		if msg.Model != "" {
 			out.Metadata["model"] = msg.Model
 		}
-		if rec.Type == "user" && !rec.IsMeta && msg.Role == "user" {
+		if messageRole(rec, msg) == "user" {
 			if title := cleanTitle(messageText(msg.Content)); title != "" {
 				lastUserTitle = title
 			}
@@ -302,22 +269,73 @@ func parseSession(r io.Reader) (session.Session, error) {
 	if err := scanner.Err(); err != nil {
 		return session.Session{}, err
 	}
-	if out.Title == "" && lastUserTitle != "" {
+	switch {
+	case aiTitle != "":
+		out.Title = aiTitle
+		out.Metadata["title_source"] = "ai-title"
+	case summaryTitle != "":
+		out.Title = summaryTitle
+		out.Metadata["title_source"] = "summary"
+	case lastUserTitle != "":
 		out.Title = lastUserTitle
 		out.Metadata["title_source"] = "user"
 	}
 	return out, nil
 }
 
-func parseMessage(raw json.RawMessage) claudeMessage {
-	if len(raw) == 0 {
-		return claudeMessage{}
+func readUserPreviews(path string, opts session.PreviewOptions) []session.MessagePreview {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
 	}
-	var msg claudeMessage
-	if json.Unmarshal(raw, &msg) != nil {
-		return claudeMessage{}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	var messages []session.MessagePreview
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var rec rawRecord
+		if json.Unmarshal([]byte(line), &rec) != nil {
+			continue
+		}
+		msg := parseMessage(rec)
+		if messageRole(rec, msg) != "user" {
+			continue
+		}
+		if text := cleanTitle(messageText(msg.Content)); text != "" {
+			messages = append(messages, session.MessagePreview{
+				Text:   text,
+				At:     parseTime(rec.Timestamp),
+				Source: "codebuddy:user",
+			})
+		}
 	}
-	return msg
+	return session.SelectMessagePreviews(messages, opts)
+}
+
+func parseMessage(rec rawRecord) codebuddyMessage {
+	if len(rec.Message) != 0 {
+		var msg codebuddyMessage
+		if json.Unmarshal(rec.Message, &msg) == nil {
+			return msg
+		}
+	}
+	return codebuddyMessage{
+		Role:    rec.Role,
+		Model:   rec.Model,
+		Content: rec.Content,
+	}
+}
+
+func messageRole(rec rawRecord, msg codebuddyMessage) string {
+	if msg.Role != "" {
+		return msg.Role
+	}
+	return rec.Role
 }
 
 func messageText(raw json.RawMessage) string {
@@ -344,40 +362,6 @@ func messageText(raw json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-func readUserPreviews(path string, opts session.PreviewOptions) []session.MessagePreview {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
-	var messages []session.MessagePreview
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var rec rawRecord
-		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "user" || rec.IsMeta {
-			continue
-		}
-		msg := parseMessage(rec.Message)
-		if msg.Role != "user" {
-			continue
-		}
-		if text := cleanTitle(messageText(msg.Content)); text != "" {
-			messages = append(messages, session.MessagePreview{
-				Text:   text,
-				At:     parseTime(rec.Timestamp),
-				Source: "claude:user",
-			})
-		}
-	}
-	return session.SelectMessagePreviews(messages, opts)
-}
-
 func cleanTitle(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" || isInjectedContext(text) {
@@ -388,15 +372,11 @@ func cleanTitle(text string) string {
 
 func isInjectedContext(text string) bool {
 	prefixes := []string{
-		"# CLAUDE.md instructions",
 		"# AGENTS.md instructions",
+		"# CLAUDE.md instructions",
 		"<environment_context",
 		"<system-reminder>",
-		"<command-name>",
-		"<local-command-stdout>",
 		"<user_action",
-		"The following is the Claude agent history",
-		"The following is the Codex agent history",
 	}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(text, prefix) {
@@ -404,15 +384,6 @@ func isInjectedContext(text string) bool {
 		}
 	}
 	return false
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func parseTime(value string) time.Time {
