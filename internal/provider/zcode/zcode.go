@@ -48,13 +48,30 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 	dbMtime := info.ModTime()
 
+	// Push --since and --limit into SQL so default discovery only scans rows in
+	// the active window instead of the full ZCode history. ZCode stores
+	// time_updated as a millisecond Unix epoch.
+	var sinceMillis int64
+	if !opts.Since.IsZero() {
+		sinceMillis = opts.Since.UnixMilli()
+	}
+	var limitArg any
+	if opts.LimitFiles > 0 {
+		limitArg = opts.LimitFiles
+	}
+
 	db, err := openDB(dbPath)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	rows, err := db.Query(sessionQuery)
+	query := sessionQuery(opts)
+	queryArgs := []any{sinceMillis}
+	if limitArg != nil {
+		queryArgs = append(queryArgs, limitArg)
+	}
+	rows, err := db.Query(query, queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("zcode query sessions: %w", err)
 	}
@@ -80,22 +97,18 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if updated.IsZero() {
 			updated = dbMtime
 		}
-		if !opts.Since.IsZero() && updated.Before(opts.Since) {
-			continue
-		}
-		if archived.Valid {
-			// Archived sessions are not active history and cannot be resumed.
-			continue
-		}
+		// Archived sessions are already excluded by the SQL WHERE clause
+		// (time_archived IS NULL); the scanned column is retained for schema parity.
+		_ = archived
 		pendingSessions = append(pendingSessions, pending{rec: rec, mod: updated})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("zcode iterate sessions: %w", err)
 	}
 
-	// The session query already orders by time_updated DESC, matching the
-	// cross-provider newest-first convention. Apply the file-scan limit here so
-	// --limit stays effective after newest-first ordering.
+	// The session query orders by time_updated DESC and applies --since and
+	// --limit at the SQL boundary so default discovery stays cheap. The limit
+	// here is a defensive cap in case the DB returns more rows than requested.
 	if opts.LimitFiles > 0 && len(pendingSessions) > opts.LimitFiles {
 		pendingSessions = pendingSessions[:opts.LimitFiles]
 	}
@@ -194,12 +207,28 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-const sessionQuery = `
+const sessionSelect = `
 SELECT id, directory, title, title_source, time_created, time_updated,
        path, slug, project_id, time_archived
 FROM session
-ORDER BY time_updated DESC
+WHERE time_archived IS NULL
 `
+
+// sessionQuery builds the session SELECT with --since and --limit pushed into
+// SQL so default discovery only reads rows in the active window. ZCode stores
+// time_updated as a millisecond Unix epoch; sinceMillis is 0 when --since is
+// unset, leaving the window unbounded.
+func sessionQuery(opts session.DiscoverOptions) string {
+	q := sessionSelect
+	if !opts.Since.IsZero() {
+		q += " AND time_updated >= ?"
+	}
+	q += " ORDER BY time_updated DESC"
+	if opts.LimitFiles > 0 {
+		q += " LIMIT ?"
+	}
+	return q
+}
 
 type sessionRecord struct {
 	ID          string
