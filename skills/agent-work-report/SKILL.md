@@ -13,6 +13,7 @@ Use `asm report` as the source of truth. Do not inspect provider-private session
    - Use `--period today` for 今日, 今天, so far today, or 截止当前 requests.
    - Use `--period yesterday` for 日报, yesterday, 昨天, or daily-report requests.
    - Use `--period last-week` for 周报, last week, 上周, or weekly-report requests.
+   - Use `--period last-7-days` for 最近 7 天, 7 天内, rolling-week, or recent-week requests.
 2. Run the CLI:
    - Prefer an installed binary: `asm report --period <period>`.
    - If working inside this repository and `asm` is not installed, use `go run ./cmd/asm report --period <period>`.

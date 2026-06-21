@@ -12,6 +12,7 @@ const (
 	PeriodToday     = "today"
 	PeriodYesterday = "yesterday"
 	PeriodLastWeek  = "last-week"
+	PeriodLast7Days = "last-7-days"
 )
 
 type Window struct {
@@ -53,6 +54,8 @@ func WindowForPeriod(period string, now time.Time, loc *time.Location) (Window, 
 		end := today.AddDate(0, 0, -weekStartOffset)
 		start := end.AddDate(0, 0, -7)
 		return Window{Period: period, Start: start, End: end, Timezone: loc.String()}, nil
+	case PeriodLast7Days:
+		return Window{Period: period, Start: now.In(loc).AddDate(0, 0, -7), End: now.In(loc), Timezone: loc.String()}, nil
 	default:
 		return Window{}, fmt.Errorf("unsupported report period %q", period)
 	}

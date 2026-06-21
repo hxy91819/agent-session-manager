@@ -481,7 +481,7 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
 	fs.IntVar(&cfg.limit, "limit", 2000, "maximum session files to scan per provider")
-	fs.StringVar(&cfg.period, "period", reportpkg.PeriodYesterday, "report period: today, yesterday, last-week")
+	fs.StringVar(&cfg.period, "period", reportpkg.PeriodYesterday, "report period: today, yesterday, last-week, last-7-days")
 	fs.IntVar(&cfg.previewEdges, "preview-messages-per-edge", session.DefaultPreviewMessagesPerEdge, "user message previews to include from both the start and end of each session")
 	fs.IntVar(&cfg.previewChars, "preview-max-chars", session.DefaultPreviewMaxChars, "maximum characters per message preview")
 	fs.IntVar(&cfg.previewOffset, "preview-edge-offset", 0, "skip this many user messages from both preview edges before selecting previews")

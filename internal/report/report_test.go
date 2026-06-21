@@ -43,6 +43,18 @@ func TestWindowForPeriodLastWeekUsesMondayStart(t *testing.T) {
 	assertTime(t, got.End, time.Date(2026, 6, 15, 0, 0, 0, 0, loc))
 }
 
+func TestWindowForPeriodLast7DaysUsesRollingWindow(t *testing.T) {
+	loc := time.FixedZone("Local", 8*60*60)
+	now := time.Date(2026, 6, 18, 15, 30, 0, 0, loc)
+
+	got, err := WindowForPeriod(PeriodLast7Days, now, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTime(t, got.Start, time.Date(2026, 6, 11, 15, 30, 0, 0, loc))
+	assertTime(t, got.End, now)
+}
+
 func TestBuildPayloadFiltersWindowAndCountsTotals(t *testing.T) {
 	loc := time.FixedZone("Local", 8*60*60)
 	start := time.Date(2026, 6, 17, 0, 0, 0, 0, loc)
