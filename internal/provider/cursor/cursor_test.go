@@ -95,13 +95,20 @@ func TestDecodeProjectCWDMarksHyphenatedKeysUnavailable(t *testing.T) {
 }
 
 func TestDecodeProjectCWDRestoresLeadingSlashForSingleSegmentKeys(t *testing.T) {
+	got := decodeProjectCWD("asmcursormissing")
+	if got.CWD != "/asmcursormissing" || !got.Missing || got.Error != "" {
+		t.Fatalf("decodeProjectCWD(asmcursormissing) = %#v, want missing /asmcursormissing", got)
+	}
+}
+
+func TestDecodeProjectCWDAcceptsEscapedPOSIXAbsolutePath(t *testing.T) {
 	if _, err := os.Stat("/tmp"); err != nil {
 		t.Skip("/tmp is not available")
 	}
 
-	got := decodeProjectCWD("tmp")
+	got := decodeProjectCWD("%2Ftmp")
 	if got.CWD != "/tmp" || got.Missing || got.Error != "" {
-		t.Fatalf("decodeProjectCWD(tmp) = %#v, want /tmp", got)
+		t.Fatalf("decodeProjectCWD(%%2Ftmp) = %#v, want /tmp", got)
 	}
 }
 

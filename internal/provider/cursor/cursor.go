@@ -271,16 +271,20 @@ type cwdResolution struct {
 }
 
 func decodeProjectCWD(projectKey string) cwdResolution {
-	if decoded, err := url.PathUnescape(projectKey); err == nil && decoded != projectKey && filepath.IsAbs(decoded) {
+	if decoded, err := url.PathUnescape(projectKey); err == nil && decoded != projectKey && isProjectCWDAbs(decoded) {
 		return checkedCWD(decoded)
 	}
 	if !strings.Contains(projectKey, "-") {
-		return checkedCWD(string(os.PathSeparator) + projectKey)
+		return checkedCWD("/" + projectKey)
 	}
 	// Cursor's project key uses "-" for path separators, which is lossy when
 	// any original path segment may also contain "-". Leave CWD empty rather
 	// than publishing a guessed project path to JSON, grouping, and resume.
 	return cwdResolution{Error: "cursor project cwd encoding is ambiguous"}
+}
+
+func isProjectCWDAbs(cwd string) bool {
+	return filepath.IsAbs(cwd) || strings.HasPrefix(cwd, "/")
 }
 
 func checkedCWD(cwd string) cwdResolution {
