@@ -192,6 +192,8 @@ Agent report export:
 go run ./cmd/asm report --period yesterday
 go run ./cmd/asm report --period today
 go run ./cmd/asm report --period last-week
+go run ./cmd/asm report --start "2026-06-17" --end "2026-06-18"
+go run ./cmd/asm report --start "2026-06-17 09:00" --end "2026-06-17 18:30"
 go run ./cmd/asm report --period yesterday --preview-messages-per-edge 4 --preview-max-chars 1000
 go run ./cmd/asm report --period yesterday --preview-messages-per-edge 2 --preview-edge-offset 2
 ```
@@ -199,6 +201,13 @@ go run ./cmd/asm report --period yesterday --preview-messages-per-edge 2 --previ
 `asm report` prints JSON for agent consumption. It uses local-time natural
 windows and includes bounded user-message previews only for the report path.
 `today` covers local midnight through the command's current time.
+Use `--start` and `--end` for custom windows; accepted formats are
+`YYYY-MM-DD`, local `YYYY-MM-DD HH:MM[:SS]`, and RFC3339. Custom report
+windows are half-open (`start <= item < end`), so `--end 2026-06-18` excludes
+events at local midnight on June 18.
+For report writing, `sessions[].evidence` is the authoritative in-window work
+evidence. Session titles and paths are labels only because a long-lived session
+can have a title from before the requested report window.
 If the default previews are not enough for a reliable summary, increase
 `--preview-messages-per-edge` or `--preview-max-chars` and rerun the report.
 For incremental context loading, keep `--preview-messages-per-edge` fixed and

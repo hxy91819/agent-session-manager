@@ -32,6 +32,7 @@ import (
 
 type config struct {
 	codexHome     string
+	codexProfile  string
 	claudeHome    string
 	kimiHome      string
 	opencodeHome  string
@@ -60,6 +61,8 @@ type reportConfig struct {
 	query         string
 	sortMode      index.SortMode
 	period        string
+	start         string
+	end           string
 	limit         int
 	previewEdges  int
 	previewChars  int
@@ -68,6 +71,7 @@ type reportConfig struct {
 
 type resumeConfig struct {
 	codexHome     string
+	codexProfile  string
 	claudeHome    string
 	kimiHome      string
 	opencodeHome  string
@@ -123,7 +127,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
 	loadSessions := func(days int) ([]session.Session, error) {
 		items, err := discoverAll(providers, cfg.limit, days)
 		if err != nil {
@@ -177,7 +181,7 @@ func runResume(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
 	sessions, err := discoverAll(providers, cfg.limit, cfg.sinceDays)
 	if err != nil {
 		return err
@@ -258,11 +262,11 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	window, err := reportpkg.WindowForPeriod(cfg.period, time.Now(), time.Local)
+	window, err := reportWindow(cfg, time.Now(), time.Local)
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
 	items, err := discoverAllWithOptions(providers, session.DiscoverOptions{
 		LimitFiles: cfg.limit,
 		Since:      window.Start,
@@ -284,12 +288,23 @@ func runReport(args []string) error {
 	return enc.Encode(payload)
 }
 
+func reportWindow(cfg reportConfig, now time.Time, loc *time.Location) (reportpkg.Window, error) {
+	if cfg.start != "" || cfg.end != "" {
+		if cfg.start == "" || cfg.end == "" {
+			return reportpkg.Window{}, errors.New("report custom range requires both --start and --end")
+		}
+		return reportpkg.WindowForRange(cfg.start, cfg.end, loc)
+	}
+	return reportpkg.WindowForPeriod(cfg.period, now, loc)
+}
+
 func parseFlags(args []string) (config, error) {
 	var cfg config
 	var sortMode string
 	fs := flag.NewFlagSet("asm", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
+	fs.StringVar(&cfg.codexProfile, "codex-profile", "", "Codex config profile for new/resume commands")
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
 	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
 	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
@@ -328,6 +343,7 @@ func parseResumeFlags(args []string) (resumeConfig, error) {
 	fs := flag.NewFlagSet("asm resume", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
+	fs.StringVar(&cfg.codexProfile, "codex-profile", "", "Codex config profile for resume commands")
 	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
 	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
 	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
@@ -482,6 +498,8 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
 	fs.IntVar(&cfg.limit, "limit", 2000, "maximum session files to scan per provider")
 	fs.StringVar(&cfg.period, "period", reportpkg.PeriodYesterday, "report period: today, yesterday, last-week, last-7-days")
+	fs.StringVar(&cfg.start, "start", "", "custom report start time: YYYY-MM-DD, local YYYY-MM-DD HH:MM[:SS], or RFC3339")
+	fs.StringVar(&cfg.end, "end", "", "custom report end time, exclusive: YYYY-MM-DD, local YYYY-MM-DD HH:MM[:SS], or RFC3339")
 	fs.IntVar(&cfg.previewEdges, "preview-messages-per-edge", session.DefaultPreviewMessagesPerEdge, "user message previews to include from both the start and end of each session")
 	fs.IntVar(&cfg.previewChars, "preview-max-chars", session.DefaultPreviewMaxChars, "maximum characters per message preview")
 	fs.IntVar(&cfg.previewOffset, "preview-edge-offset", 0, "skip this many user messages from both preview edges before selecting previews")
@@ -507,9 +525,9 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	return cfg, nil
 }
 
-func newProviders(codexHome, claudeHome, kimiHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, zcodeHome string) []session.Provider {
+func newProviders(codexHome, codexProfile, claudeHome, kimiHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, zcodeHome string) []session.Provider {
 	return []session.Provider{
-		codex.New(codexHome),
+		codex.NewWithProfile(codexHome, codexProfile),
 		claude.New(claudeHome),
 		kimi.New(kimiHome),
 		opencode.New(opencodeHome),

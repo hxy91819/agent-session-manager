@@ -12,6 +12,11 @@ type Session struct {
 	Path      string            `json:"path"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 	Previews  []MessagePreview  `json:"previews,omitempty"`
+	// Evidence is populated by report output only. It duplicates the in-window
+	// user previews under a decision-oriented name so report agents do not treat
+	// stale session titles as proof of work in the requested period.
+	Evidence      []MessagePreview `json:"evidence,omitempty"`
+	EvidenceCount int              `json:"evidence_count,omitempty"`
 	// ResumeCommand is a user-facing asm command, populated only for report
 	// output so agents can hand users a precise way back into a session.
 	ResumeCommand string `json:"resume_command,omitempty"`

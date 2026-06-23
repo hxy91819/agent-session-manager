@@ -22,10 +22,15 @@ const Name = "codex"
 type Provider struct {
 	Home      string
 	CachePath string
+	Profile   string
 }
 
 func New(home string) Provider {
 	return Provider{Home: home}
+}
+
+func NewWithProfile(home, profile string) Provider {
+	return Provider{Home: home, Profile: profile}
 }
 
 func (p Provider) Name() string {
@@ -144,16 +149,25 @@ func (p Provider) cachePath() string {
 }
 
 func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
+	args := []string{"codex", "resume"}
+	if p.Profile != "" {
+		args = append(args, "--profile", p.Profile)
+	}
+	args = append(args, s.ID)
 	return session.ExecSpec{
 		Dir:  s.CWD,
-		Args: []string{"codex", "resume", s.ID},
+		Args: args,
 	}
 }
 
 func (p Provider) NewCommand(cwd string) session.ExecSpec {
+	args := []string{"codex"}
+	if p.Profile != "" {
+		args = append(args, "--profile", p.Profile)
+	}
 	return session.ExecSpec{
 		Dir:  cwd,
-		Args: []string{"codex"},
+		Args: args,
 	}
 }
 

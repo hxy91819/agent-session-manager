@@ -68,9 +68,19 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 
+	cmd = runCommand(t, "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--resume", "openclaw-session", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
+		t.Fatalf("unexpected profiled resume command: %s", cmd)
+	}
+
 	cmd = runCommand(t, "resume", "--codex-home", home, "--claude-home", claudeHome, "--provider", "codex", "--print-exec", "openclaw-session")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume subcommand: %s", cmd)
+	}
+
+	cmd = runCommand(t, "resume", "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--provider", "codex", "--print-exec", "openclaw-session")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
+		t.Fatalf("unexpected profiled resume subcommand: %s", cmd)
 	}
 }
 
@@ -509,6 +519,10 @@ func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 			Previews []struct {
 				Text string `json:"text"`
 			} `json:"previews"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+			EvidenceCount int `json:"evidence_count"`
 		} `json:"sessions"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -522,6 +536,69 @@ func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 	}
 	if len(payload.Sessions[0].Previews) != 1 || payload.Sessions[0].Previews[0].Text != "today report prompt" {
 		t.Fatalf("unexpected previews: %#v", payload.Sessions[0].Previews)
+	}
+}
+
+func TestCLIReportCustomRangeIncludesWindowedPreviews(t *testing.T) {
+	home := t.TempDir()
+	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "18")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	loc := time.Local
+	start := time.Date(2026, 6, 18, 9, 0, 0, 0, loc)
+	end := time.Date(2026, 6, 18, 12, 0, 0, 0, loc)
+	sessionPath := filepath.Join(sessionDir, "custom-range.jsonl")
+	writeFile(t, sessionPath, `{"timestamp":"`+start.Add(time.Hour).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"custom-range-session","timestamp":"`+start.Add(time.Hour).Format(time.RFC3339Nano)+`","cwd":`+jsonString(repo)+`}}
+{"timestamp":"`+start.Add(-time.Second).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"before custom range"}]}}
+{"timestamp":"`+start.Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inside custom start"}]}}
+{"timestamp":"`+end.Add(-time.Second).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inside custom end"}]}}
+{"timestamp":"`+end.Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"outside custom end"}]}}
+`)
+	if err := os.Chtimes(sessionPath, start.Add(time.Hour), start.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--start", "2026-06-18 09:00", "--end", "2026-06-18 12:00")
+	var payload struct {
+		Period   string `json:"period"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Previews []struct {
+				Text string `json:"text"`
+			} `json:"previews"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+			EvidenceCount int `json:"evidence_count"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Period != "custom" {
+		t.Fatalf("period = %q", payload.Period)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "custom-range-session" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	var previews []string
+	for _, preview := range payload.Sessions[0].Previews {
+		previews = append(previews, preview.Text)
+	}
+	want := []string{"inside custom start", "inside custom end"}
+	if strings.Join(previews, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", previews, want)
+	}
+	var evidence []string
+	for _, item := range payload.Sessions[0].Evidence {
+		evidence = append(evidence, item.Text)
+	}
+	if payload.Sessions[0].EvidenceCount != len(want) || strings.Join(evidence, "|") != strings.Join(want, "|") {
+		t.Fatalf("evidence = %#v count=%d, want %#v", evidence, payload.Sessions[0].EvidenceCount, want)
 	}
 }
 

@@ -417,6 +417,17 @@ func TestResumeCommandUsesSessionCWD(t *testing.T) {
 	}
 }
 
+func TestResumeCommandUsesConfiguredProfile(t *testing.T) {
+	spec := NewWithProfile("", "ollama-cloud").ResumeCommand(session.Session{ID: "sid", CWD: "/repo"})
+
+	if spec.Dir != "/repo" {
+		t.Fatalf("Dir = %q", spec.Dir)
+	}
+	if strings.Join(spec.Args, " ") != "codex resume --profile ollama-cloud sid" {
+		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
 func TestNewCommandUsesProjectCWD(t *testing.T) {
 	spec := New("").NewCommand("/repo")
 
@@ -424,6 +435,17 @@ func TestNewCommandUsesProjectCWD(t *testing.T) {
 		t.Fatalf("Dir = %q", spec.Dir)
 	}
 	if strings.Join(spec.Args, " ") != "codex" {
+		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
+func TestNewCommandUsesConfiguredProfile(t *testing.T) {
+	spec := NewWithProfile("", "ollama-cloud").NewCommand("/repo")
+
+	if spec.Dir != "/repo" {
+		t.Fatalf("Dir = %q", spec.Dir)
+	}
+	if strings.Join(spec.Args, " ") != "codex --profile ollama-cloud" {
 		t.Fatalf("Args = %#v", spec.Args)
 	}
 }
