@@ -146,7 +146,16 @@ func withEvidence(sessions []session.Session) []session.Session {
 func FilterWindow(sessions []session.Session, start, end time.Time) []session.Session {
 	out := make([]session.Session, 0, len(sessions))
 	for _, item := range sessions {
-		if item.UpdatedAt.Before(start) || !item.UpdatedAt.Before(end) {
+		previews := make([]session.MessagePreview, 0, len(item.Previews))
+		for _, preview := range item.Previews {
+			if preview.At.IsZero() || preview.At.Before(start) || !preview.At.Before(end) {
+				continue
+			}
+			previews = append(previews, preview)
+		}
+		item.Previews = previews
+		updatedInWindow := !item.UpdatedAt.Before(start) && item.UpdatedAt.Before(end)
+		if len(item.Previews) == 0 && !updatedInWindow {
 			continue
 		}
 		out = append(out, item)

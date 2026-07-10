@@ -137,6 +137,35 @@ func TestBuildPayloadFiltersWindowAndCountsTotals(t *testing.T) {
 	}
 }
 
+func TestBuildPayloadIncludesCrossWindowSessionWithInWindowEvidence(t *testing.T) {
+	loc := time.FixedZone("Local", 8*60*60)
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, loc)
+	end := time.Date(2026, 6, 18, 0, 0, 0, 0, loc)
+	payload := BuildPayload(Window{
+		Period:   PeriodYesterday,
+		Start:    start,
+		End:      end,
+		Timezone: loc.String(),
+	}, []session.Session{{
+		ID:        "continued-today",
+		Provider:  "codex",
+		CWD:       "/repo",
+		UpdatedAt: end.Add(time.Hour),
+		Previews: []session.MessagePreview{
+			{Text: "yesterday evidence", At: start.Add(time.Hour)},
+			{Text: "today evidence", At: end.Add(time.Minute)},
+		},
+	}})
+
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 {
+		t.Fatalf("cross-window session was omitted: %#v", payload)
+	}
+	got := payload.Sessions[0]
+	if got.EvidenceCount != 1 || len(got.Evidence) != 1 || got.Evidence[0].Text != "yesterday evidence" {
+		t.Fatalf("evidence = %#v count=%d", got.Evidence, got.EvidenceCount)
+	}
+}
+
 func assertTime(t *testing.T, got, want time.Time) {
 	t.Helper()
 	if !got.Equal(want) {
