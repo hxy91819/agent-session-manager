@@ -1,6 +1,8 @@
 package report
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,6 +165,82 @@ func TestBuildPayloadIncludesCrossWindowSessionWithInWindowEvidence(t *testing.T
 	got := payload.Sessions[0]
 	if got.EvidenceCount != 1 || len(got.Evidence) != 1 || got.Evidence[0].Text != "yesterday evidence" {
 		t.Fatalf("evidence = %#v count=%d", got.Evidence, got.EvidenceCount)
+	}
+}
+
+func TestBuildPayloadDoesNotCountRecordUpdateWithoutWindowEvidence(t *testing.T) {
+	loc := time.FixedZone("Local", 8*60*60)
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, loc)
+	end := start.AddDate(0, 0, 1)
+	payload := BuildPayload(Window{
+		Period:   PeriodYesterday,
+		Start:    start,
+		End:      end,
+		Timezone: loc.String(),
+	}, []session.Session{{
+		ID:        "touched-only",
+		Provider:  "codex",
+		CWD:       "/repo",
+		Title:     "old work must not enter the report",
+		UpdatedAt: start.Add(time.Hour),
+		Previews: []session.MessagePreview{{
+			Text: "old evidence",
+			At:   start.AddDate(0, 0, -2),
+		}},
+		Evidence:      []session.MessagePreview{{Text: "stale evidence", At: start.AddDate(0, 0, -2)}},
+		EvidenceCount: 1,
+	}})
+
+	if payload.Totals.Sessions != 0 || len(payload.Sessions) != 0 || len(payload.Projects) != 0 {
+		t.Fatalf("unverified activity entered the evidence report: %#v", payload)
+	}
+	if payload.Totals.UnverifiedSessions != 1 || len(payload.UnverifiedSessions) != 1 {
+		t.Fatalf("unverified activity was not diagnosed: %#v", payload)
+	}
+	if payload.UnverifiedSessions[0].ID != "touched-only" || payload.UnverifiedSessions[0].Reason == "" {
+		t.Fatalf("unverified activity = %#v", payload.UnverifiedSessions)
+	}
+	encoded, err := json.Marshal(payload.UnverifiedSessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "old work") || strings.Contains(string(encoded), "stale evidence") {
+		t.Fatalf("unverified diagnostics leaked stale content: %s", encoded)
+	}
+}
+
+func TestBuildPayloadReportsProviderEvidenceCoverage(t *testing.T) {
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	payload := BuildPayload(Window{
+		Period: PeriodCustom,
+		Start:  start,
+		End:    start.AddDate(0, 0, 1),
+	}, []session.Session{
+		{
+			ID:       "kimi-session",
+			Provider: "kimi",
+			Metadata: map[string]string{
+				session.MetadataReportEvidenceStatus: session.ReportEvidencePartial,
+				session.MetadataReportEvidenceNote:   "latest prompt only",
+			},
+			Previews: []session.MessagePreview{{Text: "latest", At: start.Add(time.Hour)}},
+		},
+		{
+			ID:        "openclaw-session",
+			Provider:  "openclaw",
+			UpdatedAt: start.Add(time.Hour),
+			Metadata: map[string]string{
+				session.MetadataReportEvidenceStatus: session.ReportEvidenceUnavailable,
+				session.MetadataReportEvidenceNote:   "transcript not parsed",
+			},
+		},
+	})
+
+	if got := payload.Coverage["kimi"]; got.Status != "partial" || got.Note != "latest prompt only" {
+		t.Fatalf("kimi coverage = %#v", got)
+	}
+	if got := payload.Coverage["openclaw"]; got.Status != "unavailable" || got.Note != "transcript not parsed" {
+		t.Fatalf("openclaw coverage = %#v", got)
 	}
 }
 

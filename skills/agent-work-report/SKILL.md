@@ -27,9 +27,11 @@ Use `asm report` as the source of truth. Do not inspect provider-private session
    - If the snippets themselves are too short, rerun the needed pass with `--preview-max-chars 1000`.
    - Stop escalating when the report is clear enough; do not request full transcripts unless the user explicitly asks.
 4. Read the JSON payload. Treat `sessions[].evidence[].text` as the only evidence that specific work happened inside the requested period. `sessions[].previews` is kept for compatibility and has the same in-window content, but prefer `evidence` because its name encodes the reporting contract.
-   - Never write a completed-work item from `sessions[].title`, `sessions[].cwd`, `sessions[].path`, or `projects[].sessions[].title` unless at least one `evidence[].text` item supports it.
-   - Use titles, cwd paths, and resume commands only as labels or navigation aids because long-lived sessions can have older titles from outside the requested period.
-5. Classify work by project path first, then merge related sessions into themes using evidence text. Titles may help name a theme only after evidence confirms the theme happened in the requested period.
+   - Main `sessions`, `projects`, and `totals.sessions` include only sessions with timestamped in-window evidence.
+   - `unverified_sessions` contains session-record update diagnostics without trustworthy message evidence. Never infer that user work occurred from these entries.
+   - Read `coverage` before summarizing. Report `partial` or `unavailable` providers under risks when they could make the requested report incomplete.
+   - Session titles are intentionally omitted from report output so a long-lived session's older topic cannot anchor the current report.
+5. Classify work by project path first, then merge related sessions into themes using evidence text only.
    - Use `sessions[].resume_command` for copyable follow-up commands.
    - Include resume commands only for items that are useful to revisit, especially follow-up work.
 6. Write the report in Chinese unless the user asks for another language.
@@ -44,7 +46,7 @@ For 日报:
 - 主要方向：<1-3 个主题>
 
 ## 完成事项
-- <项目或主题>：<基于会话标题和 preview 的具体成果>
+- <项目或主题>：<仅基于窗口内 evidence 的具体成果>
 
 ## 后续跟进
 - <仍在推进、需要确认、需要明天继续或下周继续的事项>  
@@ -58,9 +60,9 @@ For 周报, use the same evidence rules; group `完成事项` and `后续跟进`
 
 ## Evidence Rules
 
-- Mention provider/session counts only from `totals`.
+- Mention verified provider/session counts only from `totals`; label `totals.unverified_sessions` separately if it is non-zero.
 - Prefer concise synthesis over listing every session.
-- If a session has no evidence, do not turn its title into a completed work item; at most mention that a session file was active but had no in-period user-message evidence.
+- Never use `unverified_sessions` as work evidence; mention them only as coverage diagnostics when relevant.
 - Preserve uncertainty: use “看起来/主要是/可能需要” when the payload only implies intent.
 - Do not include raw session IDs unless the user asks for traceability.
 - Prefer `resume_command` over raw IDs when a follow-up needs a session reference.

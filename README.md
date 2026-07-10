@@ -206,8 +206,18 @@ Use `--start` and `--end` for custom windows; accepted formats are
 windows are half-open (`start <= item < end`), so `--end 2026-06-18` excludes
 events at local midnight on June 18.
 For report writing, `sessions[].evidence` is the authoritative in-window work
-evidence. Session titles and paths are labels only because a long-lived session
-can have a title from before the requested report window.
+evidence. The main `sessions`, `projects`, and their totals contain only sessions
+with timestamped user-message evidence inside the requested half-open window.
+Session titles are omitted from report output because a long-lived session can
+have a title from another day. Session records updated within the window without
+timestamped message evidence are placed in `unverified_sessions`; this is a
+diagnostic signal, not proof that user work occurred in the window.
+
+`coverage` describes known provider limitations. Kimi is currently marked
+`partial` because its state exposes only the latest prompt, and OpenClaw is
+marked `unavailable` until its transcript is parsed. opencode messages without
+an original message timestamp are excluded from evidence rather than dated by
+filesystem mtime.
 If the default previews are not enough for a reliable summary, increase
 `--preview-messages-per-edge` or `--preview-max-chars` and rerun the report.
 For incremental context loading, keep `--preview-messages-per-edge` fixed and

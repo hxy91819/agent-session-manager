@@ -70,6 +70,8 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if err != nil || file.Entry.SessionID == "" || file.Entry.WorkDir == "" {
 			continue
 		}
+		// TODO(report-live-validation): if a stable Kimi transcript store is
+		// confirmed, replace latest-only evidence with timestamped message history.
 		s := session.Session{
 			ID:        file.Entry.SessionID,
 			Provider:  Name,
@@ -78,7 +80,11 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			CreatedAt: parseTime(state.CreatedAt),
 			UpdatedAt: file.ModTime,
 			Path:      file.StatePath,
-			Metadata:  map[string]string{"session_dir": file.Entry.SessionDir},
+			Metadata: map[string]string{
+				"session_dir":                        file.Entry.SessionDir,
+				session.MetadataReportEvidenceStatus: session.ReportEvidencePartial,
+				session.MetadataReportEvidenceNote:   "Kimi state exposes only the latest prompt; earlier prompts in long-lived sessions are unavailable",
+			},
 		}
 		if s.CreatedAt.IsZero() {
 			s.CreatedAt = file.ModTime

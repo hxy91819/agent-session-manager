@@ -24,20 +24,36 @@ type Window struct {
 }
 
 type Totals struct {
-	Sessions  int            `json:"sessions"`
-	Projects  int            `json:"projects"`
-	Providers map[string]int `json:"providers"`
+	Sessions           int            `json:"sessions"`
+	Projects           int            `json:"projects"`
+	Providers          map[string]int `json:"providers"`
+	UnverifiedSessions int            `json:"unverified_sessions"`
+}
+
+type ProviderCoverage struct {
+	Status string `json:"status"`
+	Note   string `json:"note"`
+}
+
+type UnverifiedSession struct {
+	ID        string    `json:"id"`
+	Provider  string    `json:"provider"`
+	CWD       string    `json:"cwd,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Reason    string    `json:"reason"`
 }
 
 type Payload struct {
-	Period       string            `json:"period"`
-	Start        time.Time         `json:"start"`
-	End          time.Time         `json:"end"`
-	Timezone     string            `json:"timezone"`
-	EvidenceRule string            `json:"evidence_rule"`
-	Totals       Totals            `json:"totals"`
-	Projects     []session.Project `json:"projects"`
-	Sessions     []session.Session `json:"sessions"`
+	Period             string                      `json:"period"`
+	Start              time.Time                   `json:"start"`
+	End                time.Time                   `json:"end"`
+	Timezone           string                      `json:"timezone"`
+	EvidenceRule       string                      `json:"evidence_rule"`
+	Totals             Totals                      `json:"totals"`
+	Projects           []session.Project           `json:"projects"`
+	Sessions           []session.Session           `json:"sessions"`
+	Coverage           map[string]ProviderCoverage `json:"coverage,omitempty"`
+	UnverifiedSessions []UnverifiedSession         `json:"unverified_sessions,omitempty"`
 }
 
 func WindowForPeriod(period string, now time.Time, loc *time.Location) (Window, error) {
@@ -114,26 +130,35 @@ func ParseBoundary(value string, loc *time.Location) (time.Time, error) {
 }
 
 func BuildPayload(window Window, sessions []session.Session) Payload {
-	windowSessions := withEvidence(FilterWindow(sessions, window.Start, window.End))
+	windowSessions, unverified := partitionWindow(sessions, window.Start, window.End)
+	windowSessions = withEvidence(windowSessions)
 	projects := index.GroupProjects(windowSessions)
 	return Payload{
 		Period:       window.Period,
 		Start:        window.Start,
 		End:          window.End,
 		Timezone:     window.Timezone,
-		EvidenceRule: "Use sessions[].evidence as the only proof of work inside the report window; title, cwd, and path are labels only.",
+		EvidenceRule: "Only sessions[].evidence proves work inside the report window. Session titles are omitted; unverified_sessions are diagnostics, not work evidence.",
 		Totals: Totals{
-			Sessions:  len(windowSessions),
-			Projects:  len(projects),
-			Providers: providerTotals(windowSessions),
+			Sessions:           len(windowSessions),
+			Projects:           len(projects),
+			Providers:          providerTotals(windowSessions),
+			UnverifiedSessions: len(unverified),
 		},
-		Projects: projects,
-		Sessions: windowSessions,
+		Projects:           projects,
+		Sessions:           windowSessions,
+		Coverage:           providerCoverage(sessions),
+		UnverifiedSessions: unverified,
 	}
 }
 
 func withEvidence(sessions []session.Session) []session.Session {
 	for i := range sessions {
+		// Titles can originate outside the requested window. Omitting them from
+		// report sessions prevents old prompts from becoming accidental evidence.
+		sessions[i].Title = ""
+		sessions[i].Evidence = nil
+		sessions[i].EvidenceCount = 0
 		if len(sessions[i].Previews) == 0 {
 			continue
 		}
@@ -144,7 +169,13 @@ func withEvidence(sessions []session.Session) []session.Session {
 }
 
 func FilterWindow(sessions []session.Session, start, end time.Time) []session.Session {
+	verified, _ := partitionWindow(sessions, start, end)
+	return verified
+}
+
+func partitionWindow(sessions []session.Session, start, end time.Time) ([]session.Session, []UnverifiedSession) {
 	out := make([]session.Session, 0, len(sessions))
+	var unverified []UnverifiedSession
 	for _, item := range sessions {
 		previews := make([]session.MessagePreview, 0, len(item.Previews))
 		for _, preview := range item.Previews {
@@ -154,13 +185,59 @@ func FilterWindow(sessions []session.Session, start, end time.Time) []session.Se
 			previews = append(previews, preview)
 		}
 		item.Previews = previews
-		updatedInWindow := !item.UpdatedAt.Before(start) && item.UpdatedAt.Before(end)
-		if len(item.Previews) == 0 && !updatedInWindow {
+		if len(item.Previews) > 0 {
+			out = append(out, item)
 			continue
 		}
-		out = append(out, item)
+		if item.UpdatedAt.Before(start) || !item.UpdatedAt.Before(end) {
+			continue
+		}
+		unverified = append(unverified, UnverifiedSession{
+			ID:        item.ID,
+			Provider:  item.Provider,
+			CWD:       item.CWD,
+			UpdatedAt: item.UpdatedAt,
+			Reason:    unverifiedReason(item),
+		})
+	}
+	return out, unverified
+}
+
+func unverifiedReason(item session.Session) string {
+	if note := item.Metadata[session.MetadataReportEvidenceNote]; note != "" {
+		return note
+	}
+	return "the session record was updated in the report window, but no timestamped user-message evidence was available"
+}
+
+func providerCoverage(sessions []session.Session) map[string]ProviderCoverage {
+	out := make(map[string]ProviderCoverage)
+	for _, item := range sessions {
+		status := item.Metadata[session.MetadataReportEvidenceStatus]
+		if status == "" {
+			continue
+		}
+		coverage := ProviderCoverage{
+			Status: status,
+			Note:   item.Metadata[session.MetadataReportEvidenceNote],
+		}
+		current, ok := out[item.Provider]
+		if !ok || coverageRank(coverage.Status) > coverageRank(current.Status) {
+			out[item.Provider] = coverage
+		}
 	}
 	return out
+}
+
+func coverageRank(status string) int {
+	switch status {
+	case session.ReportEvidenceUnavailable:
+		return 2
+	case session.ReportEvidencePartial:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func localMidnight(t time.Time) time.Time {

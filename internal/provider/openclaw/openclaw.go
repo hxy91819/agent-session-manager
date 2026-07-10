@@ -165,11 +165,15 @@ func readSessions(path string) (map[string]rawSession, error) {
 }
 
 func sessionFromRecord(stateDir string, file fileInfo, key string, rec rawSession) session.Session {
+	// TODO(report-live-validation): parse rec.SessionFile only after its native
+	// transcript schema and timestamp semantics are verified against live data.
 	metadata := map[string]string{
-		"agent_id":           file.AgentID,
-		"session_file":       firstNonEmpty(rec.SessionFile, file.Path),
-		"source_home":        stateDir,
-		"resume_unsupported": "OpenClaw resume is not supported by asm yet",
+		"agent_id":                           file.AgentID,
+		"session_file":                       firstNonEmpty(rec.SessionFile, file.Path),
+		"source_home":                        stateDir,
+		"resume_unsupported":                 "OpenClaw resume is not supported by asm yet",
+		session.MetadataReportEvidenceStatus: session.ReportEvidenceUnavailable,
+		session.MetadataReportEvidenceNote:   "OpenClaw transcript evidence is not parsed yet",
 	}
 	if rec.SessionID != "" {
 		metadata["native_session_id"] = rec.SessionID

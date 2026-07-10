@@ -479,6 +479,63 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	}
 }
 
+func TestCLIReportLongLivedSessionIsStrictlyPartitionedByDay(t *testing.T) {
+	home := t.TempDir()
+	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "17")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	loc := time.Local
+	dayOne := time.Date(2026, 6, 17, 0, 0, 0, 0, loc)
+	dayTwo := dayOne.AddDate(0, 0, 1)
+	dayThree := dayTwo.AddDate(0, 0, 1)
+	sessionPath := filepath.Join(sessionDir, "long-lived.jsonl")
+	writeFile(t, sessionPath, `{"timestamp":"`+dayOne.Add(time.Hour).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"long-lived","timestamp":"`+dayOne.Add(time.Hour).Format(time.RFC3339Nano)+`","cwd":`+jsonString(repo)+`}}
+{"timestamp":"`+dayOne.Add(2*time.Hour).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"day one work"}]}}
+{"timestamp":"`+dayTwo.Add(2*time.Hour).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"day two work"}]}}
+{"timestamp":"`+dayThree.Add(2*time.Hour).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"day three work"}]}}
+`)
+	if err := os.Chtimes(sessionPath, dayThree.Add(3*time.Hour), dayThree.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, tc := range []struct {
+		start time.Time
+		want  string
+	}{
+		{start: dayOne, want: "day one work"},
+		{start: dayTwo, want: "day two work"},
+		{start: dayThree, want: "day three work"},
+	} {
+		end := tc.start.AddDate(0, 0, 1)
+		out := runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome,
+			"--start", tc.start.Format("2006-01-02"), "--end", end.Format("2006-01-02"))
+		var payload struct {
+			Sessions []struct {
+				ID       string `json:"id"`
+				Title    string `json:"title"`
+				Evidence []struct {
+					Text string `json:"text"`
+				} `json:"evidence"`
+			} `json:"sessions"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("day %d invalid JSON: %v\n%s", i+1, err, out)
+		}
+		if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "long-lived" {
+			t.Fatalf("day %d sessions = %#v", i+1, payload.Sessions)
+		}
+		if payload.Sessions[0].Title != "" {
+			t.Fatalf("day %d leaked session title %q", i+1, payload.Sessions[0].Title)
+		}
+		if len(payload.Sessions[0].Evidence) != 1 || payload.Sessions[0].Evidence[0].Text != tc.want {
+			t.Fatalf("day %d evidence = %#v, want %q", i+1, payload.Sessions[0].Evidence, tc.want)
+		}
+	}
+}
+
 func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
