@@ -8,7 +8,7 @@ const (
 )
 
 func (opts PreviewOptions) Enabled() bool {
-	return opts.UserMessagesPerEdge > 0 || opts.MaxChars > 0
+	return opts.UserMessagesPerEdge > 0
 }
 
 func SelectMessagePreviews(messages []MessagePreview, opts PreviewOptions) []MessagePreview {
@@ -79,9 +79,6 @@ func NormalizePreviewText(text string, maxChars int) string {
 }
 
 func (opts PreviewOptions) withDefaults() PreviewOptions {
-	if opts.UserMessagesPerEdge <= 0 {
-		opts.UserMessagesPerEdge = DefaultPreviewMessagesPerEdge
-	}
 	if opts.MaxChars <= 0 {
 		opts.MaxChars = DefaultPreviewMaxChars
 	}

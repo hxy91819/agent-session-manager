@@ -74,6 +74,17 @@ func TestSelectMessagePreviewsFiltersByWindow(t *testing.T) {
 	}
 }
 
+func TestSelectMessagePreviewsZeroMessagesPerEdgeDisablesPreviews(t *testing.T) {
+	opts := PreviewOptions{UserMessagesPerEdge: 0, MaxChars: 500}
+	if opts.Enabled() {
+		t.Fatal("zero messages per edge should disable previews")
+	}
+	got := SelectMessagePreviews([]MessagePreview{{Text: "should not be included"}}, opts)
+	if len(got) != 0 {
+		t.Fatalf("previews = %#v, want none", got)
+	}
+}
+
 func TestNormalizePreviewTextCollapsesWhitespaceAndTruncatesRunes(t *testing.T) {
 	got := NormalizePreviewText("你好\n 世界  abc", 4)
 	if got != "你好 世" {

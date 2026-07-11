@@ -267,6 +267,9 @@ func runReport(args []string) error {
 		return err
 	}
 	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	// TODO(report-live-validation): the per-provider file limit can hide a
+	// historical-window session when many newer files exist. Keep this explicit
+	// until discovery can return a reliable truncation diagnostic.
 	items, err := discoverAllWithOptions(providers, session.DiscoverOptions{
 		LimitFiles: cfg.limit,
 		Since:      window.Start,

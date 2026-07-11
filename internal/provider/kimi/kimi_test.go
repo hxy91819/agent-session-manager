@@ -47,6 +47,9 @@ func TestDiscoverReadsIndexAndState(t *testing.T) {
 	if got[0].Metadata["session_dir"] != sessionDir {
 		t.Fatalf("session_dir = %q", got[0].Metadata["session_dir"])
 	}
+	if got[0].Metadata["report_evidence_status"] != "partial" || got[0].Metadata["report_evidence_note"] == "" {
+		t.Fatalf("report evidence metadata = %#v", got[0].Metadata)
+	}
 	if got[0].CreatedAt.Format(time.RFC3339) != "2026-06-13T01:00:00Z" {
 		t.Fatalf("CreatedAt = %s", got[0].CreatedAt.Format(time.RFC3339))
 	}

@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,9 +121,12 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	}
 	base := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC)
 	for i, id := range messageIDs {
-		writeOpencodeMessage(t, home, "ses_one", id, "user", texts[i])
+		writeOpencodeMessageAt(t, home, "ses_one", id, "user", texts[i], base.Add(time.Duration(i)*time.Minute))
 		path := filepath.Join(home, "storage", "message", "ses_one", id+".json")
-		if err := os.Chtimes(path, base.Add(time.Duration(i)*time.Minute), base.Add(time.Duration(i)*time.Minute)); err != nil {
+		// Deliberately reverse filesystem times: preview order must follow the
+		// original message timestamps, not copy/sync mtimes.
+		modTime := base.Add(time.Duration(len(messageIDs)-i) * time.Minute)
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -139,6 +143,44 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	want := []string{"first prompt", "second prompt", "fourth prompt", "fifth prompt"}
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
+func TestDiscoverDoesNotUseMessageModTimeAsReportEvidence(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	writeOpencodeSession(t, home, "project_one", "ses_one", repo, `{
+  "id": "ses_one",
+  "projectID": "project_one",
+  "directory": `+quote(repo)+`,
+  "title": "opencode title"
+}`)
+	writeOpencodeMessage(t, home, "ses_one", "msg_old", "user", "old prompt")
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	messagePath := filepath.Join(home, "storage", "message", "ses_one", "msg_old.json")
+	if err := os.Chtimes(messagePath, start.Add(time.Hour), start.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{
+			UserMessagesPerEdge: 2,
+			MaxChars:            500,
+			Since:               start,
+			Before:              start.AddDate(0, 0, 1),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if len(got[0].Previews) != 0 {
+		t.Fatalf("mtime-only previews = %#v, want none", got[0].Previews)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial || got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
+		t.Fatalf("report evidence metadata = %#v", got[0].Metadata)
 	}
 }
 
@@ -287,6 +329,20 @@ func writeOpencodeMessage(t *testing.T, home, sessionID, messageID, role, text s
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(messageDir, messageID+".json"), `{"id":"`+messageID+`","sessionID":"`+sessionID+`","role":"`+role+`"}`)
+	writeFile(t, filepath.Join(partDir, "part_one.json"), `{"type":"text","text":`+quote(text)+`}`)
+}
+
+func writeOpencodeMessageAt(t *testing.T, home, sessionID, messageID, role, text string, at time.Time) {
+	t.Helper()
+	messageDir := filepath.Join(home, "storage", "message", sessionID)
+	partDir := filepath.Join(home, "storage", "part", messageID)
+	if err := os.MkdirAll(messageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(partDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(messageDir, messageID+".json"), `{"id":"`+messageID+`","sessionID":"`+sessionID+`","role":"`+role+`","time":{"created":`+fmt.Sprint(at.UnixMilli())+`}}`)
 	writeFile(t, filepath.Join(partDir, "part_one.json"), `{"type":"text","text":`+quote(text)+`}`)
 }
 

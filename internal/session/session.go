@@ -2,6 +2,13 @@ package session
 
 import "time"
 
+const (
+	MetadataReportEvidenceStatus = "report_evidence_status"
+	MetadataReportEvidenceNote   = "report_evidence_note"
+	ReportEvidencePartial        = "partial"
+	ReportEvidenceUnavailable    = "unavailable"
+)
+
 type Session struct {
 	ID        string            `json:"id"`
 	Provider  string            `json:"provider"`

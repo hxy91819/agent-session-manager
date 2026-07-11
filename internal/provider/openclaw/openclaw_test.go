@@ -47,6 +47,9 @@ func TestDiscoverIndexesOpenClawSessionsJSON(t *testing.T) {
 	if s.Metadata["resume_unsupported"] != "OpenClaw resume is not supported by asm yet" {
 		t.Fatalf("resume_unsupported = %q", s.Metadata["resume_unsupported"])
 	}
+	if s.Metadata["report_evidence_status"] != "unavailable" || s.Metadata["report_evidence_note"] == "" {
+		t.Fatalf("report evidence metadata = %#v", s.Metadata)
+	}
 	if s.UpdatedAt.UTC().Format(time.RFC3339) != "2026-06-13T01:01:00Z" {
 		t.Fatalf("UpdatedAt = %s", s.UpdatedAt.UTC().Format(time.RFC3339))
 	}

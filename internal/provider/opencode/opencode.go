@@ -92,7 +92,12 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			delete(s.Metadata, "title_source")
 		}
 		if opts.Preview.Enabled() {
-			s.Previews = userPreviewsFromMessages(storageRoot, s.ID, opts.Preview)
+			var incomplete bool
+			s.Previews, incomplete = userPreviewsFromMessages(storageRoot, s.ID, opts.Preview)
+			if incomplete {
+				s.Metadata[session.MetadataReportEvidenceStatus] = session.ReportEvidencePartial
+				s.Metadata[session.MetadataReportEvidenceNote] = "some opencode user messages lacked original timestamps and were excluded from report evidence"
+			}
 		} else {
 			s.Previews = nil
 		}
@@ -297,12 +302,13 @@ func fallbackTitleFromMessages(storageRoot, sessionID string) string {
 	return title
 }
 
-func userPreviewsFromMessages(storageRoot, sessionID string, opts session.PreviewOptions) []session.MessagePreview {
+func userPreviewsFromMessages(storageRoot, sessionID string, opts session.PreviewOptions) ([]session.MessagePreview, bool) {
 	messages, err := collectMessageJSON(filepath.Join(storageRoot, "message", sessionID))
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var previews []session.MessagePreview
+	var incomplete bool
 	for _, message := range messages {
 		rec, err := readMessage(message.Path)
 		if err != nil || rec.Role != "user" {
@@ -314,7 +320,10 @@ func userPreviewsFromMessages(storageRoot, sessionID string, opts session.Previe
 				at = unixMillis(rec.Time.Updated)
 			}
 			if at.IsZero() {
-				at = message.ModTime
+				// File mtimes change during copy, restore, and sync operations. They
+				// are discovery hints, not trustworthy work-evidence timestamps.
+				incomplete = true
+				continue
 			}
 			previews = append(previews, session.MessagePreview{
 				Text:   text,
@@ -323,7 +332,10 @@ func userPreviewsFromMessages(storageRoot, sessionID string, opts session.Previe
 			})
 		}
 	}
-	return session.SelectMessagePreviews(previews, opts)
+	sort.SliceStable(previews, func(i, j int) bool {
+		return previews[i].At.Before(previews[j].At)
+	})
+	return session.SelectMessagePreviews(previews, opts), incomplete
 }
 
 func collectMessageJSON(root string) ([]fileInfo, error) {
