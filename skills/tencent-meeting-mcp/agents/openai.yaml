@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tencent Meeting"
+  short_description: "查询和管理腾讯会议，并获取录制、转写与智能纪要上下文"
+  default_prompt: "Use $tencent-meeting-mcp to query my recent Tencent Meetings and summarize the available meeting context."

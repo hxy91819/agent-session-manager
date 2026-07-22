@@ -101,6 +101,7 @@ go run ./cmd/asm report --period yesterday
 go run ./cmd/asm report --period today
 go run ./cmd/asm report --period last-week --query openclaw
 go run ./cmd/asm skills install agent-work-report
+go run ./cmd/asm skills install tencent-meeting-summary
 ```
 
 Developer checks:
@@ -163,6 +164,8 @@ Skill install:
 
 ```sh
 go run ./cmd/asm skills install agent-work-report
+go run ./cmd/asm skills install tencent-meeting-mcp
+go run ./cmd/asm skills install tencent-meeting-summary
 go run ./cmd/asm skills install --all
 go run ./cmd/asm skills install agent-work-report --scope current --target agents
 go run ./cmd/asm skills install hxy91819/agent-session-manager --path skills/agent-work-report --scope current --target agents
@@ -184,7 +187,24 @@ After installing the bundled `agent-work-report` skill, ask your coding agent
 for "生成上周 Agent 工作周报" or "总结昨天的工作". The skill calls
 `asm report --period last-week` or `asm report --period yesterday`, classifies
 the session previews by project and topic, and returns a Chinese work report
-with overview, completed work, ongoing/risk items, and next-step suggestions.
+with a project-oriented morning-standup overview, follow-ups, and risks.
+
+For meeting-enriched reports, install `tencent-meeting-mcp` and the lightweight
+`tencent-meeting-summary` skill, then export `TENCENT_MEETING_TOKEN`. The
+summary skill lists ended meetings for the report window and reads available
+Tencent Meeting smart minutes without downloading or reprocessing full
+transcripts. Missing minutes may contribute only a clearly labeled,
+title-inferred broad topic; they are never treated as proof of completed work.
+
+The tracked nightly report entrypoint is:
+
+```sh
+bash scripts/daily-agent-report.sh --dry-run
+```
+
+It loads the latest bundled skills from this checkout, keeps `asm report` as
+the coding-work evidence source, and adds meeting context when the ignored
+root `.env` provides `TENCENT_MEETING_TOKEN`.
 
 Agent report export:
 
