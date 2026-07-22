@@ -86,6 +86,7 @@ config_path="${HOME}/.config/agent-notify/config.json"
 out_dir=".local/daily-agent-report-runs"
 env_file=.env
 meeting_context_script=skills/tencent-meeting-summary/scripts/collect-tencent-meeting-context.py
+agent_work_report_skill=skills/agent-work-report/SKILL.md
 skip_meetings=0
 dry_run=0
 codebuddy_attempts=3
@@ -193,6 +194,11 @@ if [[ ! -f "$config_path" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$agent_work_report_skill" ]]; then
+  log_error "Bundled agent-work-report skill not found: $agent_work_report_skill"
+  exit 1
+fi
+
 mkdir -p "$out_dir"
 timestamp=$(date '+%Y%m%d-%H%M%S')
 json_out="${out_dir}/asm-report-${period}-${timestamp}.json"
@@ -283,14 +289,25 @@ print(pathlib.Path(sys.argv[1]).resolve())
 PY
 )
 
-# Decision:
-#   Give CodeBuddy the compact JSON path instead of embedding the whole payload
-#   in the prompt. This keeps the task instruction small and lets retries reuse
-#   the exact same evidence file without rebuilding a large stdin payload.
-cat > "$prompt_out" <<EOF
-请使用 agent-work-report skill 的规则，根据合并后的日报上下文 JSON 生成中文日报。
+agent_work_report_skill_abs=$(python3 - "$agent_work_report_skill" <<'PY'
+import pathlib
+import sys
 
-请先读取这个文件：
+print(pathlib.Path(sys.argv[1]).resolve())
+PY
+)
+
+# Decision:
+#   Give CodeBuddy explicit paths to the checkout's skill and merged context.
+#   This keeps retries on the repository's latest rules without rebuilding a
+#   large stdin payload or depending on an older user-installed skill.
+cat > "$prompt_out" <<EOF
+请使用当前仓库最新版 agent-work-report skill 的规则，根据合并后的日报上下文 JSON 生成中文日报。
+
+请先读取规则文件：
+${agent_work_report_skill_abs}
+
+再读取日报上下文：
 ${report_context_abs}
 
 硬性规则：
