@@ -1,5 +1,6 @@
 /asm
 /.env
+/.local/
 dist/
 coverage.out
 tmp/

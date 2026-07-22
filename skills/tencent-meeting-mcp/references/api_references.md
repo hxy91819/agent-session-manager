@@ -159,7 +159,7 @@ python3 scripts/tencent_meeting.py tools/call '{
 python3 scripts/tencent_meeting.py tools/call '{
   "name": "get_meeting_by_code",
   "arguments": {
-    "meeting_code": "904854736"
+    "meeting_code": "123456789"
   }
 }'
 ```
@@ -319,7 +319,7 @@ python3 scripts/tencent_meeting.py tools/call '{
 python3 scripts/tencent_meeting.py tools/call '{
   "name": "get_records_list",
   "arguments": {
-    "meeting_code": "904854736"
+    "meeting_code": "123456789"
   }
 }'
 

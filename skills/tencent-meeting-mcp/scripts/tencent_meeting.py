@@ -45,7 +45,7 @@ def print_usage():
 
 调用示例：
     python3 tencent_meeting.py tools/list
-    python3 tencent_meeting.py tools/call '{"name": "get_meeting_by_code", "arguments": {"meeting_code": "904854736", "_client_info": {"os": "macos-26", "agent": "workbuddy", "model": "GLM-5"}}}'
+    python3 tencent_meeting.py tools/call '{"name": "get_meeting_by_code", "arguments": {"meeting_code": "123456789", "_client_info": {"os": "macos-26", "agent": "workbuddy", "model": "GLM-5"}}}'
 """
     print(usage)
 

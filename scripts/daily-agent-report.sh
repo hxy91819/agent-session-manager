@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Definition:
 #   Generate a daily work report from asm activity plus optional Tencent
 #   Meeting context, then send it to Telegram using agent-notify config.
 #
 # Parameters:
-#   --period defaults to "today"; --model defaults to "hy3-ioa".
+#   --period defaults to "today"; --model defaults to CodeBuddy's configured model.
+#   DAILY_REPORT_MODEL provides a non-command-line model override.
 #   --codebuddy-attempts defaults to 3; --codebuddy-max-turns defaults to 50.
 #   --env-file defaults to .env and supplies TENCENT_MEETING_TOKEN.
 #   --skip-meetings disables Tencent Meeting enrichment.
@@ -33,7 +35,7 @@ Description:
 
 Options:
   --period <value>        asm report period. Default: today.
-  --model <value>         CodeBuddy model. Default: hy3-ioa.
+  --model <value>         CodeBuddy model. Default: configured CodeBuddy model.
   --asm-bin <path>        asm executable. Default: asm.
   --codebuddy-bin <path>  codebuddy executable. Default: codebuddy.
   --config <path>             agent-notify config. Default: ~/.config/agent-notify/config.json.
@@ -62,7 +64,7 @@ Outputs:
 Examples:
   bash scripts/daily-agent-report.sh
   bash scripts/daily-agent-report.sh --dry-run
-  bash scripts/daily-agent-report.sh --period yesterday --model hy3-ioa
+  bash scripts/daily-agent-report.sh --period yesterday --model your-model
   bash scripts/daily-agent-report.sh --period yesterday --skip-meetings --dry-run
 EOF
 }
@@ -79,7 +81,7 @@ require_command() {
 }
 
 period=today
-model=hy3-ioa
+model=${DAILY_REPORT_MODEL:-}
 asm_bin=asm
 codebuddy_bin=codebuddy
 config_path="${HOME}/.config/agent-notify/config.json"
@@ -243,7 +245,7 @@ fi
 
 log_info "Found ${session_count} sessions across ${project_count} projects."
 log_info "Evidence-backed sessions: ${evidence_session_count}; compacting report input."
-log_info "Generating report with CodeBuddy model=${model} attempts=${codebuddy_attempts} max_turns=${codebuddy_max_turns}"
+log_info "Generating report with CodeBuddy model=${model:-configured-default} attempts=${codebuddy_attempts} max_turns=${codebuddy_max_turns}"
 
 jq '{
   period,
@@ -361,12 +363,19 @@ EOF
 
 generate_report_with_codebuddy() {
   local attempt attempt_report attempt_stderr
+  local -a codebuddy_args
+  # Report evidence can contain untrusted session or meeting text. Keep the
+  # generator read-only so that embedded instructions cannot mutate the host.
+  codebuddy_args=(--print --permission-mode dontAsk --tools Read --strict-mcp-config --max-turns "$codebuddy_max_turns")
+  if [[ -n "$model" ]]; then
+    codebuddy_args+=(--model "$model")
+  fi
   for ((attempt = 1; attempt <= codebuddy_attempts; attempt++)); do
     attempt_report="${report_out}.attempt-${attempt}"
     attempt_stderr="${report_out}.attempt-${attempt}.err"
     rm -f "$attempt_report" "$attempt_stderr"
     log_info "CodeBuddy attempt ${attempt}/${codebuddy_attempts}: prompt=${prompt_out}"
-    if "$codebuddy_bin" --print --model "$model" --permission-mode bypassPermissions --max-turns "$codebuddy_max_turns" \
+    if "$codebuddy_bin" "${codebuddy_args[@]}" \
       < "$prompt_out" > "$attempt_report" 2> "$attempt_stderr" && [[ -s "$attempt_report" ]]; then
       mv "$attempt_report" "$report_out"
       log_info "CodeBuddy attempt ${attempt} succeeded."

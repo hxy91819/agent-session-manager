@@ -17,6 +17,11 @@ from pathlib import Path
 from typing import Any
 
 
+# Meeting context can contain private discussions; standalone invocations
+# should create artifacts readable only by the current user as well.
+os.umask(0o077)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
