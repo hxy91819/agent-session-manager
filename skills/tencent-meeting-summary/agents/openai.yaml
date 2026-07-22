@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tencent Meeting Summary"
+  short_description: "读取腾讯会议列表与可用智能纪要，为工作日报补充会议上下文"
+  default_prompt: "Use $tencent-meeting-summary to collect concise Tencent Meeting summaries for yesterday."
