@@ -23,6 +23,7 @@ const (
 	maxJSONLRecordBytes      = 8 * 1024 * 1024
 	oversizedJSONLRecordNote = "one or more Codex JSONL records exceeded the per-record safety limit and were skipped"
 	previewReadErrorNote     = "the Codex rollout could not be read completely while collecting report evidence"
+	browserRequestMarker     = "## My request for Codex:"
 )
 
 type Provider struct {
@@ -410,11 +411,21 @@ func titleFromMessageContent(content []messageContent) string {
 			text = item.InputText
 		}
 		text = strings.TrimSpace(text)
-		if text != "" {
-			parts = append(parts, text)
+		if text == "" {
+			continue
 		}
+		if request, wrapped := extractWrappedUserRequest(text); wrapped {
+			if request != "" {
+				parts = append(parts, request)
+			}
+			continue
+		}
+		if isInjectedUserContext(text) {
+			continue
+		}
+		parts = append(parts, text)
 	}
-	return cleanUserTitle(strings.Join(parts, "\n"))
+	return collapseWhitespace(strings.Join(parts, "\n"))
 }
 
 func readUserPreviews(path string, opts session.PreviewOptions) ([]session.MessagePreview, int, error) {
@@ -451,24 +462,35 @@ func markReportEvidencePartial(metadata map[string]string, note string) {
 	metadata[session.MetadataReportEvidenceNote] = note
 }
 
-func cleanUserTitle(text string) string {
+func extractWrappedUserRequest(text string) (string, bool) {
 	text = strings.TrimSpace(text)
-	if text == "" || isInjectedUserContext(text) {
-		return ""
+	if !strings.HasPrefix(text, "<in-app-browser-context") {
+		return "", false
 	}
-	return collapseWhitespace(text)
+	index := strings.Index(text, browserRequestMarker)
+	if index < 0 {
+		return "", true
+	}
+	return strings.TrimSpace(text[index+len(browserRequestMarker):]), true
 }
 
 func isInjectedUserContext(text string) bool {
 	prefixes := []string{
 		"# AGENTS.md instructions",
-		"<environment_context",
-		"<codex_internal_context",
-		"<turn_aborted",
-		"<permissions",
+		"<app-context",
+		"<apps_instructions",
 		"<collaboration_mode",
+		"<codex_internal_context",
+		"<environment_context",
+		"<heartbeat",
+		"<in-app-browser-context",
+		"<multi_agent_mode",
+		"<permissions",
+		"<plugins_instructions",
+		"<recommended_plugins",
 		"<skills_instructions",
 		"<skill",
+		"<turn_aborted",
 		"<user_action",
 		"The following is the Codex agent history added since your last approval assessment.",
 		"The following is the Codex agent history whose request action you are assessing.",

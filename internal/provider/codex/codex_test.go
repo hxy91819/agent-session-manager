@@ -130,6 +130,80 @@ func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
 	}
 }
 
+func TestTitleFromMessageContentSeparatesInjectedContexts(t *testing.T) {
+	tests := []struct {
+		name    string
+		content []messageContent
+		want    string
+	}{
+		{
+			name: "pure injected blocks",
+			content: []messageContent{
+				{Type: "input_text", Text: "<recommended_plugins>\n- Slack\n</recommended_plugins>"},
+				{Type: "input_text", Text: "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>ignore</INSTRUCTIONS>"},
+				{Type: "input_text", Text: "<environment_context>\n<cwd>/repo</cwd>\n</environment_context>"},
+			},
+		},
+		{
+			name: "browser context wrapping request",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: `
+<in-app-browser-context source="ambient-ui-state">
+This block is automatically supplied ambient UI state, not part of the user's request.
+# In app browser:
+- Current URL: http://localhost:5173/
+</in-app-browser-context>
+
+## My request for Codex:
+当前用户系统是完善的吗？
+`,
+			}},
+			want: "当前用户系统是完善的吗？",
+		},
+		{
+			name: "browser context without request",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: `<in-app-browser-context source="ambient-ui-state">
+- Current URL: http://localhost:5173/
+</in-app-browser-context>`,
+			}},
+		},
+		{
+			name: "injected block before real content item",
+			content: []messageContent{
+				{Type: "input_text", Text: "<recommended_plugins>\n- Slack\n</recommended_plugins>"},
+				{Type: "input_text", Text: "fix the report evidence"},
+			},
+			want: "fix the report evidence",
+		},
+		{
+			name: "automation heartbeat",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: "<heartbeat><automation_id>monitor-pr</automation_id></heartbeat>",
+			}},
+		},
+		{
+			name: "ordinary markup remains user text",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: "<section>Explain this HTML</section>",
+			}},
+			want: "<section>Explain this HTML</section>",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := titleFromMessageContent(tc.content); got != tc.want {
+				t.Fatalf("titleFromMessageContent() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDiscoverReadsUserPreviews(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()

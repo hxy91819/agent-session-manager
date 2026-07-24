@@ -563,6 +563,90 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	}
 }
 
+func TestCLIReportExcludesInjectedCodexContexts(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(codexHome, "sessions", "2026", "07", "23")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	yesterday := today.AddDate(0, 0, -1)
+	at := yesterday.Add(time.Hour)
+	recommendedPlugins := "<recommended_plugins>\n- Slack\n- Teams\n</recommended_plugins>"
+	browserWrappedRequest := `<in-app-browser-context source="ambient-ui-state">
+This block is automatically supplied ambient UI state, not part of the user's request.
+# In app browser:
+- Current URL: http://localhost:5173/
+</in-app-browser-context>
+
+## My request for Codex:
+当前用户系统是完善的吗？`
+	heartbeat := "<heartbeat><automation_id>monitor-pr</automation_id></heartbeat>"
+
+	mixedPath := filepath.Join(sessionDir, "mixed.jsonl")
+	writeFile(t, mixedPath, `{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":"mixed","timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}
+{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(recommendedPlugins)+`},{"type":"input_text","text":"# AGENTS.md instructions for /repo\nignore"},{"type":"input_text","text":"<environment_context>\n<cwd>/repo</cwd>\n</environment_context>"}]}}
+{"timestamp":`+jsonString(at.Add(2*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(browserWrappedRequest)+`}]}}
+{"timestamp":`+jsonString(at.Add(3*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(heartbeat)+`}]}}
+`)
+
+	injectedOnlyPath := filepath.Join(sessionDir, "injected-only.jsonl")
+	writeFile(t, injectedOnlyPath, `{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":"injected-only","timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}
+{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(recommendedPlugins)+`}]}}
+`)
+	if err := os.Chtimes(mixedPath, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(injectedOnlyPath, at, at); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--period", "yesterday")
+	var payload struct {
+		Totals struct {
+			Sessions           int `json:"sessions"`
+			UnverifiedSessions int `json:"unverified_sessions"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID            string `json:"id"`
+			EvidenceCount int    `json:"evidence_count"`
+			Evidence      []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+		UnverifiedSessions []struct {
+			ID string `json:"id"`
+		} `json:"unverified_sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 || payload.Totals.UnverifiedSessions != 1 {
+		t.Fatalf("unexpected totals: %#v", payload.Totals)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "mixed" {
+		t.Fatalf("sessions = %#v, want only mixed", payload.Sessions)
+	}
+	if payload.Sessions[0].EvidenceCount != 1 ||
+		len(payload.Sessions[0].Evidence) != 1 ||
+		payload.Sessions[0].Evidence[0].Text != "当前用户系统是完善的吗？" {
+		t.Fatalf("evidence = %#v count=%d", payload.Sessions[0].Evidence, payload.Sessions[0].EvidenceCount)
+	}
+	if len(payload.UnverifiedSessions) != 1 || payload.UnverifiedSessions[0].ID != "injected-only" {
+		t.Fatalf("unverified sessions = %#v", payload.UnverifiedSessions)
+	}
+	for _, injected := range []string{"recommended_plugins", "in-app-browser-context", "<heartbeat>"} {
+		if strings.Contains(out, injected) {
+			t.Fatalf("report leaked injected context %q: %s", injected, out)
+		}
+	}
+}
+
 func TestCLIReportLongLivedSessionIsStrictlyPartitionedByDay(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
