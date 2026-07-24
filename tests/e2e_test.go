@@ -757,8 +757,8 @@ func TestCLIReportExcludesNonInteractiveCursorPrintByDefault(t *testing.T) {
 	chatID := "generated"
 	sessionPath := filepath.Join(projectDir, "agent-transcripts", chatID, chatID+".jsonl")
 	writeFile(t, filepath.Join(projectDir, "worker.log"), "workspacePath="+repo+"\n")
-	writeFile(t, sessionPath, `{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\ngenerate automated daily report\n</user_query>"}]}}
-{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
+	writeFile(t, sessionPath, `{"role":"user","timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\ngenerate automated daily report\n</user_query>"}]}}
+{"role":"assistant","timestamp":"`+inWindow.Add(time.Second).Format(time.RFC3339Nano)+`","message":{"content":[{"type":"text","text":"ok"}]}}
 {"type":"turn_ended","status":"success"}
 `)
 	if err := os.Chtimes(sessionPath, inWindow, inWindow); err != nil {
