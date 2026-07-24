@@ -37,7 +37,7 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--json", "--query", "openclaw")
+	out := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--json", "--query", "openclaw")
 	var payload struct {
 		Projects []struct {
 			CWD   string `json:"cwd"`
@@ -63,22 +63,22 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 		t.Fatalf("unexpected projects: %#v", payload.Projects)
 	}
 
-	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--resume", "openclaw-session", "--print-exec")
+	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--resume", "openclaw-session", "--print-exec")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 
-	cmd = runCommand(t, "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--resume", "openclaw-session", "--print-exec")
+	cmd = runCommand(t, "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--since-days", "0", "--resume", "openclaw-session", "--print-exec")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
 		t.Fatalf("unexpected profiled resume command: %s", cmd)
 	}
 
-	cmd = runCommand(t, "resume", "--codex-home", home, "--claude-home", claudeHome, "--provider", "codex", "--print-exec", "openclaw-session")
+	cmd = runCommand(t, "resume", "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--provider", "codex", "--print-exec", "openclaw-session")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume subcommand: %s", cmd)
 	}
 
-	cmd = runCommand(t, "resume", "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--provider", "codex", "--print-exec", "openclaw-session")
+	cmd = runCommand(t, "resume", "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--since-days", "0", "--provider", "codex", "--print-exec", "openclaw-session")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
 		t.Fatalf("unexpected profiled resume subcommand: %s", cmd)
 	}
@@ -246,7 +246,7 @@ func TestCLIIndexesZCodeAndPrintsResumeCommand(t *testing.T) {
 	repo := t.TempDir()
 	writeZCodeSession(t, zcodeHome, "ses_zcode", repo, "fix openclaw with zcode")
 
-	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--zcode-home", zcodeHome, "--json", "--query", "zcode")
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--zcode-home", zcodeHome, "--since-days", "0", "--json", "--query", "zcode")
 	var payload struct {
 		Projects []struct {
 			CWD   string `json:"cwd"`
@@ -275,7 +275,7 @@ func TestCLIIndexesZCodeAndPrintsResumeCommand(t *testing.T) {
 		t.Fatalf("unexpected projects: %#v", payload.Projects)
 	}
 
-	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--zcode-home", zcodeHome, "--resume", "ses_zcode", "--print-exec")
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--zcode-home", zcodeHome, "--since-days", "0", "--resume", "ses_zcode", "--print-exec")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'zcode' '--resume' 'ses_zcode'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
@@ -326,7 +326,7 @@ func TestCLIIndexesOpenClawAndRejectsResume(t *testing.T) {
 	openclawHome := t.TempDir()
 	writeOpenClawSession(t, openclawHome, "agent:main:main", "native-openclaw", "OpenClaw indexed session")
 
-	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--openclaw-home", openclawHome, "--json", "--query", "indexed")
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--openclaw-home", openclawHome, "--since-days", "0", "--json", "--query", "indexed")
 	var payload struct {
 		Sessions []struct {
 			ID       string            `json:"id"`
@@ -345,7 +345,7 @@ func TestCLIIndexesOpenClawAndRejectsResume(t *testing.T) {
 		t.Fatalf("metadata = %#v", payload.Sessions[0].Metadata)
 	}
 
-	out, err := runCommandAllowError(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--openclaw-home", openclawHome, "--resume", "agent:main:main", "--print-exec")
+	out, err := runCommandAllowError(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--codebuddy-home", codebuddyHome, "--cursor-home", cursorHome, "--openclaw-home", openclawHome, "--since-days", "0", "--resume", "agent:main:main", "--print-exec")
 	if err == nil {
 		t.Fatalf("expected unsupported resume error, got output: %s", out)
 	}
