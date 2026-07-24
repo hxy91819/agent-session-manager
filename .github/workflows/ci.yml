@@ -36,6 +36,10 @@ jobs:
         # everywhere, but gate provider latency on the most stable runner.
         run: go run ./tools/check-provider-performance
 
+      - name: Changelog generator tests
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 -m unittest scripts/generate_release_changelog_test.py
+
       - name: Test
         run: go test ./...
 

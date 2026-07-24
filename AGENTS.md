@@ -270,8 +270,14 @@ For UI layout bugs, include tests that assert rendered width and height using
 - Push a semantic version tag such as `v0.1.0` to publish a GitHub Release.
 - The release workflow runs `go test ./...`, builds `asm` for Linux, macOS, and
   Windows on amd64 and arm64, uploads archives, and writes `sha256sums.txt`.
-- Release notes and archive `CHANGELOG.md` files are generated from commit
-  subjects by `scripts/generate-release-changelog.sh`.
+- Before tagging, run
+  `python3 scripts/generate-release-changelog.py --version <tag> --target HEAD
+  --mode prepend --output CHANGELOG.md`. Commit the generated section before
+  creating the tag.
+- The generator resolves merged PR titles and original authors through GitHub,
+  adds `Thanks @author`, and includes credited direct commits. The release
+  workflow rejects a tag when its committed changelog section differs from the
+  generated first-parent history.
 - Run `actionlint .github/workflows/release.yml` after changing workflow files.
 - The installed binary name is `asm`; keep release archive names aligned with
   that entrypoint.

@@ -48,6 +48,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -60,9 +61,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Generate changelog
+      - name: Verify changelog and generate release notes
         shell: bash
-        run: scripts/generate-release-changelog.sh --version "${VERSION}" --output CHANGELOG.md
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts/generate_release_changelog_test.py
+          python3 scripts/generate-release-changelog.py \
+            --version "${VERSION}" \
+            --target "${TARGET_REF}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --mode check \
+            --output CHANGELOG.md
+          python3 scripts/generate-release-changelog.py \
+            --version "${VERSION}" \
+            --target "${TARGET_REF}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --output release-notes.md
 
       - name: Build release artifacts
         shell: bash
@@ -111,8 +125,8 @@ jobs:
           set -euo pipefail
           if gh release view "${VERSION}" >/dev/null 2>&1; then
             echo "Release ${VERSION} already exists; updating notes and uploading artifacts with --clobber."
-            gh release edit "${VERSION}" --title "${VERSION}" --notes-file CHANGELOG.md
+            gh release edit "${VERSION}" --title "${VERSION}" --notes-file release-notes.md
           else
-            gh release create "${VERSION}" --title "${VERSION}" --notes-file CHANGELOG.md
+            gh release create "${VERSION}" --title "${VERSION}" --notes-file release-notes.md
           fi
           gh release upload "${VERSION}" dist/*.tar.gz dist/*.zip dist/sha256sums.txt --clobber
