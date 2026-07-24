@@ -162,6 +162,48 @@ This block is automatically supplied ambient UI state, not part of the user's re
 			want: "当前用户系统是完善的吗？",
 		},
 		{
+			name: "file attachment wrapping request",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: `# Files mentioned by the user:
+
+## design.png: /tmp/design.png
+
+## My request for Codex:
+implement the attached design`,
+			}},
+			want: "implement the attached design",
+		},
+		{
+			name: "response annotation wrapping request",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: `# Response annotations:
+
+<response-annotations>
+[{"text":"earlier response","annotation":"please clarify"}]
+</response-annotations>
+
+## My request for Codex:
+explain the tradeoff`,
+			}},
+			want: "please clarify explain the tradeoff",
+		},
+		{
+			name: "response annotation without trailing request",
+			content: []messageContent{{
+				Type: "input_text",
+				Text: `# Response annotations:
+
+<response-annotations>
+[{"text":"earlier response","annotation":"explain only this selection"}]
+</response-annotations>
+
+## My request for Codex:`,
+			}},
+			want: "explain only this selection",
+		},
+		{
 			name: "browser context without request",
 			content: []messageContent{{
 				Type: "input_text",

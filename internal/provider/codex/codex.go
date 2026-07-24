@@ -23,7 +23,7 @@ const (
 	maxJSONLRecordBytes      = 8 * 1024 * 1024
 	oversizedJSONLRecordNote = "one or more Codex JSONL records exceeded the per-record safety limit and were skipped"
 	previewReadErrorNote     = "the Codex rollout could not be read completely while collecting report evidence"
-	browserRequestMarker     = "## My request for Codex:"
+	desktopRequestMarker     = "## My request for Codex:"
 )
 
 type Provider struct {
@@ -464,14 +464,64 @@ func markReportEvidencePartial(metadata map[string]string, note string) {
 
 func extractWrappedUserRequest(text string) (string, bool) {
 	text = strings.TrimSpace(text)
-	if !strings.HasPrefix(text, "<in-app-browser-context") {
+	switch {
+	case strings.HasPrefix(text, "# Response annotations:"):
+		parts := responseAnnotationComments(text)
+		if request := desktopRequest(text); request != "" {
+			parts = append(parts, request)
+		}
+		return strings.Join(parts, "\n"), true
+	case strings.HasPrefix(text, "<in-app-browser-context"),
+		strings.HasPrefix(text, "# Files mentioned by the user:"):
+		return desktopRequest(text), true
+	default:
 		return "", false
 	}
-	index := strings.Index(text, browserRequestMarker)
+}
+
+func desktopRequest(text string) string {
+	// Codex Desktop adds the marker after ambient UI state, attachment
+	// references, or response selections. Restrict extraction to those known
+	// envelopes so ordinary user-authored Markdown containing the same heading
+	// is never truncated.
+	index := strings.Index(text, desktopRequestMarker)
 	if index < 0 {
-		return "", true
+		return ""
 	}
-	return strings.TrimSpace(text[index+len(browserRequestMarker):]), true
+	return strings.TrimSpace(text[index+len(desktopRequestMarker):])
+}
+
+func responseAnnotationComments(text string) []string {
+	const (
+		openTag  = "<response-annotations>"
+		closeTag = "</response-annotations>"
+	)
+	start := strings.Index(text, openTag)
+	if start < 0 {
+		return nil
+	}
+	start += len(openTag)
+	endOffset := strings.Index(text[start:], closeTag)
+	if endOffset < 0 {
+		return nil
+	}
+
+	var annotations []struct {
+		Annotation string `json:"annotation"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(text[start:start+endOffset])), &annotations) != nil {
+		return nil
+	}
+
+	comments := make([]string, 0, len(annotations))
+	for _, annotation := range annotations {
+		if comment := strings.TrimSpace(annotation.Annotation); comment != "" {
+			// The selected text is an earlier assistant response; only the
+			// annotation is new user-authored evidence.
+			comments = append(comments, comment)
+		}
+	}
+	return comments
 }
 
 func isInjectedUserContext(text string) bool {

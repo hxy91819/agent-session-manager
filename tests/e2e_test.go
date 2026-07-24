@@ -585,13 +585,37 @@ This block is automatically supplied ambient UI state, not part of the user's re
 
 ## My request for Codex:
 当前用户系统是完善的吗？`
+	fileWrappedRequest := `# Files mentioned by the user:
+
+## design.png: /tmp/design.png
+
+## My request for Codex:
+实现附件里的设计`
+	annotationWrappedRequest := `# Response annotations:
+
+<response-annotations>
+[{"text":"earlier response","annotation":"please clarify"}]
+</response-annotations>
+
+## My request for Codex:
+解释这个取舍`
+	annotationOnlyRequest := `# Response annotations:
+
+<response-annotations>
+[{"text":"earlier response","annotation":"只解释选中的错误"}]
+</response-annotations>
+
+## My request for Codex:`
 	heartbeat := "<heartbeat><automation_id>monitor-pr</automation_id></heartbeat>"
 
 	mixedPath := filepath.Join(sessionDir, "mixed.jsonl")
 	writeFile(t, mixedPath, `{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":"mixed","timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}
 {"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(recommendedPlugins)+`},{"type":"input_text","text":"# AGENTS.md instructions for /repo\nignore"},{"type":"input_text","text":"<environment_context>\n<cwd>/repo</cwd>\n</environment_context>"}]}}
 {"timestamp":`+jsonString(at.Add(2*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(browserWrappedRequest)+`}]}}
-{"timestamp":`+jsonString(at.Add(3*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(heartbeat)+`}]}}
+{"timestamp":`+jsonString(at.Add(3*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(fileWrappedRequest)+`}]}}
+{"timestamp":`+jsonString(at.Add(4*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(annotationWrappedRequest)+`}]}}
+{"timestamp":`+jsonString(at.Add(5*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(annotationOnlyRequest)+`}]}}
+{"timestamp":`+jsonString(at.Add(6*time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(heartbeat)+`}]}}
 `)
 
 	injectedOnlyPath := filepath.Join(sessionDir, "injected-only.jsonl")
@@ -632,10 +656,20 @@ This block is automatically supplied ambient UI state, not part of the user's re
 	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "mixed" {
 		t.Fatalf("sessions = %#v, want only mixed", payload.Sessions)
 	}
-	if payload.Sessions[0].EvidenceCount != 1 ||
-		len(payload.Sessions[0].Evidence) != 1 ||
-		payload.Sessions[0].Evidence[0].Text != "当前用户系统是完善的吗？" {
+	if payload.Sessions[0].EvidenceCount != 4 ||
+		len(payload.Sessions[0].Evidence) != 4 {
 		t.Fatalf("evidence = %#v count=%d", payload.Sessions[0].Evidence, payload.Sessions[0].EvidenceCount)
+	}
+	wantEvidence := []string{
+		"当前用户系统是完善的吗？",
+		"实现附件里的设计",
+		"please clarify 解释这个取舍",
+		"只解释选中的错误",
+	}
+	for i, want := range wantEvidence {
+		if payload.Sessions[0].Evidence[i].Text != want {
+			t.Fatalf("evidence[%d].Text = %q, want %q", i, payload.Sessions[0].Evidence[i].Text, want)
+		}
 	}
 	if len(payload.UnverifiedSessions) != 1 || payload.UnverifiedSessions[0].ID != "injected-only" {
 		t.Fatalf("unverified sessions = %#v", payload.UnverifiedSessions)
