@@ -146,6 +146,7 @@ def is_changelog_only_commit(commit: str) -> bool:
     paths = git(
         "diff-tree",
         "--first-parent",
+        "-m",
         "--no-commit-id",
         "--name-only",
         "-r",
