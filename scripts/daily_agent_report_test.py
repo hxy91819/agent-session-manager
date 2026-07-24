@@ -18,6 +18,13 @@ REPORT_SCRIPT = REPO_ROOT / "scripts" / "daily-agent-report.sh"
 VALIDATOR = REPO_ROOT / "scripts" / "validate-agent-work-report.py"
 CODEBUDDY_GENERATOR = REPO_ROOT / "scripts" / "report-generators" / "codebuddy.sh"
 TELEGRAM_DELIVERY = REPO_ROOT / "scripts" / "report-deliveries" / "telegram.sh"
+MEETING_COLLECTOR = (
+    REPO_ROOT
+    / "skills"
+    / "tencent-meeting-summary"
+    / "scripts"
+    / "collect-tencent-meeting-context.py"
+)
 
 
 class ReportValidatorTests(unittest.TestCase):
@@ -144,6 +151,7 @@ class DailyReportScriptTests(unittest.TestCase):
             "fake-codebuddy",
             """\
             #!/usr/bin/env python3
+            import json
             import os
             from pathlib import Path
             import sys
@@ -156,6 +164,10 @@ class DailyReportScriptTests(unittest.TestCase):
             Path(os.environ["FAKE_CODEBUDDY_PROMPT_DIR"], f"prompt-{count}.txt").write_text(
                 prompt, encoding="utf-8"
             )
+            if args_path := os.environ.get("FAKE_CODEBUDDY_ARGS"):
+                Path(args_path).write_text(
+                    json.dumps(sys.argv[1:]), encoding="utf-8"
+                )
             invalid = os.environ.get("FAKE_CODEBUDDY_ALWAYS_INVALID") == "1"
             invalid = invalid or (
                 os.environ.get("FAKE_CODEBUDDY_INVALID_FIRST") == "1" and count == 1
@@ -168,6 +180,22 @@ class DailyReportScriptTests(unittest.TestCase):
                 print("## 工作概览\\n1. [高投入] 项目：推进主要交付；下一步：完成验证\\n\\n"
                       "## 后续跟进\\n- 继续推进\\n\\n"
                       "## 风险与阻塞\\n- 暂无明确阻塞")
+            """,
+        )
+        self._write_executable(
+            "curl",
+            """\
+            #!/usr/bin/env python3
+            import json
+            import os
+            from pathlib import Path
+            import sys
+
+            Path(os.environ["FAKE_CURL_ARGS"]).write_text(
+                json.dumps(sys.argv[1:], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print("{}")
             """,
         )
         self._write_executable(
@@ -275,6 +303,8 @@ class DailyReportScriptTests(unittest.TestCase):
         prompt = (prompt_dir / "prompt-1.txt").read_text(encoding="utf-8")
         self.assertIn('"start_time": "2026-07-23T14:00:00+08:00"', prompt)
         self.assertIn('"end_time": "2026-07-23T15:30:00+08:00"', prompt)
+        self.assertIn('"subject": "项目协作会"', prompt)
+        self.assertIn("据会议名称推测", prompt)
         retry_prompt = (prompt_dir / "prompt-2.txt").read_text(encoding="utf-8")
         self.assertIn("上一版格式校验失败", retry_prompt)
 
@@ -323,6 +353,255 @@ class DailyReportScriptTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("Examples:", result.stdout)
+
+    def test_codebuddy_adapter_preserves_safe_default_generation_contract(self) -> None:
+        prompt = self.root / "adapter-prompt.txt"
+        prompt.write_text("只根据这里的证据生成报告", encoding="utf-8")
+        prompt_dir = self.root / "adapter-prompts"
+        prompt_dir.mkdir()
+        args_path = self.root / "codebuddy-args.json"
+        env = {
+            **os.environ,
+            "REPORT_CODEBUDDY_BIN": str(self.bin_dir / "fake-codebuddy"),
+            "FAKE_CODEBUDDY_STATE": str(self.root / "adapter-state"),
+            "FAKE_CODEBUDDY_PROMPT_DIR": str(prompt_dir),
+            "FAKE_CODEBUDDY_ARGS": str(args_path),
+        }
+
+        result = subprocess.run(
+            [
+                str(CODEBUDDY_GENERATOR),
+                "--prompt",
+                str(prompt),
+                "--model",
+                "fixture-model",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads(args_path.read_text(encoding="utf-8"))
+        self.assertIn("--print", args)
+        self.assertEqual(args[args.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(args[args.index("--tools") + 1], "")
+        self.assertIn("--strict-mcp-config", args)
+        self.assertEqual(args[args.index("--max-turns") + 1], "50")
+        self.assertEqual(args[args.index("--model") + 1], "fixture-model")
+        self.assertEqual(
+            (prompt_dir / "prompt-1.txt").read_text(encoding="utf-8"),
+            "只根据这里的证据生成报告",
+        )
+
+    def test_telegram_adapter_delivers_rendered_report_with_env_credentials(self) -> None:
+        report = self.root / "telegram-report.md"
+        report.write_text(
+            "## 工作概览\n"
+            "1. [高投入] 项目：完成 `验证`；下一步：继续推进\n\n"
+            "## 风险与阻塞\n"
+            "- 暂无\n",
+            encoding="utf-8",
+        )
+        args_path = self.root / "curl-args.json"
+        env = {
+            **os.environ,
+            "PATH": f"{self.bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "TELEGRAM_BOT_TOKEN": "fixture-token",
+            "TELEGRAM_CHAT_ID": "fixture-chat",
+            "FAKE_CURL_ARGS": str(args_path),
+        }
+
+        result = subprocess.run(
+            [
+                str(TELEGRAM_DELIVERY),
+                "--report",
+                str(report),
+                "--title",
+                "<晨会日报>",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Telegram report sent.", result.stdout)
+        args = json.loads(args_path.read_text(encoding="utf-8"))
+        self.assertIn(
+            "https://api.telegram.org/botfixture-token/sendMessage",
+            args,
+        )
+        self.assertIn("chat_id=fixture-chat", args)
+        self.assertIn("parse_mode=HTML", args)
+        text_arg = next(arg for arg in args if arg.startswith("text="))
+        self.assertIn("<b>&lt;晨会日报&gt;</b>", text_arg)
+        self.assertIn("<b>工作概览</b>", text_arg)
+        self.assertIn("<code>验证</code>", text_arg)
+        self.assertIn("• 暂无", text_arg)
+
+
+class TencentMeetingCollectorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.root = Path(self.temp_dir.name)
+        self.skill_dir = self.root / "meeting-skill"
+        scripts_dir = self.skill_dir / "scripts"
+        scripts_dir.mkdir(parents=True)
+        tool = scripts_dir / "tencent_meeting.py"
+        tool.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import json
+                import os
+                from pathlib import Path
+                import sys
+
+                request = json.loads(sys.argv[2])
+                name = request["name"]
+                arguments = request["arguments"]
+                with Path(os.environ["FAKE_MEETING_CALLS"]).open("a", encoding="utf-8") as log:
+                    log.write(json.dumps(request, ensure_ascii=False) + "\\n")
+
+                status_code = 200
+                if name == "get_user_ended_meetings":
+                    if arguments.get("page_token") == "second":
+                        body = {
+                            "meeting_info_list": [{
+                                "subject": "发布评审",
+                                "start_time": "2026-07-23T15:00:00+08:00",
+                                "end_time": "2026-07-23T16:00:00+08:00",
+                                "meeting_type": "快速会议",
+                            }],
+                            "has_more": False,
+                        }
+                    else:
+                        body = {
+                            "meeting_info_list": [{
+                                "subject": "项目晨会",
+                                "start_time": "2026-07-23T09:00:00+08:00",
+                                "end_time": "2026-07-23T09:30:00+08:00",
+                                "meeting_type": "周期性会议",
+                            }],
+                            "has_more": True,
+                            "next_page_token": "second",
+                        }
+                elif name == "get_records_list":
+                    body = {
+                        "record_meetings": [
+                            {
+                                "meeting_id": "meeting-1",
+                                "subject": "项目晨会",
+                                "record_type": "智能录制",
+                                "record_files": [{"record_file_id": "fallback-file"}],
+                            },
+                            {
+                                "meeting_id": "meeting-1",
+                                "subject": "项目晨会",
+                                "record_type": "云录制",
+                                "record_files": [{"record_file_id": "preferred-file"}],
+                            },
+                            {
+                                "meeting_id": "meeting-2",
+                                "subject": "发布评审",
+                                "record_type": "云录制",
+                                "record_files": [{"record_file_id": "unavailable-file"}],
+                            },
+                        ],
+                        "has_more": False,
+                    }
+                elif arguments["record_file_id"] == "preferred-file":
+                    body = {
+                        "meeting_minute": {
+                            "minute": "明确本周交付范围",
+                            "todo": "跟进验收安排",
+                        }
+                    }
+                else:
+                    status_code = 500
+                    body = {"message": "minutes unavailable"}
+
+                print(json.dumps({
+                    "status_code": status_code,
+                    "body": json.dumps(body, ensure_ascii=False),
+                    "headers": {"X-Tc-Trace": f"trace-{name}", "rpcUuid": f"rpc-{name}"},
+                }, ensure_ascii=False))
+                """
+            ),
+            encoding="utf-8",
+        )
+        tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
+
+    def test_collects_paginated_meetings_and_keeps_partial_summary_context(self) -> None:
+        output = self.root / "meeting-context.json"
+        calls_path = self.root / "meeting-calls.jsonl"
+        env = {
+            **os.environ,
+            "TENCENT_MEETING_TOKEN": "fixture-token",
+            "FAKE_MEETING_CALLS": str(calls_path),
+        }
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(MEETING_COLLECTOR),
+                "--start",
+                "2026-07-23T00:00:00+08:00",
+                "--end",
+                "2026-07-24T00:00:00+08:00",
+                "--output",
+                str(output),
+                "--meeting-skill-dir",
+                str(self.skill_dir),
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["status"], "partial")
+        self.assertEqual(
+            [meeting["subject"] for meeting in payload["meetings"]],
+            ["项目晨会", "发布评审"],
+        )
+        self.assertEqual(
+            payload["smart_minutes"],
+            [{
+                "subject": "项目晨会",
+                "minute": "明确本周交付范围",
+                "todo": "跟进验收安排",
+            }],
+        )
+        self.assertIn("smart minutes for 发布评审", payload["errors"][0])
+
+        calls = [
+            json.loads(line)
+            for line in calls_path.read_text(encoding="utf-8").splitlines()
+        ]
+        ended_calls = [
+            call for call in calls if call["name"] == "get_user_ended_meetings"
+        ]
+        self.assertEqual(len(ended_calls), 2)
+        self.assertEqual(ended_calls[1]["arguments"]["page_token"], "second")
+        minute_file_ids = [
+            call["arguments"]["record_file_id"]
+            for call in calls
+            if call["name"] == "get_smart_minutes"
+        ]
+        self.assertEqual(
+            minute_file_ids,
+            ["preferred-file", "unavailable-file"],
+        )
 
 
 if __name__ == "__main__":
