@@ -12,7 +12,7 @@ import (
 // Version covers parser-derived session fields stored in the cache. Bump it
 // when a provider starts extracting new semantics from an otherwise unchanged
 // source file, otherwise old cache entries can hide the new metadata.
-const Version = 4
+const Version = 5
 
 type FileIdentity struct {
 	Provider string

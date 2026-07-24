@@ -23,6 +23,7 @@ const (
 	maxJSONLRecordBytes      = 8 * 1024 * 1024
 	oversizedJSONLRecordNote = "one or more Codex JSONL records exceeded the per-record safety limit and were skipped"
 	previewReadErrorNote     = "the Codex rollout could not be read completely while collecting report evidence"
+	desktopRequestMarker     = "## My request for Codex:"
 )
 
 type Provider struct {
@@ -410,11 +411,21 @@ func titleFromMessageContent(content []messageContent) string {
 			text = item.InputText
 		}
 		text = strings.TrimSpace(text)
-		if text != "" {
-			parts = append(parts, text)
+		if text == "" {
+			continue
 		}
+		if request, wrapped := extractWrappedUserRequest(text); wrapped {
+			if request != "" {
+				parts = append(parts, request)
+			}
+			continue
+		}
+		if isInjectedUserContext(text) {
+			continue
+		}
+		parts = append(parts, text)
 	}
-	return cleanUserTitle(strings.Join(parts, "\n"))
+	return collapseWhitespace(strings.Join(parts, "\n"))
 }
 
 func readUserPreviews(path string, opts session.PreviewOptions) ([]session.MessagePreview, int, error) {
@@ -451,24 +462,85 @@ func markReportEvidencePartial(metadata map[string]string, note string) {
 	metadata[session.MetadataReportEvidenceNote] = note
 }
 
-func cleanUserTitle(text string) string {
+func extractWrappedUserRequest(text string) (string, bool) {
 	text = strings.TrimSpace(text)
-	if text == "" || isInjectedUserContext(text) {
+	switch {
+	case strings.HasPrefix(text, "# Response annotations:"):
+		parts := responseAnnotationComments(text)
+		if request := desktopRequest(text); request != "" {
+			parts = append(parts, request)
+		}
+		return strings.Join(parts, "\n"), true
+	case strings.HasPrefix(text, "<in-app-browser-context"),
+		strings.HasPrefix(text, "# Files mentioned by the user:"):
+		return desktopRequest(text), true
+	default:
+		return "", false
+	}
+}
+
+func desktopRequest(text string) string {
+	// Codex Desktop adds the marker after ambient UI state, attachment
+	// references, or response selections. Restrict extraction to those known
+	// envelopes so ordinary user-authored Markdown containing the same heading
+	// is never truncated.
+	index := strings.Index(text, desktopRequestMarker)
+	if index < 0 {
 		return ""
 	}
-	return collapseWhitespace(text)
+	return strings.TrimSpace(text[index+len(desktopRequestMarker):])
+}
+
+func responseAnnotationComments(text string) []string {
+	const (
+		openTag  = "<response-annotations>"
+		closeTag = "</response-annotations>"
+	)
+	start := strings.Index(text, openTag)
+	if start < 0 {
+		return nil
+	}
+	start += len(openTag)
+	endOffset := strings.Index(text[start:], closeTag)
+	if endOffset < 0 {
+		return nil
+	}
+
+	var annotations []struct {
+		Annotation string `json:"annotation"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(text[start:start+endOffset])), &annotations) != nil {
+		return nil
+	}
+
+	comments := make([]string, 0, len(annotations))
+	for _, annotation := range annotations {
+		if comment := strings.TrimSpace(annotation.Annotation); comment != "" {
+			// The selected text is an earlier assistant response; only the
+			// annotation is new user-authored evidence.
+			comments = append(comments, comment)
+		}
+	}
+	return comments
 }
 
 func isInjectedUserContext(text string) bool {
 	prefixes := []string{
 		"# AGENTS.md instructions",
-		"<environment_context",
-		"<codex_internal_context",
-		"<turn_aborted",
-		"<permissions",
+		"<app-context",
+		"<apps_instructions",
 		"<collaboration_mode",
+		"<codex_internal_context",
+		"<environment_context",
+		"<heartbeat",
+		"<in-app-browser-context",
+		"<multi_agent_mode",
+		"<permissions",
+		"<plugins_instructions",
+		"<recommended_plugins",
 		"<skills_instructions",
 		"<skill",
+		"<turn_aborted",
 		"<user_action",
 		"The following is the Codex agent history added since your last approval assessment.",
 		"The following is the Codex agent history whose request action you are assessing.",
