@@ -177,6 +177,11 @@ func partitionWindow(sessions []session.Session, start, end time.Time) ([]sessio
 	out := make([]session.Session, 0, len(sessions))
 	var unverified []UnverifiedSession
 	for _, item := range sessions {
+		// Subagent threads inherit their parent's history. Keep them discoverable
+		// and resumable, but do not count them as independent user work.
+		if item.Metadata[session.MetadataParentThreadID] != "" {
+			continue
+		}
 		previews := make([]session.MessagePreview, 0, len(item.Previews))
 		for _, preview := range item.Previews {
 			if preview.At.IsZero() || preview.At.Before(start) || !preview.At.Before(end) {

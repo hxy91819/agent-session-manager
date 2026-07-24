@@ -209,6 +209,37 @@ func TestBuildPayloadDoesNotCountRecordUpdateWithoutWindowEvidence(t *testing.T)
 	}
 }
 
+func TestBuildPayloadExcludesSubagentSessions(t *testing.T) {
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	payload := BuildPayload(Window{
+		Period: PeriodCustom,
+		Start:  start,
+		End:    start.AddDate(0, 0, 1),
+	}, []session.Session{
+		{
+			ID:        "parent",
+			Provider:  "codex",
+			CWD:       "/repo",
+			UpdatedAt: start.Add(time.Hour),
+			Previews:  []session.MessagePreview{{Text: "parent work", At: start.Add(time.Hour)}},
+		},
+		{
+			ID:        "child",
+			Provider:  "codex",
+			CWD:       "/repo",
+			UpdatedAt: start.Add(2 * time.Hour),
+			Metadata:  map[string]string{session.MetadataParentThreadID: "parent"},
+		},
+	})
+
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "parent" {
+		t.Fatalf("sessions = %#v totals=%#v", payload.Sessions, payload.Totals)
+	}
+	if payload.Totals.UnverifiedSessions != 0 || len(payload.UnverifiedSessions) != 0 {
+		t.Fatalf("subagent entered unverified diagnostics: %#v", payload.UnverifiedSessions)
+	}
+}
+
 func TestBuildPayloadReportsProviderEvidenceCoverage(t *testing.T) {
 	start := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
 	payload := BuildPayload(Window{

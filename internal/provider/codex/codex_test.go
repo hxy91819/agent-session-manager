@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
 func TestMain(m *testing.M) {
@@ -41,6 +42,31 @@ func TestParseSessionPrefersLatestTurnContextCWD(t *testing.T) {
 	}
 	if got.Metadata["model"] != "gpt-5" {
 		t.Fatalf("model metadata = %q", got.Metadata["model"])
+	}
+}
+
+func TestParseSessionKeepsFirstSessionMetadata(t *testing.T) {
+	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":"/child"}}
+{"timestamp":"2026-06-13T01:01:00Z","type":"turn_context","payload":{"cwd":"/child-worktree","model":"gpt-5"}}
+{"timestamp":"2026-06-12T01:00:00Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-12T01:00:00Z","cwd":"/parent"}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "child" {
+		t.Fatalf("ID = %q, want child", got.ID)
+	}
+	if got.CWD != "/child" {
+		t.Fatalf("CWD = %q, want /child", got.CWD)
+	}
+	wantCreatedAt := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC)
+	if !got.CreatedAt.Equal(wantCreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", got.CreatedAt, wantCreatedAt)
+	}
+	if got.Metadata[session.MetadataParentThreadID] != "parent" {
+		t.Fatalf("parent_thread_id = %q, want parent", got.Metadata[session.MetadataParentThreadID])
 	}
 }
 
@@ -105,6 +131,114 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	want := []string{"first prompt", "second prompt with e", "fourth prompt", "fifth prompt"}
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
+func TestDiscoverKeepsSubagentSeparateFromInheritedParentHistory(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	parentPath := filepath.Join(sessionDir, "parent.jsonl")
+	childPath := filepath.Join(sessionDir, "child.jsonl")
+	writeFile(t, parentPath, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"parent prompt"}]}}
+`)
+	writeFile(t, childPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T02:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent prompt"}]}}
+`)
+	base := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(parentPath, base, base); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(childPath, base.Add(time.Hour), base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	got, err := provider.Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %#v", len(got), got)
+	}
+	child := got[0]
+	if child.ID != "child" || child.Path != childPath {
+		t.Fatalf("unexpected child session: %#v", child)
+	}
+	if child.Metadata[session.MetadataParentThreadID] != "parent" {
+		t.Fatalf("parent_thread_id = %q, want parent", child.Metadata[session.MetadataParentThreadID])
+	}
+	if child.Title != "" {
+		t.Fatalf("child Title = %q, want empty", child.Title)
+	}
+	if len(child.Previews) != 0 {
+		t.Fatalf("child previews = %#v, want none", child.Previews)
+	}
+	parent := got[1]
+	if parent.ID != "parent" || parent.Path != parentPath {
+		t.Fatalf("unexpected parent session: %#v", parent)
+	}
+	if parent.Title != "parent prompt" {
+		t.Fatalf("parent Title = %q, want parent prompt", parent.Title)
+	}
+	if texts := previewTexts(parent.Previews); strings.Join(texts, "|") != "parent prompt" {
+		t.Fatalf("parent previews = %#v, want parent prompt", texts)
+	}
+}
+
+func TestDiscoverInvalidatesLegacyCacheForSubagent(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessionPath := filepath.Join(sessionDir, "child.jsonl")
+	writeFile(t, sessionPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+`)
+
+	info, err := os.Stat(sessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := sessioncache.FileIdentity{
+		Provider: Name,
+		Path:     sessionPath,
+		Size:     info.Size(),
+		ModTime:  info.ModTime(),
+	}
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	legacyCache := sessioncache.Cache{
+		Version: 1,
+		Entries: make(map[string]sessioncache.Entry),
+	}
+	legacyCache.Put(identity, session.Session{ID: "parent", CWD: repo})
+	if err := legacyCache.Save(cachePath); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := Provider{Home: home, CachePath: cachePath}
+	for attempt := 1; attempt <= 2; attempt++ {
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].ID != "child" {
+			t.Fatalf("discovery %d returned %#v", attempt, got)
+		}
+	}
+	cached, ok := sessioncache.Load(cachePath).Get(identity)
+	if !ok || cached.ID != "child" || cached.Metadata[session.MetadataParentThreadID] != "parent" {
+		t.Fatalf("rewritten cache = %#v, %v", cached, ok)
 	}
 }
 

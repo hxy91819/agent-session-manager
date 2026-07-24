@@ -264,6 +264,9 @@ Session titles are omitted from report output because a long-lived session can
 have a title from another day. Session records updated within the window without
 timestamped message evidence are placed in `unverified_sessions`; this is a
 diagnostic signal, not proof that user work occurred in the window.
+Codex subagent threads remain discoverable and resumable, but reports exclude
+them because their rollout files inherit the parent thread's history and would
+otherwise duplicate the parent's work evidence.
 
 `coverage` describes known provider limitations. Kimi is currently marked
 `partial` because its state exposes only the latest prompt, and OpenClaw is

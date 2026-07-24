@@ -5,6 +5,7 @@ import "time"
 const (
 	MetadataReportEvidenceStatus = "report_evidence_status"
 	MetadataReportEvidenceNote   = "report_evidence_note"
+	MetadataParentThreadID       = "parent_thread_id"
 	ReportEvidencePartial        = "partial"
 	ReportEvidenceUnavailable    = "unavailable"
 )
