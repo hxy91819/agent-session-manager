@@ -1,6 +1,6 @@
 ---
 name: agent-work-report
-description: Generate Chinese daily and weekly work reports from local coding-agent sessions by calling asm report, optionally enriched with Tencent Meeting history and smart minutes. Use when the user asks for an Agent work summary, today's work, yesterday's work, last week's work, daily report, weekly report, 日报, 周报, 今日工作总结, 今天工作总结, 昨天工作总结, 上周工作总结, or wants Codex to classify and summarize recent agent sessions and meetings.
+description: Generate Chinese daily and weekly work reports from local coding-agent sessions, optionally enriched with Tencent Meeting history and smart minutes. Use only when the user asks to generate, view, or summarize work for a concrete time window, such as today, yesterday, last week, 日报, 周报, 今日工作总结, 昨天工作总结, or 上周工作总结. Do not use when the user is designing, implementing, modifying, debugging, reviewing, or configuring report scripts, report skills, meeting integrations, delivery automations, or report formatting.
 ---
 
 # Agent Work Report
