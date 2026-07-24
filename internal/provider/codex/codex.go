@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,7 +18,12 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
-const Name = "codex"
+const (
+	Name                     = "codex"
+	maxJSONLRecordBytes      = 8 * 1024 * 1024
+	oversizedJSONLRecordNote = "one or more Codex JSONL records exceeded the per-record safety limit and were skipped"
+	previewReadErrorNote     = "the Codex rollout could not be read completely while collecting report evidence"
+)
 
 type Provider struct {
 	Home      string
@@ -105,7 +111,14 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.Metadata["title_source"] = "history"
 		}
 		if opts.Preview.Enabled() && s.Metadata[session.MetadataParentThreadID] == "" {
-			s.Previews = readUserPreviews(file.Path, opts.Preview)
+			previews, oversized, previewErr := readUserPreviews(file.Path, opts.Preview)
+			s.Previews = previews
+			if oversized > 0 {
+				markReportEvidencePartial(s.Metadata, oversizedJSONLRecordNote)
+			}
+			if previewErr != nil {
+				markReportEvidencePartial(s.Metadata, previewReadErrorNote)
+			}
 		} else {
 			s.Previews = nil
 		}
@@ -310,20 +323,14 @@ func parseSessionFile(path string) (session.Session, error) {
 }
 
 func parseSession(r io.Reader) (session.Session, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	var out session.Session
 	out.Metadata = make(map[string]string)
 	haveSessionMeta := false
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	oversized, err := readJSONLRecords(r, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
-			continue
+		if json.Unmarshal(line, &rec) != nil {
+			return true
 		}
 		switch rec.Type {
 		case "session_meta":
@@ -333,10 +340,10 @@ func parseSession(r io.Reader) (session.Session, error) {
 				if parentID := out.Metadata[session.MetadataParentThreadID]; parentID != "" {
 					var meta sessionMeta
 					if json.Unmarshal(rec.Payload, &meta) == nil && meta.ID == parentID {
-						return out, nil
+						return false
 					}
 				}
-				continue
+				return true
 			}
 			var meta sessionMeta
 			if json.Unmarshal(rec.Payload, &meta) == nil && meta.ID != "" {
@@ -369,8 +376,12 @@ func parseSession(r io.Reader) (session.Session, error) {
 				}
 			}
 		}
+		return true
+	})
+	if oversized > 0 {
+		markReportEvidencePartial(out.Metadata, oversizedJSONLRecordNote)
 	}
-	return out, scanner.Err()
+	return out, err
 }
 
 func titleFromMessageContent(content []messageContent) string {
@@ -391,28 +402,22 @@ func titleFromMessageContent(content []messageContent) string {
 	return cleanUserTitle(strings.Join(parts, "\n"))
 }
 
-func readUserPreviews(path string, opts session.PreviewOptions) []session.MessagePreview {
+func readUserPreviews(path string, opts session.PreviewOptions) ([]session.MessagePreview, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, 0, err
 	}
 	defer func() { _ = f.Close() }()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	var messages []session.MessagePreview
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	oversized, err := readJSONLRecords(f, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
-		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "response_item" {
-			continue
+		if json.Unmarshal(line, &rec) != nil || rec.Type != "response_item" {
+			return true
 		}
 		var msg responseMessage
 		if json.Unmarshal(rec.Payload, &msg) != nil || msg.Type != "message" || msg.Role != "user" {
-			continue
+			return true
 		}
 		if text := titleFromMessageContent(msg.Content); text != "" {
 			messages = append(messages, session.MessagePreview{
@@ -421,8 +426,63 @@ func readUserPreviews(path string, opts session.PreviewOptions) []session.Messag
 				Source: "codex:response_item",
 			})
 		}
+		return true
+	})
+	return session.SelectMessagePreviews(messages, opts), oversized, err
+}
+
+func readJSONLRecords(r io.Reader, maxRecordBytes int, visit func([]byte) bool) (int, error) {
+	reader := bufio.NewReader(r)
+	oversizedRecords := 0
+	for {
+		record, oversized, err := readBoundedJSONLRecord(reader, maxRecordBytes)
+		if errors.Is(err, io.EOF) {
+			return oversizedRecords, nil
+		}
+		if err != nil {
+			return oversizedRecords, err
+		}
+		if oversized {
+			oversizedRecords++
+			continue
+		}
+		record = bytes.TrimSpace(record)
+		if len(record) != 0 {
+			if !visit(record) {
+				return oversizedRecords, nil
+			}
+		}
 	}
-	return session.SelectMessagePreviews(messages, opts)
+}
+
+func readBoundedJSONLRecord(reader *bufio.Reader, maxRecordBytes int) ([]byte, bool, error) {
+	var record []byte
+	oversized := false
+	for {
+		fragment, isPrefix, err := reader.ReadLine()
+		if err != nil {
+			if errors.Is(err, io.EOF) && (len(record) > 0 || oversized) {
+				return record, oversized, nil
+			}
+			return nil, false, err
+		}
+		if !oversized {
+			if len(fragment) > maxRecordBytes-len(record) {
+				record = nil
+				oversized = true
+			} else {
+				record = append(record, fragment...)
+			}
+		}
+		if !isPrefix {
+			return record, oversized, nil
+		}
+	}
+}
+
+func markReportEvidencePartial(metadata map[string]string, note string) {
+	metadata[session.MetadataReportEvidenceStatus] = session.ReportEvidencePartial
+	metadata[session.MetadataReportEvidenceNote] = note
 }
 
 func cleanUserTitle(text string) string {

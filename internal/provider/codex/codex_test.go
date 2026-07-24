@@ -113,6 +113,55 @@ func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
 	}
 }
 
+func TestReadJSONLRecordsSkipsOversizedRecordAndContinues(t *testing.T) {
+	var records []string
+	oversized, err := readJSONLRecords(strings.NewReader("12345\n123456\nlast"), 5, func(record []byte) bool {
+		records = append(records, string(record))
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized != 1 {
+		t.Fatalf("oversized records = %d, want 1", oversized)
+	}
+	want := []string{"12345", "last"}
+	if strings.Join(records, "|") != strings.Join(want, "|") {
+		t.Fatalf("records = %#v, want %#v", records, want)
+	}
+}
+
+func TestReadJSONLRecordsKeepsBufferSizedFinalRecord(t *testing.T) {
+	want := strings.Repeat("x", 4096)
+	var records []string
+	oversized, err := readJSONLRecords(strings.NewReader(want), 8192, func(record []byte) bool {
+		records = append(records, string(record))
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized != 0 {
+		t.Fatalf("oversized records = %d, want 0", oversized)
+	}
+	if len(records) != 1 || records[0] != want {
+		t.Fatalf("records = %d items, want one %d-byte record", len(records), len(want))
+	}
+}
+
+func TestReadJSONLRecordsCountsBufferSizedOversizedFinalRecord(t *testing.T) {
+	oversized, err := readJSONLRecords(strings.NewReader(strings.Repeat("x", 8192)), 4096, func(record []byte) bool {
+		t.Fatalf("visited oversized record with %d bytes", len(record))
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized != 1 {
+		t.Fatalf("oversized records = %d, want 1", oversized)
+	}
+}
+
 func TestDiscoverReadsUserPreviews(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -141,6 +190,44 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	want := []string{"first prompt", "second prompt with e", "fourth prompt", "fifth prompt"}
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
+func TestDiscoverReadsPastLargeJSONLRecord(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	largeOutput := strings.Repeat("x", maxJSONLRecordBytes)
+	writeFile(t, filepath.Join(sessionDir, "session.jsonl"), `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"before large output"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"custom_tool_call_output","output":`+jsonString(largeOutput)+`}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"after large output"}]}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Title != "after large output" {
+		t.Fatalf("Title = %q, want after large output", got[0].Title)
+	}
+	want := []string{"before large output", "after large output"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial {
+		t.Fatalf("report evidence status = %q, want partial", got[0].Metadata[session.MetadataReportEvidenceStatus])
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
+		t.Fatal("report evidence note is empty")
 	}
 }
 
