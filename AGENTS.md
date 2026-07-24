@@ -244,6 +244,14 @@ the broken behavior, then change the implementation to make that test pass. Do
 not treat a bug fix as complete without a regression test unless the behavior is
 not testable in this repository; in that case, document why in the change.
 
+Every change to an external interface or other user-observable behavior must
+add or update an end-to-end test that exercises the public boundary and locks in
+the intended user behavior. This includes CLI contracts, output formats, user
+flows, and integration adapter behavior. Assert the behavior contract rather
+than internal implementation details. If an end-to-end test is not feasible in
+this repository, document the reason and the alternative coverage in the
+change.
+
 Add tests near the behavior being changed:
 
 - Provider parsing and metadata: `internal/provider/<name>/*_test.go`
