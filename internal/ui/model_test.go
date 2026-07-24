@@ -365,7 +365,7 @@ func TestModelPageDownMovesByVisiblePage(t *testing.T) {
 	}
 }
 
-func TestSessionPageSizeIsCapped(t *testing.T) {
+func TestSessionPageSizeAdaptsToViewportHeight(t *testing.T) {
 	sessions := make([]session.Session, 0, 30)
 	now := time.Now()
 	for i := range 30 {
@@ -376,10 +376,19 @@ func TestSessionPageSizeIsCapped(t *testing.T) {
 		})
 	}
 	m := New(sessions)
-	m.height = 80
+	m.height = 20
+	shortPage := m.sessionPageSize()
+	m.height = 40
+	tallPage := m.sessionPageSize()
 
-	if got := m.sessionPageSize(); got != maxSessionsPerPage {
-		t.Fatalf("sessionPageSize = %d, want %d", got, maxSessionsPerPage)
+	if shortPage != 6 || tallPage != 26 {
+		t.Fatalf("session page sizes = short:%d tall:%d, want 6 and 26", shortPage, tallPage)
+	}
+	if tallPage <= shortPage {
+		t.Fatalf("taller viewport page size = %d, want greater than %d", tallPage, shortPage)
+	}
+	if view := m.View(); !strings.Contains(view, "showing 1-26/31") {
+		t.Fatalf("tall viewport did not fill the session panel:\n%s", view)
 	}
 }
 

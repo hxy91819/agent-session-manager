@@ -58,7 +58,6 @@ type loadedSessionsMsg struct {
 
 const defaultWindowDays = 30
 const defaultStepDays = 30
-const maxSessionsPerPage = 12
 const panelGap = 1
 
 // Narrow terminals intentionally fall back to the sessions panel only; keeping
@@ -641,9 +640,6 @@ func sessionListLimit(height int) int {
 	limit := height - 9
 	if limit < 1 {
 		return 1
-	}
-	if limit > maxSessionsPerPage {
-		return maxSessionsPerPage
 	}
 	return limit
 }
