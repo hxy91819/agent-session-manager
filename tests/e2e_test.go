@@ -619,6 +619,82 @@ func TestCLIReportLongLivedSessionIsStrictlyPartitionedByDay(t *testing.T) {
 	}
 }
 
+type generatedSessionPayload struct {
+	ID       string            `json:"id"`
+	Provider string            `json:"provider"`
+	Metadata map[string]string `json:"metadata"`
+}
+
+func TestCLIExcludesNonInteractiveCodexExecByDefault(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	repo := t.TempDir()
+
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	yesterday := today.AddDate(0, 0, -1)
+	inWindow := yesterday.Add(time.Hour)
+	sessionPath := filepath.Join(codexHome, "sessions", "2026", "07", "23", "generated.jsonl")
+	writeFile(t, sessionPath, `{"timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"generated","timestamp":"`+inWindow.Format(time.RFC3339Nano)+`","cwd":`+jsonString(repo)+`,"source":"exec","originator":"codex_exec"}}
+{"timestamp":"`+inWindow.Add(time.Second).Format(time.RFC3339Nano)+`","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"generate automated daily report"}]}}
+`)
+	if err := os.Chtimes(sessionPath, inWindow, inWindow); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []generatedSessionPayload `json:"sessions"`
+	}
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--since-days", "0", "--json")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 0 {
+		t.Fatalf("default discovery should exclude non-interactive sessions: %#v", payload.Sessions)
+	}
+
+	out = runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--since-days", "0", "--json", "--include-non-interactive")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	assertGeneratedSession(t, payload.Sessions)
+
+	out = runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--period", "yesterday")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 0 || len(payload.Sessions) != 0 {
+		t.Fatalf("default report should exclude non-interactive sessions: %#v", payload)
+	}
+
+	out = runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--period", "yesterday", "--include-non-interactive")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 {
+		t.Fatalf("report totals = %#v, want one session", payload.Totals)
+	}
+	assertGeneratedSession(t, payload.Sessions)
+}
+
+func assertGeneratedSession(t *testing.T, sessions []generatedSessionPayload) {
+	t.Helper()
+	if len(sessions) != 1 || sessions[0].ID != "generated" || sessions[0].Provider != "codex" {
+		t.Fatalf("included sessions = %#v, want generated Codex exec session", sessions)
+	}
+	if sessions[0].Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("metadata = %#v", sessions[0].Metadata)
+	}
+}
+
 func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()

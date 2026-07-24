@@ -80,6 +80,23 @@ func TestParseSessionKeepsFirstSessionMetadata(t *testing.T) {
 	}
 }
 
+func TestParseSessionMarksExecSessionNonInteractive(t *testing.T) {
+	input := strings.NewReader(`{"timestamp":"2026-06-24T02:25:36Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-24T02:25:36Z","cwd":"/repo","source":"exec","originator":"codex_exec"}}
+{"timestamp":"2026-06-24T02:25:37Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"non interactive prompt"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metadata["entrypoint"] != "exec" {
+		t.Fatalf("entrypoint = %q, want exec", got.Metadata["entrypoint"])
+	}
+	if got.Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("interaction_mode = %q, want non_interactive", got.Metadata["interaction_mode"])
+	}
+}
+
 func TestParseSessionExtractsLastHumanUserTitle(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>ignore me</INSTRUCTIONS>"}]}}

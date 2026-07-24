@@ -130,6 +130,9 @@ ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`,
 `--opencode-home`, or `--zcode-home` to point at alternate provider stores. By
 default only sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
+Automated and one-shot sessions are hidden when their provider exposes a
+reliable non-interactive marker. Pass `--include-non-interactive` to include
+them in JSON output or the TUI.
 
 macOS Gatekeeper:
 
@@ -252,6 +255,9 @@ go run ./cmd/asm report --period yesterday --preview-messages-per-edge 2 --previ
 
 `asm report` prints JSON for agent consumption. It uses local-time natural
 windows and includes bounded user-message previews only for the report path.
+Detected non-interactive generator sessions are excluded by default so report
+automation does not count its own work; use `--include-non-interactive` when
+those sessions are intentionally part of the report.
 `today` covers local midnight through the command's current time.
 Use `--start` and `--end` for custom windows; accepted formats are
 `YYYY-MM-DD`, local `YYYY-MM-DD HH:MM[:SS]`, and RFC3339. Custom report

@@ -218,15 +218,17 @@ func splitHomeList(value string) []string {
 }
 
 type rawRecord struct {
-	Type      string          `json:"type"`
-	SessionID string          `json:"sessionId"`
-	CWD       string          `json:"cwd"`
-	Timestamp string          `json:"timestamp"`
-	Summary   string          `json:"summary"`
-	Title     string          `json:"title"`
-	GitBranch string          `json:"gitBranch"`
-	IsMeta    bool            `json:"isMeta"`
-	Message   json.RawMessage `json:"message"`
+	Type         string          `json:"type"`
+	SessionID    string          `json:"sessionId"`
+	CWD          string          `json:"cwd"`
+	Timestamp    string          `json:"timestamp"`
+	Summary      string          `json:"summary"`
+	Title        string          `json:"title"`
+	GitBranch    string          `json:"gitBranch"`
+	Entrypoint   string          `json:"entrypoint"`
+	PromptSource string          `json:"promptSource"`
+	IsMeta       bool            `json:"isMeta"`
+	Message      json.RawMessage `json:"message"`
 }
 
 type claudeMessage struct {
@@ -274,6 +276,15 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if rec.GitBranch != "" {
 			out.Metadata["git_branch"] = rec.GitBranch
 		}
+		if rec.Entrypoint != "" {
+			out.Metadata["entrypoint"] = strings.TrimSpace(rec.Entrypoint)
+		}
+		if rec.PromptSource != "" {
+			out.Metadata["prompt_source"] = strings.TrimSpace(rec.PromptSource)
+		}
+		if isNonInteractiveRecord(rec) {
+			out.Metadata["interaction_mode"] = "non_interactive"
+		}
 		if t := parseTime(rec.Timestamp); !t.IsZero() {
 			if out.CreatedAt.IsZero() || t.Before(out.CreatedAt) {
 				out.CreatedAt = t
@@ -307,6 +318,14 @@ func parseSession(r io.Reader) (session.Session, error) {
 		out.Metadata["title_source"] = "user"
 	}
 	return out, nil
+}
+
+func isNonInteractiveRecord(rec rawRecord) bool {
+	// Interactive clients can forward individual prompts through the SDK, so
+	// promptSource=sdk alone does not make the whole session automated. The
+	// sdk-cli entrypoint identifies Claude -p/SDK sessions without hiding later
+	// user-typed work stored in interactive CLI or VS Code sessions.
+	return rec.Entrypoint == "sdk-cli"
 }
 
 func parseMessage(raw json.RawMessage) claudeMessage {

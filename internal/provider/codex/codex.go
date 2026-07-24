@@ -281,6 +281,8 @@ type sessionMeta struct {
 	ParentThreadID string `json:"parent_thread_id"`
 	Timestamp      string `json:"timestamp"`
 	CWD            string `json:"cwd"`
+	Source         string `json:"source"`
+	Originator     string `json:"originator"`
 }
 
 type turnContext struct {
@@ -343,6 +345,12 @@ func parseSession(r io.Reader) (session.Session, error) {
 				haveSessionMeta = true
 				out.ID = meta.ID
 				out.CWD = meta.CWD
+				if meta.Source != "" {
+					out.Metadata["entrypoint"] = strings.TrimSpace(meta.Source)
+				}
+				if isNonInteractiveSessionMeta(meta) {
+					out.Metadata["interaction_mode"] = "non_interactive"
+				}
 				if t := parseTime(meta.Timestamp); !t.IsZero() {
 					out.CreatedAt = t
 				}
@@ -371,6 +379,13 @@ func parseSession(r io.Reader) (session.Session, error) {
 		}
 	}
 	return out, scanner.Err()
+}
+
+func isNonInteractiveSessionMeta(meta sessionMeta) bool {
+	// Codex exec persists normal rollout JSONL, so source/originator are the
+	// stable fields that distinguish script-style runs from interactive TUI or
+	// desktop sessions without depending on prompt text.
+	return meta.Source == "exec" || meta.Originator == "codex_exec"
 }
 
 func titleFromMessageContent(content []messageContent) string {
