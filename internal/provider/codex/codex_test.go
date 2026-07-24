@@ -113,55 +113,6 @@ func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
 	}
 }
 
-func TestReadJSONLRecordsSkipsOversizedRecordAndContinues(t *testing.T) {
-	var records []string
-	oversized, err := readJSONLRecords(strings.NewReader("12345\n123456\nlast"), 5, func(record []byte) bool {
-		records = append(records, string(record))
-		return true
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if oversized != 1 {
-		t.Fatalf("oversized records = %d, want 1", oversized)
-	}
-	want := []string{"12345", "last"}
-	if strings.Join(records, "|") != strings.Join(want, "|") {
-		t.Fatalf("records = %#v, want %#v", records, want)
-	}
-}
-
-func TestReadJSONLRecordsKeepsBufferSizedFinalRecord(t *testing.T) {
-	want := strings.Repeat("x", 4096)
-	var records []string
-	oversized, err := readJSONLRecords(strings.NewReader(want), 8192, func(record []byte) bool {
-		records = append(records, string(record))
-		return true
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if oversized != 0 {
-		t.Fatalf("oversized records = %d, want 0", oversized)
-	}
-	if len(records) != 1 || records[0] != want {
-		t.Fatalf("records = %d items, want one %d-byte record", len(records), len(want))
-	}
-}
-
-func TestReadJSONLRecordsCountsBufferSizedOversizedFinalRecord(t *testing.T) {
-	oversized, err := readJSONLRecords(strings.NewReader(strings.Repeat("x", 8192)), 4096, func(record []byte) bool {
-		t.Fatalf("visited oversized record with %d bytes", len(record))
-		return true
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if oversized != 1 {
-		t.Fatalf("oversized records = %d, want 1", oversized)
-	}
-}
-
 func TestDiscoverReadsUserPreviews(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()

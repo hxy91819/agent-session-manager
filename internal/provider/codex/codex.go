@@ -2,7 +2,6 @@ package codex
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/cwdstatus"
+	"github.com/hxy91819/agent-session-manager/internal/jsonlrecords"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
@@ -327,7 +327,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	out.Metadata = make(map[string]string)
 	haveSessionMeta := false
 
-	oversized, err := readJSONLRecords(r, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -410,7 +410,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	defer func() { _ = f.Close() }()
 
 	var messages []session.MessagePreview
-	oversized, err := readJSONLRecords(f, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := jsonlrecords.Read(f, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil || rec.Type != "response_item" {
 			return true
@@ -429,55 +429,6 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 		return true
 	})
 	return session.SelectMessagePreviews(messages, opts), oversized, err
-}
-
-func readJSONLRecords(r io.Reader, maxRecordBytes int, visit func([]byte) bool) (int, error) {
-	reader := bufio.NewReader(r)
-	oversizedRecords := 0
-	for {
-		record, oversized, err := readBoundedJSONLRecord(reader, maxRecordBytes)
-		if errors.Is(err, io.EOF) {
-			return oversizedRecords, nil
-		}
-		if err != nil {
-			return oversizedRecords, err
-		}
-		if oversized {
-			oversizedRecords++
-			continue
-		}
-		record = bytes.TrimSpace(record)
-		if len(record) != 0 {
-			if !visit(record) {
-				return oversizedRecords, nil
-			}
-		}
-	}
-}
-
-func readBoundedJSONLRecord(reader *bufio.Reader, maxRecordBytes int) ([]byte, bool, error) {
-	var record []byte
-	oversized := false
-	for {
-		fragment, isPrefix, err := reader.ReadLine()
-		if err != nil {
-			if errors.Is(err, io.EOF) && (len(record) > 0 || oversized) {
-				return record, oversized, nil
-			}
-			return nil, false, err
-		}
-		if !oversized {
-			if len(fragment) > maxRecordBytes-len(record) {
-				record = nil
-				oversized = true
-			} else {
-				record = append(record, fragment...)
-			}
-		}
-		if !isPrefix {
-			return record, oversized, nil
-		}
-	}
 }
 
 func markReportEvidencePartial(metadata map[string]string, note string) {
