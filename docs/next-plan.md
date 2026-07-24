@@ -72,3 +72,9 @@
 
 - 执行过程中，如果有做重要决策，需要记录下来（问题、决策、原因）。
 - autoreview过程中，每一轮 review 出来的问题，你的取舍，原因，需要记录下来。
+
+## Review Follow-up TODO
+
+- Cursor 非交互会话识别：一轮 `<user_query>` transcript 无法可靠区分 `--print` 与用户正常聊一轮后退出，因此当前不据此过滤。后续如果 Cursor 落盘格式出现稳定的 `entrypoint` / `print` 标记，再使用显式字段识别。
+- Report evidence 输出模型：当前 `EvidenceSession` 是刻意裁剪过的 report DTO，用来避免报告 agent 把 raw id/path/metadata 或无证据 continuation title 当成工作证据。后续如果 report 需要更多 `session.Session` 字段，重新评估 DTO 生成方式，避免手动字段拷贝持续膨胀。
+- 跨 provider content block 归一化：本轮已在 CodeBuddy 和 Cursor 中支持 `input_text`。如果后续更多 provider 需要同时处理 `text` / `input_text` / 其他 OpenAI-compatible block 类型，再考虑把 block 文本提取收敛到共享 helper；在此之前保持 provider 内部解析，避免过早抽象。

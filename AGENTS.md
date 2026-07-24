@@ -241,10 +241,10 @@ consume normalized sessions.
 
 Repository maintenance skills:
 
-- Use `skills/behavior-e2e-validation` for user-observable behavior changes and
+- Use `.agents/skills/behavior-e2e-validation` for user-observable behavior changes and
   bug fixes. If a public-boundary reproduction is feasible, add or update an
   end-to-end test and prove the base failure and fixed pass.
-- Use `skills/cross-agent-pr-review` when reviewing provider or shared-session
+- Use `.agents/skills/cross-agent-pr-review` when reviewing provider or shared-session
   PRs. Check whether the bug class affects other agents; contributors generally
   do not need to fix every provider, but maintainers must create follow-up PRs
   for confirmed sibling bugs with end-to-end coverage.

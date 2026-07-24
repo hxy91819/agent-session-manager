@@ -198,12 +198,17 @@ type rawRecord struct {
 	Role      string          `json:"role"`
 	SessionID string          `json:"sessionId"`
 	CWD       string          `json:"cwd"`
-	Timestamp string          `json:"timestamp"`
+	Timestamp flexibleTime    `json:"timestamp"`
 	AITitle   string          `json:"ai-title"`
 	Summary   string          `json:"summary"`
 	Model     string          `json:"model"`
 	Content   json.RawMessage `json:"content"`
 	Message   json.RawMessage `json:"message"`
+	Provider  providerData    `json:"providerData"`
+}
+
+type providerData struct {
+	Agent string `json:"agent"`
 }
 
 type codebuddyMessage struct {
@@ -246,7 +251,11 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if rec.Model != "" {
 			out.Metadata["model"] = strings.TrimSpace(rec.Model)
 		}
-		if t := parseTime(rec.Timestamp); !t.IsZero() {
+		if rec.Provider.Agent != "" {
+			agent := strings.TrimSpace(rec.Provider.Agent)
+			out.Metadata["agent"] = agent
+		}
+		if t := rec.Timestamp.Time(); !t.IsZero() {
 			if out.CreatedAt.IsZero() || t.Before(out.CreatedAt) {
 				out.CreatedAt = t
 			}
@@ -312,7 +321,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 		if text := cleanTitle(messageText(msg.Content)); text != "" {
 			messages = append(messages, session.MessagePreview{
 				Text:   text,
-				At:     parseTime(rec.Timestamp),
+				At:     rec.Timestamp.Time(),
 				Source: "codebuddy:user",
 			})
 		}
@@ -361,7 +370,7 @@ func messageText(raw json.RawMessage) string {
 	}
 	var parts []string
 	for _, block := range blocks {
-		if block.Type != "" && block.Type != "text" {
+		if block.Type != "" && block.Type != "text" && block.Type != "input_text" {
 			continue
 		}
 		if strings.TrimSpace(block.Text) != "" {
@@ -393,6 +402,35 @@ func isInjectedContext(text string) bool {
 		}
 	}
 	return false
+}
+
+type flexibleTime struct {
+	value time.Time
+}
+
+func (t flexibleTime) Time() time.Time {
+	return t.value
+}
+
+func (t *flexibleTime) UnmarshalJSON(data []byte) error {
+	var text string
+	if json.Unmarshal(data, &text) == nil {
+		t.value = parseTime(text)
+		return nil
+	}
+	var number json.Number
+	if json.Unmarshal(data, &number) == nil {
+		// CodeBuddy currently emits millisecond epochs as JSON integers, but
+		// accepting decimal number tokens keeps the parser tolerant of equivalent
+		// encoders without broadening the provider contract beyond epoch millis.
+		parsed, err := number.Float64()
+		if err == nil {
+			t.value = time.UnixMilli(int64(parsed))
+		}
+	}
+	// A malformed timestamp must not discard an otherwise usable transcript
+	// record; unknown time is safer than losing its title and evidence.
+	return nil
 }
 
 func parseTime(value string) time.Time {

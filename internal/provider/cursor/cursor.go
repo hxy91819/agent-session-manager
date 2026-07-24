@@ -86,6 +86,13 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		s.Metadata["source_home"] = home
 		s.Metadata["project_key"] = file.ProjectKey
+		if isAutoreviewTempCWD(s.CWD) {
+			// Autoreview launches Cursor in a disposable checkout. Its transcript
+			// may contain tool calls, so the one-shot transcript shape alone cannot
+			// identify it reliably after the temporary cwd has been removed.
+			s.Metadata["automation"] = "autoreview"
+			s.Metadata["interaction_mode"] = "non_interactive"
+		}
 		switch {
 		case file.CWDError != "":
 			s.Metadata["cwd_error"] = file.CWDError
@@ -240,6 +247,19 @@ func containsPathPart(path, part string) bool {
 		}
 	}
 	return false
+}
+
+func isAutoreviewTempCWD(cwd string) bool {
+	clean := filepath.Clean(cwd)
+	if !filepath.IsAbs(clean) {
+		return false
+	}
+	base := filepath.Base(clean)
+	// The transcript persists the producer's cwd, but report discovery may run
+	// with a different TMPDIR. These names are owned by autoreview; matching the
+	// absolute path's basename keeps classification stable across processes.
+	return strings.HasPrefix(base, "autoreview-cursor-agent.") ||
+		strings.HasPrefix(base, "autoreview-fixture.")
 }
 
 func projectCWD(projectDir, projectKey string) cwdResolution {
@@ -449,7 +469,7 @@ func messageText(raw json.RawMessage) string {
 	}
 	var parts []string
 	for _, block := range blocks {
-		if block.Type != "" && block.Type != "text" {
+		if block.Type != "" && block.Type != "text" && block.Type != "input_text" {
 			continue
 		}
 		if strings.TrimSpace(block.Text) != "" {
