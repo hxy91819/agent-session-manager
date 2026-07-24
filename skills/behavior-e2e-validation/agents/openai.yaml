@@ -1,0 +1,4 @@
+interface:
+  display_name: "Behavior E2E Validation"
+  short_description: "Lock behavior changes with end-to-end tests"
+  default_prompt: "Use $behavior-e2e-validation to reproduce this behavior change through the public CLI boundary and verify the fix."
