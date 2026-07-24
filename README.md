@@ -113,11 +113,33 @@ go test ./...
 go build ./cmd/asm
 go run ./tools/check-provider-performance
 go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode ./internal/provider/zcode
+python3 -m unittest scripts/generate_release_changelog_test.py
 ```
 
 The pre-commit setup expects `gitleaks` and `golangci-lint` to be installed.
 It runs staged secret scanning, basic file hygiene checks, `gofmt`, `go vet`,
 `go test`, and a small Go lint set.
+
+Release preparation:
+
+```sh
+git switch master
+git pull --ff-only
+python3 scripts/generate-release-changelog.py \
+  --version v0.8.0 \
+  --target HEAD \
+  --mode prepend \
+  --output CHANGELOG.md
+git add CHANGELOG.md
+git commit -m "Prepare v0.8.0 changelog"
+git tag v0.8.0
+git push origin master v0.8.0
+```
+
+Generate and commit the changelog only after every intended feature and fix has
+merged into `master`. The generator reads first-parent history, resolves each
+merged PR's original GitHub author, and writes explicit `Thanks @author`
+credit. The tag workflow verifies that committed section before publishing.
 
 Performance controls:
 
