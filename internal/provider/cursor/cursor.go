@@ -358,10 +358,6 @@ func parseSession(r io.Reader) (session.Session, error) {
 	out := session.Session{Metadata: make(map[string]string)}
 	var firstUserTitle string
 	var lastUserTitle string
-	var firstUserRaw string
-	var userMessages int
-	var assistantMessages int
-	var hasToolUse bool
 	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
@@ -376,24 +372,10 @@ func parseSession(r io.Reader) (session.Session, error) {
 			}
 		}
 		msg := parseMessage(rec)
-		role := messageRole(rec, msg)
-		switch role {
-		case "user":
-			userMessages++
-		case "assistant":
-			assistantMessages++
-			if contentHasToolUse(msg.Content) {
-				hasToolUse = true
-			}
-		}
-		if role != "user" {
+		if messageRole(rec, msg) != "user" {
 			return true
 		}
-		rawText := messageText(msg.Content)
-		if firstUserRaw == "" {
-			firstUserRaw = rawText
-		}
-		title := cleanTitle(rawText)
+		title := cleanTitle(messageText(msg.Content))
 		if title == "" {
 			return true
 		}
@@ -415,15 +397,6 @@ func parseSession(r io.Reader) (session.Session, error) {
 	} else if lastUserTitle != "" {
 		out.Title = lastUserTitle
 		out.Metadata["title_source"] = "last_user"
-	}
-	if isLikelyPrintSession(cursorSessionShape{
-		FirstUserText:     firstUserRaw,
-		UserMessages:      userMessages,
-		AssistantMessages: assistantMessages,
-		HasToolUse:        hasToolUse,
-	}) {
-		out.Metadata["entrypoint"] = "print"
-		out.Metadata["interaction_mode"] = "non_interactive"
 	}
 	return out, nil
 }
@@ -501,41 +474,6 @@ func messageText(raw json.RawMessage) string {
 		}
 	}
 	return strings.Join(parts, "\n")
-}
-
-func contentHasToolUse(raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var blocks []contentBlock
-	if json.Unmarshal(raw, &blocks) != nil {
-		return false
-	}
-	for _, block := range blocks {
-		if block.Type == "tool_use" {
-			return true
-		}
-	}
-	return false
-}
-
-type cursorSessionShape struct {
-	FirstUserText     string
-	UserMessages      int
-	AssistantMessages int
-	HasToolUse        bool
-}
-
-func isLikelyPrintSession(shape cursorSessionShape) bool {
-	// Cursor Agent currently does not persist an explicit --print flag. Keep
-	// this deliberately narrow: the one-shot print path stores a wrapped user
-	// query followed by one assistant response, while normal agent sessions can
-	// share the wrapper but continue with more turns or tool-use records.
-	return shape.UserMessages == 1 &&
-		shape.AssistantMessages == 1 &&
-		!shape.HasToolUse &&
-		strings.Contains(shape.FirstUserText, "<user_query>") &&
-		strings.Contains(shape.FirstUserText, "</user_query>")
 }
 
 func cleanTitle(text string) string {

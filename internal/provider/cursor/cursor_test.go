@@ -133,7 +133,7 @@ func TestIsAutoreviewTempCWDIsNarrow(t *testing.T) {
 	}
 }
 
-func TestParseSessionMarksLikelyPrintSessionNonInteractive(t *testing.T) {
+func TestParseSessionDoesNotInferNonInteractiveFromOneTurnWrapper(t *testing.T) {
 	input := strings.NewReader(`{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\nnon interactive prompt\n</user_query>"}]}}
 {"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
 {"type":"turn_ended","status":"success"}
@@ -143,11 +143,8 @@ func TestParseSessionMarksLikelyPrintSessionNonInteractive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Metadata["entrypoint"] != "print" {
-		t.Fatalf("entrypoint = %q, want print", got.Metadata["entrypoint"])
-	}
-	if got.Metadata["interaction_mode"] != "non_interactive" {
-		t.Fatalf("interaction_mode = %q, want non_interactive", got.Metadata["interaction_mode"])
+	if got.Metadata["interaction_mode"] != "" {
+		t.Fatalf("ambiguous one-turn sessions must remain interactive: %#v", got.Metadata)
 	}
 }
 
@@ -163,22 +160,8 @@ func TestParseSessionReadsInputTextBlocks(t *testing.T) {
 	if !strings.Contains(got.Title, "input text prompt") {
 		t.Fatalf("Title = %q", got.Title)
 	}
-	if got.Metadata["interaction_mode"] != "non_interactive" {
-		t.Fatalf("interaction_mode = %q, want non_interactive", got.Metadata["interaction_mode"])
-	}
-}
-
-func TestParseSessionDoesNotMarkCursorToolSessionNonInteractive(t *testing.T) {
-	input := strings.NewReader(`{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\ninteractive-style prompt\n</user_query>"}]}}
-{"role":"assistant","message":{"content":[{"type":"text","text":"I will inspect files."},{"type":"tool_use","name":"Shell","input":{"command":"git status"}}]}}
-`)
-
-	got, err := parseSession(input)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if got.Metadata["interaction_mode"] != "" {
-		t.Fatalf("interaction_mode = %q, want empty", got.Metadata["interaction_mode"])
+		t.Fatalf("input_text does not prove a non-interactive entrypoint: %#v", got.Metadata)
 	}
 }
 

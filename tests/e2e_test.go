@@ -743,7 +743,7 @@ func TestCLIReportExcludesNonInteractiveCodeBuddyByDefault(t *testing.T) {
 	}
 }
 
-func TestCLIReportExcludesNonInteractiveCursorPrintByDefault(t *testing.T) {
+func TestCLIReportKeepsAmbiguousOneTurnCursorSession(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
 	cursorHome := t.TempDir()
@@ -777,20 +777,11 @@ func TestCLIReportExcludesNonInteractiveCursorPrintByDefault(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out)
 	}
-	if payload.Totals.Sessions != 0 || len(payload.Sessions) != 0 {
-		t.Fatalf("default report should exclude non-interactive sessions: %#v", payload)
-	}
-
-	out = runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
-		"--cursor-home", cursorHome, "--period", "yesterday", "--include-non-interactive")
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, out)
-	}
 	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].Provider != "cursor" {
-		t.Fatalf("include flag should include Cursor session: %#v", payload)
+		t.Fatalf("default report should keep an ambiguous one-turn Cursor session: %#v", payload)
 	}
-	if payload.Sessions[0].Metadata["interaction_mode"] != "non_interactive" {
-		t.Fatalf("metadata = %#v", payload.Sessions[0].Metadata)
+	if payload.Sessions[0].Metadata["interaction_mode"] != "" {
+		t.Fatalf("ambiguous Cursor session must remain interactive: %#v", payload.Sessions[0].Metadata)
 	}
 }
 
