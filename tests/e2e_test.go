@@ -89,6 +89,7 @@ func TestCLIKeepsCodexSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	claudeHome := t.TempDir()
 	parentRepo := t.TempDir()
 	childRepo := t.TempDir()
+	childWorktree := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
 
 	parentPath := filepath.Join(sessionDir, "parent.jsonl")
@@ -96,12 +97,14 @@ func TestCLIKeepsCodexSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	writeFile(t, parentPath, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(parentRepo)+`}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"parent user work"}]}}
 `)
-	// Codex subagent rollouts start with the child identity, then replay parent
-	// history. Keeping that record order here reproduces the real corruption
-	// path instead of merely testing two independent sessions.
+	// Codex subagent rollouts start with child-owned records, then replay parent
+	// history. This ordering locks in both the identity and context boundaries.
 	writeFile(t, childPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(childRepo)+`}}
-{"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(parentRepo)+`}}
-{"timestamp":"2026-06-13T02:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent user work"}]}}
+{"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(childRepo)+`}}
+{"timestamp":"2026-06-13T02:00:02Z","type":"turn_context","payload":{"cwd":`+jsonString(childWorktree)+`,"model":"gpt-5"}}
+{"timestamp":"2026-06-13T02:00:03Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(parentRepo)+`}}
+{"timestamp":"2026-06-13T02:00:04Z","type":"turn_context","payload":{"cwd":`+jsonString(parentRepo)+`,"model":"gpt-4"}}
+{"timestamp":"2026-06-13T02:00:05Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent user work"}]}}
 `)
 	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"id":"parent","thread_name":"Parent thread","updated_at":"2026-06-13T01:00:00Z"}
 {"id":"child","thread_name":"Child subagent","updated_at":"2026-06-13T02:00:00Z"}
@@ -138,12 +141,12 @@ func TestCLIKeepsCodexSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	if got := byID["parent"]; got.CWD != parentRepo || got.Title != "Parent thread" || got.Path != parentPath {
 		t.Fatalf("parent = %#v", got)
 	}
-	if got := byID["child"]; got.CWD != childRepo || got.Title != "Child subagent" || got.Path != childPath || got.Metadata["parent_thread_id"] != "parent" {
+	if got := byID["child"]; got.CWD != childWorktree || got.Title != "Child subagent" || got.Path != childPath || got.Metadata["parent_thread_id"] != "parent" || got.Metadata["model"] != "gpt-5" {
 		t.Fatalf("child = %#v", got)
 	}
 
 	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--resume", "child", "--print-exec")
-	if !strings.Contains(cmd, `cd '`+childRepo+`' && 'codex' 'resume' 'child'`) {
+	if !strings.Contains(cmd, `cd '`+childWorktree+`' && 'codex' 'resume' 'child'`) {
 		t.Fatalf("unexpected child resume command: %s", cmd)
 	}
 

@@ -328,6 +328,14 @@ func parseSession(r io.Reader) (session.Session, error) {
 		switch rec.Type {
 		case "session_meta":
 			if haveSessionMeta {
+				// Repeated metadata for the child is still child-owned. Only the
+				// direct parent's identity marks the inherited-history boundary.
+				if parentID := out.Metadata[session.MetadataParentThreadID]; parentID != "" {
+					var meta sessionMeta
+					if json.Unmarshal(rec.Payload, &meta) == nil && meta.ID == parentID {
+						return out, nil
+					}
+				}
 				continue
 			}
 			var meta sessionMeta
@@ -340,7 +348,6 @@ func parseSession(r io.Reader) (session.Session, error) {
 				}
 				if meta.ParentThreadID != "" {
 					out.Metadata[session.MetadataParentThreadID] = meta.ParentThreadID
-					return out, nil
 				}
 			}
 		case "turn_context":

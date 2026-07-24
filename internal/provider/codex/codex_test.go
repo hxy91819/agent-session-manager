@@ -47,8 +47,12 @@ func TestParseSessionPrefersLatestTurnContextCWD(t *testing.T) {
 
 func TestParseSessionKeepsFirstSessionMetadata(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":"/child"}}
+{"timestamp":"2026-06-13T01:00:30Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":"/child"}}
 {"timestamp":"2026-06-13T01:01:00Z","type":"turn_context","payload":{"cwd":"/child-worktree","model":"gpt-5"}}
+{"timestamp":"2026-06-13T01:01:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"child task"}]}}
 {"timestamp":"2026-06-12T01:00:00Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-12T01:00:00Z","cwd":"/parent"}}
+{"timestamp":"2026-06-12T01:01:00Z","type":"turn_context","payload":{"cwd":"/parent-worktree","model":"gpt-4"}}
+{"timestamp":"2026-06-12T01:01:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent task"}]}}
 `)
 
 	got, err := parseSession(input)
@@ -58,8 +62,8 @@ func TestParseSessionKeepsFirstSessionMetadata(t *testing.T) {
 	if got.ID != "child" {
 		t.Fatalf("ID = %q, want child", got.ID)
 	}
-	if got.CWD != "/child" {
-		t.Fatalf("CWD = %q, want /child", got.CWD)
+	if got.CWD != "/child-worktree" {
+		t.Fatalf("CWD = %q, want /child-worktree", got.CWD)
 	}
 	wantCreatedAt := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC)
 	if !got.CreatedAt.Equal(wantCreatedAt) {
@@ -67,6 +71,12 @@ func TestParseSessionKeepsFirstSessionMetadata(t *testing.T) {
 	}
 	if got.Metadata[session.MetadataParentThreadID] != "parent" {
 		t.Fatalf("parent_thread_id = %q, want parent", got.Metadata[session.MetadataParentThreadID])
+	}
+	if got.Metadata["model"] != "gpt-5" {
+		t.Fatalf("model = %q, want gpt-5", got.Metadata["model"])
+	}
+	if got.Title != "child task" {
+		t.Fatalf("Title = %q, want child task", got.Title)
 	}
 }
 

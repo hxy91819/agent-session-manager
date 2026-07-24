@@ -9,7 +9,9 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
-const Version = 2
+// Version changes whenever parser-derived fields change so cached sessions
+// cannot retain stale identity or working-directory metadata.
+const Version = 3
 
 type FileIdentity struct {
 	Provider string
