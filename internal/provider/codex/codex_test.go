@@ -80,6 +80,23 @@ func TestParseSessionKeepsFirstSessionMetadata(t *testing.T) {
 	}
 }
 
+func TestParseSessionMarksExecSessionNonInteractive(t *testing.T) {
+	input := strings.NewReader(`{"timestamp":"2026-06-24T02:25:36Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-24T02:25:36Z","cwd":"/repo","source":"exec","originator":"codex_exec"}}
+{"timestamp":"2026-06-24T02:25:37Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"non interactive prompt"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metadata["entrypoint"] != "exec" {
+		t.Fatalf("entrypoint = %q, want exec", got.Metadata["entrypoint"])
+	}
+	if got.Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("interaction_mode = %q, want non_interactive", got.Metadata["interaction_mode"])
+	}
+}
+
 func TestParseSessionExtractsLastHumanUserTitle(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>ignore me</INSTRUCTIONS>"}]}}
@@ -141,6 +158,44 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	want := []string{"first prompt", "second prompt with e", "fourth prompt", "fifth prompt"}
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
+func TestDiscoverReadsPastLargeJSONLRecord(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	largeOutput := strings.Repeat("x", maxJSONLRecordBytes)
+	writeFile(t, filepath.Join(sessionDir, "session.jsonl"), `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"before large output"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"custom_tool_call_output","output":`+jsonString(largeOutput)+`}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"after large output"}]}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Title != "after large output" {
+		t.Fatalf("Title = %q, want after large output", got[0].Title)
+	}
+	want := []string{"before large output", "after large output"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial {
+		t.Fatalf("report evidence status = %q, want partial", got[0].Metadata[session.MetadataReportEvidenceStatus])
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
+		t.Fatal("report evidence note is empty")
 	}
 }
 

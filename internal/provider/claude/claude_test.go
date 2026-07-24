@@ -79,6 +79,43 @@ func TestParseSessionUsesLastHumanUserTitle(t *testing.T) {
 	}
 }
 
+func TestParseSessionMarksPrintSessionNonInteractive(t *testing.T) {
+	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-24T02:28:31Z","entrypoint":"sdk-cli","promptSource":"sdk","message":{"role":"user","content":"non interactive prompt"}}
+{"type":"assistant","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-24T02:28:32Z","entrypoint":"sdk-cli","message":{"role":"assistant","model":"claude-sonnet-4","content":[]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metadata["entrypoint"] != "sdk-cli" {
+		t.Fatalf("entrypoint = %q, want sdk-cli", got.Metadata["entrypoint"])
+	}
+	if got.Metadata["prompt_source"] != "sdk" {
+		t.Fatalf("prompt_source = %q, want sdk", got.Metadata["prompt_source"])
+	}
+	if got.Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("interaction_mode = %q, want non_interactive", got.Metadata["interaction_mode"])
+	}
+}
+
+func TestParseSessionKeepsInteractiveSessionWithSDKPromptInteractive(t *testing.T) {
+	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-24T02:28:31Z","entrypoint":"claude-vscode","promptSource":"sdk","message":{"role":"user","content":"prompt forwarded by an interactive client"}}
+{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-24T02:29:31Z","entrypoint":"cli","promptSource":"typed","message":{"role":"user","content":"typed follow up"}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metadata["interaction_mode"] != "" {
+		t.Fatalf("interaction_mode = %q, want interactive", got.Metadata["interaction_mode"])
+	}
+	if got.Metadata["entrypoint"] != "cli" || got.Metadata["prompt_source"] != "typed" {
+		t.Fatalf("final interaction metadata = %#v", got.Metadata)
+	}
+}
+
 func TestDiscoverReadsUserPreviews(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -107,6 +144,37 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	want := []string{"first prompt", "second prompt", "fourth prompt", "fifth prompt"}
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+}
+
+func TestDiscoverReadsPastOversizedJSONLRecord(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionPath := filepath.Join(home, "projects", "-repo", "session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, sessionPath, `{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"before large output"}}
+{"type":"assistant","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"assistant","content":`+jsonString(strings.Repeat("x", 8*1024*1024))+`}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"after large output"}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Title != "after large output" {
+		t.Fatalf("sessions = %#v", got)
+	}
+	want := []string{"before large output", "after large output"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial ||
+		got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
+		t.Fatalf("metadata = %#v", got[0].Metadata)
 	}
 }
 

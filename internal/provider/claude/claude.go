@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,11 +12,17 @@ import (
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/cwdstatus"
+	"github.com/hxy91819/agent-session-manager/internal/jsonlrecords"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
-const Name = "claude"
+const (
+	Name                     = "claude"
+	maxJSONLRecordBytes      = 8 * 1024 * 1024
+	oversizedJSONLRecordNote = "one or more Claude JSONL records exceeded the per-record safety limit and were skipped"
+	previewReadErrorNote     = "the Claude transcript could not be read completely while collecting report evidence"
+)
 
 type Provider struct {
 	Home      string
@@ -87,7 +92,14 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		cwdChecker.Mark(&s)
 		if opts.Preview.Enabled() {
-			s.Previews = readUserPreviews(file.Path, opts.Preview)
+			previews, oversized, previewErr := readUserPreviews(file.Path, opts.Preview)
+			s.Previews = previews
+			if oversized > 0 {
+				markReportEvidencePartial(s.Metadata, oversizedJSONLRecordNote)
+			}
+			if previewErr != nil {
+				markReportEvidencePartial(s.Metadata, previewReadErrorNote)
+			}
 		} else {
 			s.Previews = nil
 		}
@@ -218,15 +230,17 @@ func splitHomeList(value string) []string {
 }
 
 type rawRecord struct {
-	Type      string          `json:"type"`
-	SessionID string          `json:"sessionId"`
-	CWD       string          `json:"cwd"`
-	Timestamp string          `json:"timestamp"`
-	Summary   string          `json:"summary"`
-	Title     string          `json:"title"`
-	GitBranch string          `json:"gitBranch"`
-	IsMeta    bool            `json:"isMeta"`
-	Message   json.RawMessage `json:"message"`
+	Type         string          `json:"type"`
+	SessionID    string          `json:"sessionId"`
+	CWD          string          `json:"cwd"`
+	Timestamp    string          `json:"timestamp"`
+	Summary      string          `json:"summary"`
+	Title        string          `json:"title"`
+	GitBranch    string          `json:"gitBranch"`
+	Entrypoint   string          `json:"entrypoint"`
+	PromptSource string          `json:"promptSource"`
+	IsMeta       bool            `json:"isMeta"`
+	Message      json.RawMessage `json:"message"`
 }
 
 type claudeMessage struct {
@@ -250,20 +264,13 @@ func parseSessionFile(path string) (session.Session, error) {
 }
 
 func parseSession(r io.Reader) (session.Session, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
-
 	out := session.Session{Metadata: make(map[string]string)}
 	var lastUserTitle string
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
-			continue
+		if json.Unmarshal(line, &rec) != nil {
+			return true
 		}
 		if rec.SessionID != "" {
 			out.ID = rec.SessionID
@@ -273,6 +280,15 @@ func parseSession(r io.Reader) (session.Session, error) {
 		}
 		if rec.GitBranch != "" {
 			out.Metadata["git_branch"] = rec.GitBranch
+		}
+		if rec.Entrypoint != "" {
+			out.Metadata["entrypoint"] = strings.TrimSpace(rec.Entrypoint)
+		}
+		if rec.PromptSource != "" {
+			out.Metadata["prompt_source"] = strings.TrimSpace(rec.PromptSource)
+		}
+		if isNonInteractiveRecord(rec) {
+			out.Metadata["interaction_mode"] = "non_interactive"
 		}
 		if t := parseTime(rec.Timestamp); !t.IsZero() {
 			if out.CreatedAt.IsZero() || t.Before(out.CreatedAt) {
@@ -286,7 +302,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if title := cleanTitle(firstNonEmpty(rec.Summary, rec.Title)); title != "" {
 			out.Title = title
 			out.Metadata["title_source"] = rec.Type
-			continue
+			return true
 		}
 
 		msg := parseMessage(rec.Message)
@@ -298,8 +314,12 @@ func parseSession(r io.Reader) (session.Session, error) {
 				lastUserTitle = title
 			}
 		}
+		return true
+	})
+	if oversized > 0 {
+		markReportEvidencePartial(out.Metadata, oversizedJSONLRecordNote)
 	}
-	if err := scanner.Err(); err != nil {
+	if err != nil {
 		return session.Session{}, err
 	}
 	if out.Title == "" && lastUserTitle != "" {
@@ -307,6 +327,14 @@ func parseSession(r io.Reader) (session.Session, error) {
 		out.Metadata["title_source"] = "user"
 	}
 	return out, nil
+}
+
+func isNonInteractiveRecord(rec rawRecord) bool {
+	// Interactive clients can forward individual prompts through the SDK, so
+	// promptSource=sdk alone does not make the whole session automated. The
+	// sdk-cli entrypoint identifies Claude -p/SDK sessions without hiding later
+	// user-typed work stored in interactive CLI or VS Code sessions.
+	return rec.Entrypoint == "sdk-cli"
 }
 
 func parseMessage(raw json.RawMessage) claudeMessage {
@@ -344,28 +372,22 @@ func messageText(raw json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-func readUserPreviews(path string, opts session.PreviewOptions) []session.MessagePreview {
+func readUserPreviews(path string, opts session.PreviewOptions) ([]session.MessagePreview, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, 0, err
 	}
 	defer func() { _ = f.Close() }()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	var messages []session.MessagePreview
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	oversized, err := jsonlrecords.Read(f, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
-		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "user" || rec.IsMeta {
-			continue
+		if json.Unmarshal(line, &rec) != nil || rec.Type != "user" || rec.IsMeta {
+			return true
 		}
 		msg := parseMessage(rec.Message)
 		if msg.Role != "user" {
-			continue
+			return true
 		}
 		if text := cleanTitle(messageText(msg.Content)); text != "" {
 			messages = append(messages, session.MessagePreview{
@@ -374,8 +396,14 @@ func readUserPreviews(path string, opts session.PreviewOptions) []session.Messag
 				Source: "claude:user",
 			})
 		}
-	}
-	return session.SelectMessagePreviews(messages, opts)
+		return true
+	})
+	return session.SelectMessagePreviews(messages, opts), oversized, err
+}
+
+func markReportEvidencePartial(metadata map[string]string, note string) {
+	metadata[session.MetadataReportEvidenceStatus] = session.ReportEvidencePartial
+	metadata[session.MetadataReportEvidenceNote] = note
 }
 
 func cleanTitle(text string) string {
