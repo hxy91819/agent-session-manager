@@ -187,7 +187,10 @@ After installing the bundled `agent-work-report` skill, ask your coding agent
 for "生成上周 Agent 工作周报" or "总结昨天的工作". The skill calls
 `asm report --period last-week` or `asm report --period yesterday`, classifies
 the session previews by project and topic, and returns a Chinese work report
-with a project-oriented morning-standup overview, follow-ups, and risks.
+with a project-oriented morning-standup overview, follow-ups, and risks. Every
+overview item is labeled `[高投入]`, `[中投入]`, or `[低投入]` using relative
+signals from meeting duration, session timing, and evidence content; the labels
+are estimates rather than measured working hours.
 
 For meeting-enriched reports, install `tencent-meeting-mcp` and the lightweight
 `tencent-meeting-summary` skill, then export `TENCENT_MEETING_TOKEN`. The
@@ -199,12 +202,41 @@ title-inferred broad topic; they are never treated as proof of completed work.
 The tracked nightly report entrypoint is:
 
 ```sh
+cp .env.example .env
 bash scripts/daily-agent-report.sh --dry-run
 ```
 
 It loads the latest bundled skills from this checkout, keeps `asm report` as
 the coding-work evidence source, and adds meeting context when the ignored
-root `.env` provides `TENCENT_MEETING_TOKEN`.
+root `.env` provides `TENCENT_MEETING_TOKEN`. Generated output is validated
+before delivery so an overview without effort levels, or one using effort
+percentages, is retried instead of being sent.
+
+Generation and delivery are separate executable adapters. The bundled
+[`codebuddy.sh`](scripts/report-generators/codebuddy.sh) adapter receives
+`--prompt <path>` and writes Markdown to stdout. The orchestrator also exports
+`REPORT_MODEL`, `REPORT_MAX_TURNS`, and `REPORT_CODEBUDDY_BIN` for generators
+that need them. The bundled
+[`telegram.sh`](scripts/report-deliveries/telegram.sh) adapter receives
+`--report <path>`; delivery adapters also receive `REPORT_DELIVERY_CONFIG` and
+`REPORT_TITLE`.
+
+Replace either side without changing report collection, validation, or retry
+behavior:
+
+```sh
+bash scripts/daily-agent-report.sh \
+  --generator-script ./scripts/my-report-generator \
+  --delivery-script ./scripts/my-tencent-doc-delivery
+```
+
+A replacement generator must accept `--prompt <path>`, write only the Markdown
+report to stdout, and use stderr for diagnostics. A replacement delivery
+adapter must accept `--report <path>` and return non-zero when delivery fails.
+Copy the bundled adapters as starting points for another model or a Tencent
+Docs API integration. Keep all service credentials in the ignored `.env`,
+user-local configuration, or a secret manager; `.env.example` intentionally
+contains no values.
 
 Agent report export:
 

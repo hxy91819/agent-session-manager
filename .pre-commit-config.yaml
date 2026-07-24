@@ -35,6 +35,12 @@ repos:
         language: system
         pass_filenames: false
 
+      - id: daily-agent-report-test
+        name: daily Agent report behavior tests
+        entry: env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts.daily_agent_report_test
+        language: system
+        pass_filenames: false
+
       - id: go-test
         name: go test
         entry: go test ./...

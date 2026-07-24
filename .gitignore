@@ -1,6 +1,7 @@
 /asm
 /.env
 /.local/
+__pycache__/
 dist/
 coverage.out
 tmp/

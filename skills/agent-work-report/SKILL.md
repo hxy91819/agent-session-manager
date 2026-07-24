@@ -52,17 +52,26 @@ Write the daily report for a cross-functional morning standup attended by produc
 
 1. Build a list of projects or business matters before writing. Use `cwd`/project path as the default project boundary. Merge all sessions, meetings, progress, risks, and next steps for the same project into one item. Do not split one project by technical subtask, and do not merge different projects merely because their technical topics are similar.
 2. Make `工作概览` matter-oriented rather than session-oriented. Use one numbered item per project or materially distinct matter, ordered by importance.
-3. State progress, impact, current status, and next step in plain language. Assume readers do not know repository internals.
-4. Abstract implementation details unless a detail is essential to a decision or blocker:
+3. Prefix every `工作概览` item with exactly one relative effort level:
+   - `[高投入]` means the matter was a primary, sustained focus in the report window.
+   - `[中投入]` means the matter had substantive progress or discussion but was a secondary focus.
+   - `[低投入]` means the matter was a brief follow-up, isolated discussion, or small supporting task.
+   - Estimate the level from meeting duration, session timing and count, and the continuity and complexity of the evidence. Meeting duration is a meaningful signal, but a routine or long meeting is not automatically high effort.
+   - Do not mechanically convert message count or session elapsed time into labor hours. The labels express relative attention, not measured attendance or precise time tracking.
+   - Judge daily reports relative to that day and weekly reports relative to the whole reporting week. Multiple matters may share a level; do not force all three levels to appear.
+   - Show only the level. Do not add effort percentages or percentage ranges.
+4. State progress, impact, current status, and next step in plain language. Assume readers do not know repository internals.
+5. Abstract implementation details unless a detail is essential to a decision or blocker:
    - Do not normally include API paths, command flags, environment variables, commit hashes, PR numbers, test names, internal metric values, class names, or low-level architecture terms.
    - Replace a diagnosis such as “`/api/status` 因指标过多变慢” with “推进管理面板加载缓慢问题的定位与优化”.
    - Do not explain low-level causes in `工作概览`. Replace terms such as “单写入口、分片、重试放大、状态发布批处理” with outcome language such as “发布稳定性治理、性能优化、分阶段功能交付”.
-5. Keep each overview item on one line with at most one progress clause and one next-step clause. Prefer “项目/事项：进展；下一步” over a list of technical actions. Do not enumerate internal delivery stages such as PR1/PR2/PR3.
-6. Merge meeting decisions into the related project item. When meetings exist, ensure at least one overview item reflects meaningful meeting work; group routine meetings instead of listing every title.
-7. Preserve uncertainty for title-only meetings with “据会议名称推测”, but omit them when the inference adds no useful standup context.
-8. Fold completed progress into the corresponding `工作概览` item; do not create a separate `完成事项` section. Apply the same audience-friendly abstraction to `后续跟进` and `风险与阻塞`. Summarize the decision needed or user-visible impact instead of the underlying mechanism. Include technical detail only when someone needs that exact detail to make a decision or unblock work.
-9. Keep a daily standup report concise: normally no more than about 1,200 Chinese characters excluding headings. Remove background explanations, exhaustive evidence coverage, and details already implied by a higher-level status.
-10. Before answering, silently verify:
+6. Keep each overview item on one line with at most one progress clause and one next-step clause. Use “`[投入等级] 项目/事项：进展；下一步`” and do not enumerate internal delivery stages such as PR1/PR2/PR3.
+7. Merge meeting decisions into the related project item. When meetings exist, ensure at least one overview item reflects meaningful meeting work; group routine meetings instead of listing every title.
+8. Preserve uncertainty for title-only meetings with “据会议名称推测”, but omit them when the inference adds no useful standup context.
+9. Fold completed progress into the corresponding `工作概览` item; do not create a separate `完成事项` section. Apply the same audience-friendly abstraction to `后续跟进` and `风险与阻塞`. Summarize the decision needed or user-visible impact instead of the underlying mechanism. Include technical detail only when someone needs that exact detail to make a decision or unblock work.
+10. Keep a daily standup report concise: normally no more than about 1,200 Chinese characters excluding headings. Remove background explanations, exhaustive evidence coverage, and details already implied by a higher-level status.
+11. Before answering, silently verify:
+   - every overview item begins with exactly one valid effort level and contains no effort percentage;
    - the same project appears only once in `工作概览`;
    - different project paths have not been accidentally merged;
    - meeting work is represented when present;
@@ -77,8 +86,8 @@ For 日报:
 
 ```markdown
 ## 工作概览
-1. <项目或事项>：<面向跨职能晨会的进展与结果>；下一步：<简短计划>
-2. <项目或事项>：<合并该项目的开发与会议上下文>；下一步：<简短计划>
+1. [高投入] <项目或事项>：<面向跨职能晨会的进展与结果>；下一步：<简短计划>
+2. [中投入] <项目或事项>：<合并该项目的开发与会议上下文>；下一步：<简短计划>
 
 ## 后续跟进
 - <仍在推进、需要确认、需要明天继续或下周继续的事项>
@@ -88,7 +97,7 @@ For 日报:
 - <缺失信息、失败检查、需要人工决策或环境问题；没有就写“暂无明确阻塞”>
 ```
 
-For 周报, use the same evidence rules; group `工作概览` and `后续跟进` by project or workstream when there are many sessions.
+For 周报, use the same evidence and effort-level rules; evaluate effort relative to the whole reporting week, then group `工作概览` and `后续跟进` by project or workstream when there are many sessions.
 
 ## Evidence Rules
 

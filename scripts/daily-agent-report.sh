@@ -3,19 +3,22 @@ set -euo pipefail
 umask 077
 
 # Definition:
-#   Generate a daily work report from asm activity plus optional Tencent
-#   Meeting context, then send it to Telegram using agent-notify config.
+#   Generate a daily or weekly work report from asm activity plus optional Tencent
+#   Meeting context, then pass it through replaceable generation and delivery adapters.
 #
 # Parameters:
-#   --period defaults to "today"; --model defaults to CodeBuddy's configured model.
+#   --period defaults to "today"; --model defaults to the generator's configuration.
 #   DAILY_REPORT_MODEL provides a non-command-line model override.
-#   --codebuddy-attempts defaults to 3; --codebuddy-max-turns defaults to 50.
+#   --generator-attempts defaults to 3; --generator-max-turns defaults to 50.
 #   --env-file defaults to .env and supplies TENCENT_MEETING_TOKEN.
 #   --skip-meetings disables Tencent Meeting enrichment.
-#   --dry-run skips Telegram delivery and prints the generated report.
+#   --report-validator defaults to the bundled work-report format validator.
+#   --generator-script defaults to the bundled CodeBuddy adapter.
+#   --delivery-script defaults to the bundled Telegram adapter.
+#   --dry-run skips delivery and prints the generated report.
 #
 # Outputs:
-#   Writes asm JSON, meeting JSON, merged report context, CodeBuddy prompt,
+#   Writes asm JSON, meeting JSON, merged report context, generator prompt,
 #   attempt stderr logs, and the generated report under the output directory.
 #   Exits 0 when neither source has in-period activity.
 #
@@ -30,23 +33,28 @@ Usage:
 
 Description:
   Detect in-period coding-agent sessions with asm, enrich them with read-only
-  Tencent Meeting history and smart minutes, ask CodeBuddy to generate a
-  Chinese report, then send it through agent-notify Telegram configuration.
+  Tencent Meeting history and smart minutes, generate a Chinese report, then
+  deliver it through replaceable executable adapters.
 
 Options:
   --period <value>        asm report period. Default: today.
-  --model <value>         CodeBuddy model. Default: configured CodeBuddy model.
+  --model <value>         Optional generator model. Default: adapter configuration.
   --asm-bin <path>        asm executable. Default: asm.
-  --codebuddy-bin <path>  codebuddy executable. Default: codebuddy.
-  --config <path>             agent-notify config. Default: ~/.config/agent-notify/config.json.
+  --codebuddy-bin <path>  Executable for the bundled CodeBuddy adapter. Default: codebuddy.
+  --config <path>             Delivery adapter config. Default: ~/.config/agent-notify/config.json.
   --out-dir <path>            Output directory. Default: .local/daily-agent-report-runs.
   --env-file <path>           Optional env file. Default: .env.
   --meeting-context-script <path>
                               Collector script. Default: bundled Tencent Meeting summary collector.
+  --report-validator <path>   Output validator. Default: bundled work-report validator.
+  --generator-script <path>   Generator adapter. Default: bundled CodeBuddy adapter.
+  --delivery-script <path>    Delivery adapter. Default: bundled Telegram adapter.
   --skip-meetings             Disable Tencent Meeting enrichment.
-  --codebuddy-attempts <n>    CodeBuddy generation attempts. Default: 3.
-  --codebuddy-max-turns <n>   CodeBuddy max turns per attempt. Default: 50.
-  --dry-run                   Generate report but do not send Telegram.
+  --generator-attempts <n>    Generation attempts. Default: 3.
+  --generator-max-turns <n>   Optional adapter turn budget. Default: 50.
+  --codebuddy-attempts <n>    Compatibility alias for --generator-attempts.
+  --codebuddy-max-turns <n>   Compatibility alias for --generator-max-turns.
+  --dry-run                   Generate and validate report but skip delivery.
   -h, --help                  Show this help.
 
 Outputs:
@@ -54,18 +62,19 @@ Outputs:
   <out-dir>/*.json        Raw asm report payload.
   <out-dir>/meeting-context-*.json  Meeting history, minutes, coverage, and traces.
   <out-dir>/report-context-*.json   Merged asm and meeting input for one model read.
-  <out-dir>/*-compact.json Evidence-only payload read by CodeBuddy.
-  <out-dir>/*-prompt.txt   Self-contained prompt sent to CodeBuddy.
-  <out-dir>/*-attempt*.err CodeBuddy stderr for failed or noisy attempts.
-  <out-dir>/*.md          CodeBuddy generated report.
+  <out-dir>/*-compact.json Evidence-only payload read by the generator.
+  <out-dir>/*-prompt.txt   Self-contained prompt sent to the generator.
+  <out-dir>/*-attempt*.err Generator stderr for failed or noisy attempts.
+  <out-dir>/*.md          Generated and validated report.
   exit 0                  Success, including no activity found.
-  exit non-zero           Missing dependency, invalid config, CodeBuddy, or Telegram failure.
+  exit non-zero           Missing dependency, invalid input, generation, validation, or delivery failure.
 
 Examples:
   bash scripts/daily-agent-report.sh
   bash scripts/daily-agent-report.sh --dry-run
   bash scripts/daily-agent-report.sh --period yesterday --model your-model
   bash scripts/daily-agent-report.sh --period yesterday --skip-meetings --dry-run
+  bash scripts/daily-agent-report.sh --generator-script ./my-generator --delivery-script ./my-delivery
 EOF
 }
 
@@ -80,6 +89,8 @@ require_command() {
   fi
 }
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
 period=today
 model=${DAILY_REPORT_MODEL:-}
 asm_bin=asm
@@ -87,8 +98,11 @@ codebuddy_bin=codebuddy
 config_path="${HOME}/.config/agent-notify/config.json"
 out_dir=".local/daily-agent-report-runs"
 env_file=.env
-meeting_context_script=skills/tencent-meeting-summary/scripts/collect-tencent-meeting-context.py
-agent_work_report_skill=skills/agent-work-report/SKILL.md
+meeting_context_script="${script_dir}/../skills/tencent-meeting-summary/scripts/collect-tencent-meeting-context.py"
+agent_work_report_skill="${script_dir}/../skills/agent-work-report/SKILL.md"
+report_validator="${script_dir}/validate-agent-work-report.py"
+generator_script="${script_dir}/report-generators/codebuddy.sh"
+delivery_script="${script_dir}/report-deliveries/telegram.sh"
 skip_meetings=0
 dry_run=0
 codebuddy_attempts=3
@@ -136,17 +150,32 @@ while (($#)); do
       meeting_context_script=$2
       shift 2
       ;;
+    --report-validator)
+      [[ $# -ge 2 ]] || { log_error "--report-validator requires a value"; exit 1; }
+      report_validator=$2
+      shift 2
+      ;;
+    --generator-script)
+      [[ $# -ge 2 ]] || { log_error "--generator-script requires a value"; exit 1; }
+      generator_script=$2
+      shift 2
+      ;;
+    --delivery-script)
+      [[ $# -ge 2 ]] || { log_error "--delivery-script requires a value"; exit 1; }
+      delivery_script=$2
+      shift 2
+      ;;
     --skip-meetings)
       skip_meetings=1
       shift
       ;;
-    --codebuddy-attempts)
-      [[ $# -ge 2 ]] || { log_error "--codebuddy-attempts requires a value"; exit 1; }
+    --generator-attempts | --codebuddy-attempts)
+      [[ $# -ge 2 ]] || { log_error "$1 requires a value"; exit 1; }
       codebuddy_attempts=$2
       shift 2
       ;;
-    --codebuddy-max-turns)
-      [[ $# -ge 2 ]] || { log_error "--codebuddy-max-turns requires a value"; exit 1; }
+    --generator-max-turns | --codebuddy-max-turns)
+      [[ $# -ge 2 ]] || { log_error "$1 requires a value"; exit 1; }
       codebuddy_max_turns=$2
       shift 2
       ;;
@@ -167,10 +196,8 @@ while (($#)); do
 done
 
 require_command jq
-require_command curl
 require_command python3
 require_command "$asm_bin"
-require_command "$codebuddy_bin"
 
 # The ignored repository .env is the single local source for meeting secrets.
 # Export only for child processes and never print values into run artifacts.
@@ -182,22 +209,29 @@ if [[ -f "$env_file" ]]; then
 fi
 
 if ! [[ "$codebuddy_attempts" =~ ^[1-9][0-9]*$ ]]; then
-  log_error "--codebuddy-attempts must be a positive integer"
+  log_error "--generator-attempts must be a positive integer"
   exit 1
 fi
 
 if ! [[ "$codebuddy_max_turns" =~ ^[1-9][0-9]*$ ]]; then
-  log_error "--codebuddy-max-turns must be a positive integer"
-  exit 1
-fi
-
-if [[ ! -f "$config_path" ]]; then
-  log_error "agent-notify config not found: $config_path"
+  log_error "--generator-max-turns must be a positive integer"
   exit 1
 fi
 
 if [[ ! -f "$agent_work_report_skill" ]]; then
   log_error "Bundled agent-work-report skill not found: $agent_work_report_skill"
+  exit 1
+fi
+if [[ ! -f "$report_validator" ]]; then
+  log_error "Agent work report validator not found: $report_validator"
+  exit 1
+fi
+if [[ ! -x "$generator_script" ]]; then
+  log_error "Generator adapter is not executable: $generator_script"
+  exit 1
+fi
+if [[ "$dry_run" == "0" && ! -x "$delivery_script" ]]; then
+  log_error "Delivery adapter is not executable: $delivery_script"
   exit 1
 fi
 
@@ -238,14 +272,27 @@ if [[ "$skip_meetings" == "0" ]]; then
 fi
 
 if [[ "$session_count" == "0" && "$meeting_count" == "0" ]]; then
-  log_info "No asm sessions or meetings found for period=${period}; skipping CodeBuddy and Telegram."
+  log_info "No asm sessions or meetings found for period=${period}; skipping generation and delivery."
   log_info "Payload: $json_out"
   exit 0
 fi
 
 log_info "Found ${session_count} sessions across ${project_count} projects."
 log_info "Evidence-backed sessions: ${evidence_session_count}; compacting report input."
-log_info "Generating report with CodeBuddy model=${model:-configured-default} attempts=${codebuddy_attempts} max_turns=${codebuddy_max_turns}"
+log_info "Generating report with adapter=${generator_script} model=${model:-adapter-default} attempts=${codebuddy_attempts} max_turns=${codebuddy_max_turns}"
+
+case "$period" in
+  last-week | last-7-days)
+    report_kind=周报
+    report_title="Agent 工作周报"
+    effort_window_rule=周报按整个统计周相对投入判断
+    ;;
+  *)
+    report_kind=日报
+    report_title="Agent 工作日报"
+    effort_window_rule=日报按当天相对投入判断
+    ;;
+esac
 
 jq '{
   period,
@@ -288,7 +335,7 @@ jq -n \
 #   This prevents evidence prompt injection from reading unrelated host files.
 {
 cat <<EOF
-请使用下方嵌入的当前仓库最新版 agent-work-report skill 规则，根据嵌入的日报上下文 JSON 生成中文日报。
+请使用下方嵌入的当前仓库最新版 agent-work-report skill 规则，根据嵌入的工作报告上下文 JSON 生成中文${report_kind}。
 
 硬性规则：
 - 只把 asm.evidence_sessions[].evidence[].text 当作 ${period} 窗口内实际工作的证据。
@@ -308,7 +355,12 @@ cat <<EOF
 - 先根据 cwd/项目路径建立“项目/事项”清单，再生成报告。同一项目的所有开发会话、会议结论、进展、风险和计划必须合并，工作概览中同一项目只能出现一次。
 - 不同项目必须保持独立，不能仅因为技术主题相似就合并。例如 Crabbox 的工作不能归入 ClawSweeper。
 - 工作概览按项目或独立事项拆分并按重要性排序，不按会话、PR 或技术子任务拆分。
-- 每个概览事项只占一行，只允许一个“进展”分句和一个“下一步”分句，优先使用“事项：进展；下一步：计划”的表达。
+- 每个概览事项必须以且只能以 [高投入]、[中投入]、[低投入] 之一开头，格式固定为“N. [高投入] 项目/事项：进展；下一步：计划”。
+- 投入等级由模型综合会议实际时长、会话时间分布、会话数量、内容连续性与复杂度判断。高投入表示主要且持续的工作焦点；中投入表示有实质进展的次要事项；低投入表示短时跟进或零散事项。
+- ${effort_window_rule}；允许多个事项处于同一等级，不强制高、中、低均出现。
+- 会议时长是明确参考信号，但例会或长会议不能机械判定为高投入；不要把消息数量或会话跨度直接等同于工时，也不要宣称等级是精确计时结果。
+- 工作概览只显示投入等级，不得显示投入百分比或百分比区间。
+- 每个概览事项只占一行，只允许一个“进展”分句和一个“下一步”分句。
 - 不要枚举内部交付阶段或研发步骤，例如 PR1/PR2/PR3；统一概括为“核心能力按计划推进”或“进入下一阶段”。
 - 使用业务和项目语言描述结果、影响、交付阶段与问题类型。除非是需要决策的阻塞，不要出现 API 路径、命令参数、环境变量、commit、PR 编号、测试名称、内部指标数值、类名或底层架构术语。
 - 例如不要写“排查了 /api/status 因指标过多变慢”，应抽象成“推进管理面板加载缓慢问题的定位与优化”。
@@ -327,7 +379,7 @@ cat <<EOF
 - 只有“工作概览”使用有序列表，每个项目或事项一项；内容按“进展与结果、下一步计划”组织，明确阻塞或需协助事项可就近说明。
 - “今天”指统计窗口内的 24 小时事件，不要因为日会措辞改变统计周期。
 - “后续跟进”、“风险与阻塞”使用无序列表。
-- 输出前静默自审：同项目是否只出现一次、不同项目是否被误合并、会议工作是否得到体现、非技术人员能否直接理解、是否仍有可抽象的实现细节、是否出现禁用的研发日志语言、完成/计划/讨论是否被混淆。不要输出自审过程，只输出最终日报。
+- 输出前静默自审：每个概览事项是否有且只有一个合法投入等级、是否误写百分比、同项目是否只出现一次、不同项目是否被误合并、会议工作是否得到体现、非技术人员能否直接理解、是否仍有可抽象的实现细节、是否出现禁用的研发日志语言、完成/计划/讨论是否被混淆。不要输出自审过程，只输出最终${report_kind}。
 
 统计窗口：
 - start: ${start_time}
@@ -347,28 +399,35 @@ cat "$report_context_out"
 printf '%s\n' '--- END UNTRUSTED REPORT EVIDENCE ---'
 } > "$prompt_out"
 
-generate_report_with_codebuddy() {
+generate_report() {
   local attempt attempt_report attempt_stderr
-  local -a codebuddy_args
-  # All required input is embedded above. Disable tools so untrusted evidence
-  # cannot induce reads from the host or calls to external services.
-  codebuddy_args=(--print --permission-mode dontAsk --tools "" --strict-mcp-config --max-turns "$codebuddy_max_turns")
-  if [[ -n "$model" ]]; then
-    codebuddy_args+=(--model "$model")
-  fi
   for ((attempt = 1; attempt <= codebuddy_attempts; attempt++)); do
     attempt_report="${report_out}.attempt-${attempt}"
     attempt_stderr="${report_out}.attempt-${attempt}.err"
     rm -f "$attempt_report" "$attempt_stderr"
-    log_info "CodeBuddy attempt ${attempt}/${codebuddy_attempts}: prompt=${prompt_out}"
-    if "$codebuddy_bin" "${codebuddy_args[@]}" \
-      < "$prompt_out" > "$attempt_report" 2> "$attempt_stderr" && [[ -s "$attempt_report" ]]; then
-      mv "$attempt_report" "$report_out"
-      log_info "CodeBuddy attempt ${attempt} succeeded."
-      return 0
+    log_info "Generator attempt ${attempt}/${codebuddy_attempts}: prompt=${prompt_out}"
+    if REPORT_MODEL="$model" \
+      REPORT_MAX_TURNS="$codebuddy_max_turns" \
+      REPORT_CODEBUDDY_BIN="$codebuddy_bin" \
+      "$generator_script" --prompt "$prompt_out" \
+      > "$attempt_report" 2> "$attempt_stderr"; then
+      if [[ ! -s "$attempt_report" ]]; then
+        log_error "Generator attempt ${attempt} produced an empty report; stderr: $attempt_stderr"
+      elif python3 "$report_validator" "$attempt_report" >> "$attempt_stderr" 2>&1; then
+        mv "$attempt_report" "$report_out"
+        log_info "Generator attempt ${attempt} succeeded."
+        return 0
+      else
+        log_error "Generator attempt ${attempt} produced an invalid report; validator output: $attempt_stderr"
+        # A retry should correct the rejected format instead of relying only on
+        # sampling variance from the same unchanged prompt.
+        printf '\n%s\n' \
+          "修正要求：上一版格式校验失败。工作概览每项必须以 [高投入]、[中投入] 或 [低投入] 开头，且不得出现百分比。" \
+          >> "$prompt_out"
+      fi
+    else
+      log_error "Generator attempt ${attempt} failed; stderr: $attempt_stderr"
     fi
-
-    log_error "CodeBuddy attempt ${attempt} failed or produced an empty report; stderr: $attempt_stderr"
     rm -f "$attempt_report"
     if ((attempt < codebuddy_attempts)); then
       sleep "$attempt"
@@ -378,99 +437,27 @@ generate_report_with_codebuddy() {
   return 1
 }
 
-if ! generate_report_with_codebuddy; then
-  log_error "CodeBuddy failed after ${codebuddy_attempts} attempts: $report_out"
+if ! generate_report; then
+  log_error "Report generator failed after ${codebuddy_attempts} attempts: $report_out"
   exit 1
 fi
 
 if [[ ! -s "$report_out" ]]; then
-  log_error "CodeBuddy produced an empty report: $report_out"
+  log_error "Report generator produced an empty report: $report_out"
   exit 1
 fi
 
 log_info "Report: $report_out"
 
 if [[ "$dry_run" == "1" ]]; then
-  log_info "Dry run enabled; Telegram send skipped."
+  log_info "Dry run enabled; delivery skipped."
   printf '\n%s\n' "----- report -----"
   cat "$report_out"
   exit 0
 fi
 
-bot_token=${TELEGRAM_BOT_TOKEN:-$(jq -r '.telegram.bot_token // ""' "$config_path")}
-chat_id=${TELEGRAM_CHAT_ID:-$(jq -r '.telegram.chat_id // ""' "$config_path")}
-
-if [[ -z "$bot_token" || -z "$chat_id" ]]; then
-  log_error "Telegram bot token or chat id is missing in env/config."
-  exit 1
-fi
-
-log_info "Sending report to Telegram chat_id=${chat_id}"
-
-# Decision:
-#   Telegram rich text is HTML parse mode, so Markdown from CodeBuddy must be
-#   escaped and converted before sendMessage; raw Markdown can break formatting
-#   or be interpreted as invalid HTML.
-python3 - "$report_out" <<'PY' | while IFS= read -r chunk_json; do
-import html
-import json
-import pathlib
-import re
-import sys
-
-
-def inline_markdown(text: str) -> str:
-    escaped = html.escape(text, quote=False)
-    escaped = re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", escaped)
-    escaped = re.sub(r"\*\*([^*]+)\*\*", lambda m: f"<b>{m.group(1)}</b>", escaped)
-    return escaped
-
-
-def markdown_to_telegram_html(markdown: str) -> str:
-    lines = ["<b>今日 Agent 工作报告</b>", ""]
-    for raw_line in markdown.strip().splitlines():
-        line = raw_line.strip()
-        if line == "---":
-            lines.append("")
-            continue
-        if line.startswith("## "):
-            lines.append(f"<b>{inline_markdown(line[3:].strip())}</b>")
-            continue
-        if line.startswith("- "):
-            lines.append(f"• {inline_markdown(line[2:].strip())}")
-            continue
-        if line:
-            lines.append(inline_markdown(line))
-        else:
-            lines.append("")
-    return "\n".join(lines).strip()
-
-
-def emit_chunks(payload: str) -> None:
-    limit = 3600
-    current = ""
-    for line in payload.splitlines():
-        candidate = line if not current else current + "\n" + line
-        if len(candidate) > limit and current:
-            print(json.dumps(current, ensure_ascii=False))
-            current = line
-        else:
-            current = candidate
-    if current:
-        print(json.dumps(current, ensure_ascii=False))
-
-
-path = pathlib.Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-emit_chunks(markdown_to_telegram_html(text) if text.strip() else "<b>今日 Agent 工作报告</b>\n\n(empty report)")
-PY
-  message=$(jq -r . <<<"$chunk_json")
-  curl --fail-with-body --silent --show-error \
-    --data-urlencode "chat_id=${chat_id}" \
-    --data-urlencode "text=${message}" \
-    --data-urlencode "parse_mode=HTML" \
-    --data-urlencode "disable_web_page_preview=true" \
-    "https://api.telegram.org/bot${bot_token}/sendMessage" >/dev/null
-done
-
-log_info "Telegram report sent."
+log_info "Delivering report with adapter=${delivery_script}"
+REPORT_DELIVERY_CONFIG="$config_path" \
+REPORT_TITLE="$report_title" \
+  "$delivery_script" --report "$report_out"
+log_info "Report delivery succeeded."
