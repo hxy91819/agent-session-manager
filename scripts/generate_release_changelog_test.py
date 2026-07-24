@@ -129,6 +129,29 @@ class GenerateReleaseChangelogTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from generated release history", result.stderr)
 
+    def test_changelog_only_merge_commit_is_excluded(self) -> None:
+        main_branch = self.run_cmd(
+            "git", "branch", "--show-current"
+        ).stdout.strip()
+        self.run_cmd("git", "switch", "-q", "-c", "release-notes")
+        changelog = self.repo / "CHANGELOG.md"
+        changelog.write_text("# Changelog\n\n## v0.1.0\n\n- Initial.\n", encoding="utf-8")
+        self.generator("prepend", changelog)
+        self.run_cmd("git", "add", "CHANGELOG.md")
+        self.run_cmd("git", "commit", "-q", "-m", "Prepare v0.2.0 changelog")
+        self.run_cmd("git", "switch", "-q", main_branch)
+        self.run_cmd(
+            "git",
+            "merge",
+            "-q",
+            "--no-ff",
+            "-m",
+            "Merge pull request #8 from acme/release-notes",
+            "release-notes",
+        )
+
+        self.generator("check", changelog)
+
     def test_annotated_tag_does_not_leak_tag_metadata_or_signature(self) -> None:
         self.run_cmd("git", "tag", "--no-sign", "-a", "v0.2.0", "-m", "v0.2.0")
         notes = self.repo / "tag-notes.md"
