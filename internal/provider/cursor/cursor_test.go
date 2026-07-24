@@ -120,15 +120,15 @@ func TestDiscoverMarksAutoreviewTempSessionNonInteractive(t *testing.T) {
 	}
 }
 
-func TestIsAutoreviewTempCWDIsNarrow(t *testing.T) {
+func TestIsAutoreviewTempCWDIsStableAcrossTempRoots(t *testing.T) {
 	if !isAutoreviewTempCWD(filepath.Join(os.TempDir(), "autoreview-cursor-agent.fixture")) {
 		t.Fatal("expected autoreview temp cwd to match")
 	}
-	if !isAutoreviewTempCWD(filepath.Join(os.TempDir(), "autoreview-fixture.fixture")) {
-		t.Fatal("expected autoreview fixture cwd to match")
+	if !isAutoreviewTempCWD(filepath.Join(t.TempDir(), "nested", "autoreview-fixture.fixture")) {
+		t.Fatal("expected autoreview cwd from a different temp root to match")
 	}
 	if isAutoreviewTempCWD(filepath.Join(os.TempDir(), "ordinary-project")) ||
-		isAutoreviewTempCWD(filepath.Join(os.TempDir(), "nested", "autoreview-cursor-agent.fixture")) {
+		isAutoreviewTempCWD("autoreview-cursor-agent.relative") {
 		t.Fatal("unexpected non-autoreview cwd match")
 	}
 }

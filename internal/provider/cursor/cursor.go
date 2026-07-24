@@ -251,10 +251,13 @@ func containsPathPart(path, part string) bool {
 
 func isAutoreviewTempCWD(cwd string) bool {
 	clean := filepath.Clean(cwd)
-	if filepath.Dir(clean) != filepath.Clean(os.TempDir()) {
+	if !filepath.IsAbs(clean) {
 		return false
 	}
 	base := filepath.Base(clean)
+	// The transcript persists the producer's cwd, but report discovery may run
+	// with a different TMPDIR. These names are owned by autoreview; matching the
+	// absolute path's basename keeps classification stable across processes.
 	return strings.HasPrefix(base, "autoreview-cursor-agent.") ||
 		strings.HasPrefix(base, "autoreview-fixture.")
 }
