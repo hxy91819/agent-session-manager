@@ -92,6 +92,38 @@ func TestDiscoverIndexesProjectsAndMarksCWD(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsPastOversizedJSONLRecord(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionPath := filepath.Join(home, "projects", "encoded", "sid.jsonl")
+	writeFile(t, sessionPath, `{"sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","role":"user","content":"before large output"}
+{"sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","role":"assistant","content":`+jsonString(strings.Repeat("x", 8*1024*1024))+`}
+{"sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","role":"user","content":"after large output"}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Title != "after large output" {
+		t.Fatalf("sessions = %#v", got)
+	}
+	var previews []string
+	for _, preview := range got[0].Previews {
+		previews = append(previews, preview.Text)
+	}
+	want := []string{"before large output", "after large output"}
+	if strings.Join(previews, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", previews, want)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial ||
+		got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
+		t.Fatalf("metadata = %#v", got[0].Metadata)
+	}
+}
+
 func TestDiscoverKeepsSessionsWithMissingCWD(t *testing.T) {
 	home := t.TempDir()
 	sessionPath := filepath.Join(home, "projects", "encoded", "sid.jsonl")

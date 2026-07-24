@@ -147,6 +147,37 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsPastOversizedJSONLRecord(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionPath := filepath.Join(home, "projects", "-repo", "session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, sessionPath, `{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"before large output"}}
+{"type":"assistant","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"assistant","content":`+jsonString(strings.Repeat("x", 8*1024*1024))+`}}
+{"type":"user","sessionId":"sid","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"after large output"}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Title != "after large output" {
+		t.Fatalf("sessions = %#v", got)
+	}
+	want := []string{"before large output", "after large output"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial ||
+		got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
+		t.Fatalf("metadata = %#v", got[0].Metadata)
+	}
+}
+
 func TestDiscoverFiltersAndLimitsByFileModTime(t *testing.T) {
 	home := t.TempDir()
 	projectDir := filepath.Join(home, "projects", "-repo")
