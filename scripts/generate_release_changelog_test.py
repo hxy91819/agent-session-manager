@@ -128,6 +128,9 @@ class GenerateReleaseChangelogTest(unittest.TestCase):
         result = self.generator("check", changelog, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from generated release history", result.stderr)
+        self.generator("prepend", changelog)
+        self.generator("check", changelog)
+        self.assertNotIn("@someone-else", changelog.read_text(encoding="utf-8"))
 
     def test_changelog_only_merge_commit_is_excluded(self) -> None:
         main_branch = self.run_cmd(

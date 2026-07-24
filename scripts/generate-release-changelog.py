@@ -310,8 +310,18 @@ def prepend_section(path: Path, version: str, section: str) -> None:
         content = path.read_text(encoding="utf-8")
         if not content.startswith("# Changelog\n"):
             raise ChangelogError(f"{path} must start with '# Changelog'")
-        if re.search(rf"(?m)^## {re.escape(version)}(?:\s|$)", content):
-            raise ChangelogError(f"{path} already contains {version}")
+        existing = re.search(
+            rf"(?ms)^## {re.escape(version)}[^\n]*\n.*?(?=^## |\Z)",
+            content,
+        )
+        if existing:
+            before = content[: existing.start()].rstrip()
+            after = content[existing.end() :].lstrip("\n")
+            next_content = f"{before}\n\n{section.rstrip()}\n"
+            if after:
+                next_content += f"\n{after.rstrip()}\n"
+            atomic_write(path, next_content)
+            return
         remainder = content[len("# Changelog\n") :].lstrip("\n")
     else:
         remainder = ""
