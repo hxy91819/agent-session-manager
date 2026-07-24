@@ -104,7 +104,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.Title = title
 			s.Metadata["title_source"] = "history"
 		}
-		if opts.Preview.Enabled() {
+		if opts.Preview.Enabled() && s.Metadata[session.MetadataParentThreadID] == "" {
 			s.Previews = readUserPreviews(file.Path, opts.Preview)
 		} else {
 			s.Previews = nil
@@ -277,9 +277,10 @@ type rawRecord struct {
 }
 
 type sessionMeta struct {
-	ID        string `json:"id"`
-	Timestamp string `json:"timestamp"`
-	CWD       string `json:"cwd"`
+	ID             string `json:"id"`
+	ParentThreadID string `json:"parent_thread_id"`
+	Timestamp      string `json:"timestamp"`
+	CWD            string `json:"cwd"`
 }
 
 type turnContext struct {
@@ -313,6 +314,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	var out session.Session
 	out.Metadata = make(map[string]string)
+	haveSessionMeta := false
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -325,12 +327,20 @@ func parseSession(r io.Reader) (session.Session, error) {
 		}
 		switch rec.Type {
 		case "session_meta":
+			if haveSessionMeta {
+				continue
+			}
 			var meta sessionMeta
-			if json.Unmarshal(rec.Payload, &meta) == nil {
+			if json.Unmarshal(rec.Payload, &meta) == nil && meta.ID != "" {
+				haveSessionMeta = true
 				out.ID = meta.ID
 				out.CWD = meta.CWD
 				if t := parseTime(meta.Timestamp); !t.IsZero() {
 					out.CreatedAt = t
+				}
+				if meta.ParentThreadID != "" {
+					out.Metadata[session.MetadataParentThreadID] = meta.ParentThreadID
+					return out, nil
 				}
 			}
 		case "turn_context":

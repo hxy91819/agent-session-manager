@@ -9,7 +9,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
-const Version = 1
+const Version = 2
 
 type FileIdentity struct {
 	Provider string
