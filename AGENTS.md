@@ -239,6 +239,16 @@ consume normalized sessions.
 
 ## Testing Guidance
 
+Repository maintenance skills:
+
+- Use `skills/behavior-e2e-validation` for user-observable behavior changes and
+  bug fixes. If a public-boundary reproduction is feasible, add or update an
+  end-to-end test and prove the base failure and fixed pass.
+- Use `skills/cross-agent-pr-review` when reviewing provider or shared-session
+  PRs. Check whether the bug class affects other agents; contributors generally
+  do not need to fix every provider, but maintainers must create follow-up PRs
+  for confirmed sibling bugs with end-to-end coverage.
+
 For every bug fix, first add or update a focused regression test that reproduces
 the broken behavior, then change the implementation to make that test pass. Do
 not treat a bug fix as complete without a regression test unless the behavior is
