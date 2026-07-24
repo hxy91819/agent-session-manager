@@ -3,7 +3,6 @@ package codebuddy
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -255,9 +254,6 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if rec.Provider.Agent != "" {
 			agent := strings.TrimSpace(rec.Provider.Agent)
 			out.Metadata["agent"] = agent
-			if agent == "cli" {
-				out.Metadata["interaction_mode"] = "non_interactive"
-			}
 		}
 		if t := rec.Timestamp.Time(); !t.IsZero() {
 			if out.CreatedAt.IsZero() || t.Before(out.CreatedAt) {
@@ -419,16 +415,7 @@ func (t flexibleTime) Time() time.Time {
 func (t *flexibleTime) UnmarshalJSON(data []byte) error {
 	var text string
 	if json.Unmarshal(data, &text) == nil {
-		parsed, err := parseStringTime(text)
-		if err != nil {
-			return err
-		}
-		t.value = parsed
-		return nil
-	}
-	var millis int64
-	if json.Unmarshal(data, &millis) == nil {
-		t.value = time.UnixMilli(millis)
+		t.value = parseTime(text)
 		return nil
 	}
 	var number json.Number
@@ -437,22 +424,22 @@ func (t *flexibleTime) UnmarshalJSON(data []byte) error {
 		// accepting decimal number tokens keeps the parser tolerant of equivalent
 		// encoders without broadening the provider contract beyond epoch millis.
 		parsed, err := number.Float64()
-		if err != nil {
-			return err
+		if err == nil {
+			t.value = time.UnixMilli(int64(parsed))
 		}
-		t.value = time.UnixMilli(int64(parsed))
-		return nil
 	}
-	return fmt.Errorf("unsupported timestamp value %s", string(data))
+	// A malformed timestamp must not discard an otherwise usable transcript
+	// record; unknown time is safer than losing its title and evidence.
+	return nil
 }
 
-func parseStringTime(value string) (time.Time, error) {
+func parseTime(value string) time.Time {
 	if value == "" {
-		return time.Time{}, nil
+		return time.Time{}
 	}
 	t, err := time.Parse(time.RFC3339Nano, value)
 	if err == nil {
-		return t, nil
+		return t
 	}
-	return time.Time{}, err
+	return time.Time{}
 }

@@ -696,7 +696,7 @@ func assertGeneratedSession(t *testing.T, sessions []generatedSessionPayload) {
 	}
 }
 
-func TestCLIReportExcludesNonInteractiveCodeBuddyByDefault(t *testing.T) {
+func TestCLIReportKeepsCodeBuddyCLISessionByDefault(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
 	codebuddyHome := t.TempDir()
@@ -726,20 +726,11 @@ func TestCLIReportExcludesNonInteractiveCodeBuddyByDefault(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out)
 	}
-	if payload.Totals.Sessions != 0 || len(payload.Sessions) != 0 {
-		t.Fatalf("default report should exclude non-interactive sessions: %#v", payload)
-	}
-
-	out = runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
-		"--codebuddy-home", codebuddyHome, "--period", "yesterday", "--include-non-interactive")
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, out)
-	}
 	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].Provider != "codebuddy" {
-		t.Fatalf("include flag should include CodeBuddy session: %#v", payload)
+		t.Fatalf("default report should keep CodeBuddy CLI session: %#v", payload)
 	}
-	if payload.Sessions[0].Metadata["interaction_mode"] != "non_interactive" {
-		t.Fatalf("metadata = %#v", payload.Sessions[0].Metadata)
+	if payload.Sessions[0].Metadata["agent"] != "cli" || payload.Sessions[0].Metadata["interaction_mode"] != "" {
+		t.Fatalf("agent metadata must not imply non-interactive mode: %#v", payload.Sessions[0].Metadata)
 	}
 }
 

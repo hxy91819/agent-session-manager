@@ -68,7 +68,7 @@ func TestParseSessionUsesLastUserFallback(t *testing.T) {
 	}
 }
 
-func TestParseSessionReadsNumericTimestampAndNonInteractiveAgent(t *testing.T) {
+func TestParseSessionReadsNumericTimestampAndAgentMetadata(t *testing.T) {
 	got, err := parseSession(strings.NewReader(`{"sessionId":"sid","cwd":"/repo","timestamp":1782266739927,"providerData":{"agent":"cli"},"role":"user","content":[{"type":"input_text","text":"non interactive prompt"}]}
 {"sessionId":"sid","cwd":"/repo","timestamp":1782266746757,"providerData":{"agent":"cli"},"role":"assistant","content":"ok"}
 `))
@@ -78,8 +78,11 @@ func TestParseSessionReadsNumericTimestampAndNonInteractiveAgent(t *testing.T) {
 	if got.Title != "non interactive prompt" {
 		t.Fatalf("Title = %q", got.Title)
 	}
-	if got.Metadata["agent"] != "cli" || got.Metadata["interaction_mode"] != "non_interactive" {
+	if got.Metadata["agent"] != "cli" {
 		t.Fatalf("metadata = %#v", got.Metadata)
+	}
+	if got.Metadata["interaction_mode"] != "" {
+		t.Fatalf("agent=cli does not prove a non-interactive session: %#v", got.Metadata)
 	}
 	if got.CreatedAt.UTC().Format(time.RFC3339) != "2026-06-24T02:05:39Z" {
 		t.Fatalf("CreatedAt = %s", got.CreatedAt.UTC().Format(time.RFC3339))
@@ -119,6 +122,17 @@ func TestParseSessionReadsDecimalNumericTimestamp(t *testing.T) {
 	}
 	if got.CreatedAt.UTC().Format(time.RFC3339) != "2026-06-24T02:05:39Z" {
 		t.Fatalf("CreatedAt = %s", got.CreatedAt.UTC().Format(time.RFC3339))
+	}
+}
+
+func TestParseSessionKeepsContentWithMalformedTimestamp(t *testing.T) {
+	got, err := parseSession(strings.NewReader(`{"sessionId":"sid","cwd":"/repo","timestamp":"not-a-time","role":"user","content":"keep this title"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "keep this title" || !got.CreatedAt.IsZero() {
+		t.Fatalf("session = %#v", got)
 	}
 }
 
