@@ -696,6 +696,104 @@ func assertGeneratedSession(t *testing.T, sessions []generatedSessionPayload) {
 	}
 }
 
+func TestCLIReportExcludesNonInteractiveCodeBuddyByDefault(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	codebuddyHome := t.TempDir()
+	repo := t.TempDir()
+
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	yesterday := today.AddDate(0, 0, -1)
+	inWindow := yesterday.Add(time.Hour)
+	millis := inWindow.UnixMilli()
+	sessionPath := filepath.Join(codebuddyHome, "projects", "repo", "generated.jsonl")
+	writeFile(t, sessionPath, `{"sessionId":"generated","cwd":`+jsonString(repo)+`,"timestamp":`+fmt.Sprintf("%d", millis)+`,"providerData":{"agent":"cli"},"role":"user","content":[{"type":"input_text","text":"generate automated daily report"}]}
+`)
+	if err := os.Chtimes(sessionPath, inWindow, inWindow); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []generatedSessionPayload `json:"sessions"`
+	}
+
+	out := runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--codebuddy-home", codebuddyHome, "--period", "yesterday")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 0 || len(payload.Sessions) != 0 {
+		t.Fatalf("default report should exclude non-interactive sessions: %#v", payload)
+	}
+
+	out = runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--codebuddy-home", codebuddyHome, "--period", "yesterday", "--include-non-interactive")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].Provider != "codebuddy" {
+		t.Fatalf("include flag should include CodeBuddy session: %#v", payload)
+	}
+	if payload.Sessions[0].Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("metadata = %#v", payload.Sessions[0].Metadata)
+	}
+}
+
+func TestCLIReportExcludesNonInteractiveCursorPrintByDefault(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	cursorHome := t.TempDir()
+	repo := t.TempDir()
+
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	yesterday := today.AddDate(0, 0, -1)
+	inWindow := yesterday.Add(time.Hour)
+	projectDir := filepath.Join(cursorHome, "projects", "repo")
+	chatID := "generated"
+	sessionPath := filepath.Join(projectDir, "agent-transcripts", chatID, chatID+".jsonl")
+	writeFile(t, filepath.Join(projectDir, "worker.log"), "workspacePath="+repo+"\n")
+	writeFile(t, sessionPath, `{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\ngenerate automated daily report\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
+{"type":"turn_ended","status":"success"}
+`)
+	if err := os.Chtimes(sessionPath, inWindow, inWindow); err != nil {
+		t.Fatal(err)
+	}
+
+	var payload struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []generatedSessionPayload `json:"sessions"`
+	}
+
+	out := runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--cursor-home", cursorHome, "--period", "yesterday")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 0 || len(payload.Sessions) != 0 {
+		t.Fatalf("default report should exclude non-interactive sessions: %#v", payload)
+	}
+
+	out = runCommand(t, "report", "--codex-home", codexHome, "--claude-home", claudeHome,
+		"--cursor-home", cursorHome, "--period", "yesterday", "--include-non-interactive")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].Provider != "cursor" {
+		t.Fatalf("include flag should include Cursor session: %#v", payload)
+	}
+	if payload.Sessions[0].Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("metadata = %#v", payload.Sessions[0].Metadata)
+	}
+}
+
 func TestCLIReportOversizedCrossDaySessionKeepsPerDayEdges(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()

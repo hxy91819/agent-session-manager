@@ -86,6 +86,13 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		s.Metadata["source_home"] = home
 		s.Metadata["project_key"] = file.ProjectKey
+		if isAutoreviewTempCWD(s.CWD) {
+			// Autoreview launches Cursor in a disposable checkout. Its transcript
+			// may contain tool calls, so the one-shot transcript shape alone cannot
+			// identify it reliably after the temporary cwd has been removed.
+			s.Metadata["automation"] = "autoreview"
+			s.Metadata["interaction_mode"] = "non_interactive"
+		}
 		switch {
 		case file.CWDError != "":
 			s.Metadata["cwd_error"] = file.CWDError
@@ -242,6 +249,16 @@ func containsPathPart(path, part string) bool {
 	return false
 }
 
+func isAutoreviewTempCWD(cwd string) bool {
+	clean := filepath.Clean(cwd)
+	if filepath.Dir(clean) != filepath.Clean(os.TempDir()) {
+		return false
+	}
+	base := filepath.Base(clean)
+	return strings.HasPrefix(base, "autoreview-cursor-agent.") ||
+		strings.HasPrefix(base, "autoreview-fixture.")
+}
+
 func projectCWD(projectDir, projectKey string) cwdResolution {
 	// worker.log records Cursor's real workspace path. The project directory
 	// name is only a lossy fallback because "-" can be either a path separator
@@ -341,6 +358,10 @@ func parseSession(r io.Reader) (session.Session, error) {
 	out := session.Session{Metadata: make(map[string]string)}
 	var firstUserTitle string
 	var lastUserTitle string
+	var firstUserRaw string
+	var userMessages int
+	var assistantMessages int
+	var hasToolUse bool
 	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
@@ -355,10 +376,24 @@ func parseSession(r io.Reader) (session.Session, error) {
 			}
 		}
 		msg := parseMessage(rec)
-		if messageRole(rec, msg) != "user" {
+		role := messageRole(rec, msg)
+		switch role {
+		case "user":
+			userMessages++
+		case "assistant":
+			assistantMessages++
+			if contentHasToolUse(msg.Content) {
+				hasToolUse = true
+			}
+		}
+		if role != "user" {
 			return true
 		}
-		title := cleanTitle(messageText(msg.Content))
+		rawText := messageText(msg.Content)
+		if firstUserRaw == "" {
+			firstUserRaw = rawText
+		}
+		title := cleanTitle(rawText)
 		if title == "" {
 			return true
 		}
@@ -380,6 +415,15 @@ func parseSession(r io.Reader) (session.Session, error) {
 	} else if lastUserTitle != "" {
 		out.Title = lastUserTitle
 		out.Metadata["title_source"] = "last_user"
+	}
+	if isLikelyPrintSession(cursorSessionShape{
+		FirstUserText:     firstUserRaw,
+		UserMessages:      userMessages,
+		AssistantMessages: assistantMessages,
+		HasToolUse:        hasToolUse,
+	}) {
+		out.Metadata["entrypoint"] = "print"
+		out.Metadata["interaction_mode"] = "non_interactive"
 	}
 	return out, nil
 }
@@ -449,7 +493,7 @@ func messageText(raw json.RawMessage) string {
 	}
 	var parts []string
 	for _, block := range blocks {
-		if block.Type != "" && block.Type != "text" {
+		if block.Type != "" && block.Type != "text" && block.Type != "input_text" {
 			continue
 		}
 		if strings.TrimSpace(block.Text) != "" {
@@ -457,6 +501,41 @@ func messageText(raw json.RawMessage) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func contentHasToolUse(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var blocks []contentBlock
+	if json.Unmarshal(raw, &blocks) != nil {
+		return false
+	}
+	for _, block := range blocks {
+		if block.Type == "tool_use" {
+			return true
+		}
+	}
+	return false
+}
+
+type cursorSessionShape struct {
+	FirstUserText     string
+	UserMessages      int
+	AssistantMessages int
+	HasToolUse        bool
+}
+
+func isLikelyPrintSession(shape cursorSessionShape) bool {
+	// Cursor Agent currently does not persist an explicit --print flag. Keep
+	// this deliberately narrow: the one-shot print path stores a wrapped user
+	// query followed by one assistant response, while normal agent sessions can
+	// share the wrapper but continue with more turns or tool-use records.
+	return shape.UserMessages == 1 &&
+		shape.AssistantMessages == 1 &&
+		!shape.HasToolUse &&
+		strings.Contains(shape.FirstUserText, "<user_query>") &&
+		strings.Contains(shape.FirstUserText, "</user_query>")
 }
 
 func cleanTitle(text string) string {

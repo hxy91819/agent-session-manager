@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
@@ -64,6 +65,60 @@ func TestParseSessionUsesLastUserFallback(t *testing.T) {
 	}
 	if got.Title != "last title" || got.Metadata["title_source"] != "user" {
 		t.Fatalf("unexpected title: %#v", got)
+	}
+}
+
+func TestParseSessionReadsNumericTimestampAndNonInteractiveAgent(t *testing.T) {
+	got, err := parseSession(strings.NewReader(`{"sessionId":"sid","cwd":"/repo","timestamp":1782266739927,"providerData":{"agent":"cli"},"role":"user","content":[{"type":"input_text","text":"non interactive prompt"}]}
+{"sessionId":"sid","cwd":"/repo","timestamp":1782266746757,"providerData":{"agent":"cli"},"role":"assistant","content":"ok"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "non interactive prompt" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+	if got.Metadata["agent"] != "cli" || got.Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("metadata = %#v", got.Metadata)
+	}
+	if got.CreatedAt.UTC().Format(time.RFC3339) != "2026-06-24T02:05:39Z" {
+		t.Fatalf("CreatedAt = %s", got.CreatedAt.UTC().Format(time.RFC3339))
+	}
+	if got.UpdatedAt.UTC().Format(time.RFC3339) != "2026-06-24T02:05:46Z" {
+		t.Fatalf("UpdatedAt = %s", got.UpdatedAt.UTC().Format(time.RFC3339))
+	}
+}
+
+func TestReadUserPreviewsReadsNumericTimestamp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	writeFile(t, path, `{"sessionId":"sid","cwd":"/repo","timestamp":1782266739927,"providerData":{"agent":"cli"},"role":"user","content":[{"type":"input_text","text":"numeric timestamp prompt"}]}
+`)
+
+	got, oversized, err := readUserPreviews(path, session.PreviewOptions{
+		UserMessagesPerEdge: 2,
+		MaxChars:            500,
+		Since:               time.UnixMilli(1782266739000),
+		Before:              time.UnixMilli(1782266741000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized != 0 {
+		t.Fatalf("oversized records = %d, want 0", oversized)
+	}
+	if len(got) != 1 || got[0].Text != "numeric timestamp prompt" {
+		t.Fatalf("previews = %#v", got)
+	}
+}
+
+func TestParseSessionReadsDecimalNumericTimestamp(t *testing.T) {
+	got, err := parseSession(strings.NewReader(`{"sessionId":"sid","cwd":"/repo","timestamp":1782266739927.0,"role":"user","content":"decimal timestamp"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CreatedAt.UTC().Format(time.RFC3339) != "2026-06-24T02:05:39Z" {
+		t.Fatalf("CreatedAt = %s", got.CreatedAt.UTC().Format(time.RFC3339))
 	}
 }
 
