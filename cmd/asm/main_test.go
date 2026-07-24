@@ -173,6 +173,38 @@ func TestWithResumeCommandsSkipsUnsupportedProviders(t *testing.T) {
 	}
 }
 
+func TestFilterReportSessionsExcludesNonInteractiveByDefault(t *testing.T) {
+	items := []session.Session{
+		{ID: "human", Provider: "codex", Title: "human work"},
+		{ID: "generated", Provider: "codebuddy", Title: "generated report", Metadata: map[string]string{"interaction_mode": "non_interactive"}},
+	}
+
+	got := filterReportSessions(items, reportConfig{})
+	if len(got) != 1 || got[0].ID != "human" {
+		t.Fatalf("sessions = %#v, want only human session", got)
+	}
+
+	got = filterReportSessions(items, reportConfig{includeNonInteractive: true})
+	if len(got) != 2 {
+		t.Fatalf("sessions = %#v, want both sessions", got)
+	}
+}
+
+func TestFilterVisibleSessionsExcludesNonInteractiveByDefault(t *testing.T) {
+	items := []session.Session{
+		{ID: "human", Provider: "codex"},
+		{ID: "automated", Provider: "codex", Metadata: map[string]string{"interaction_mode": "non_interactive"}},
+	}
+
+	got := filterVisibleSessions(items, false)
+	if len(got) != 1 || got[0].ID != "human" {
+		t.Fatalf("sessions = %#v, want only interactive session", got)
+	}
+	if got := filterVisibleSessions(items, true); len(got) != 2 {
+		t.Fatalf("sessions = %#v, want all sessions", got)
+	}
+}
+
 func TestResumeSessionRejectsUnavailableSession(t *testing.T) {
 	err := resumeSession(context.Background(), executableProvider{name: "cursor"}, session.Session{
 		ID:       "sid",

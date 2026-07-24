@@ -31,42 +31,44 @@ import (
 )
 
 type config struct {
-	codexHome     string
-	codexProfile  string
-	claudeHome    string
-	kimiHome      string
-	opencodeHome  string
-	codebuddyHome string
-	cursorHome    string
-	openclawHome  string
-	zcodeHome     string
-	query         string
-	sortMode      index.SortMode
-	resumeID      string
-	json          bool
-	printExec     bool
-	sinceDays     int
-	limit         int
+	codexHome             string
+	codexProfile          string
+	claudeHome            string
+	kimiHome              string
+	opencodeHome          string
+	codebuddyHome         string
+	cursorHome            string
+	openclawHome          string
+	zcodeHome             string
+	query                 string
+	sortMode              index.SortMode
+	resumeID              string
+	json                  bool
+	printExec             bool
+	includeNonInteractive bool
+	sinceDays             int
+	limit                 int
 }
 
 type reportConfig struct {
-	codexHome     string
-	claudeHome    string
-	kimiHome      string
-	opencodeHome  string
-	codebuddyHome string
-	cursorHome    string
-	openclawHome  string
-	zcodeHome     string
-	query         string
-	sortMode      index.SortMode
-	period        string
-	start         string
-	end           string
-	limit         int
-	previewEdges  int
-	previewChars  int
-	previewOffset int
+	codexHome             string
+	claudeHome            string
+	kimiHome              string
+	opencodeHome          string
+	codebuddyHome         string
+	cursorHome            string
+	openclawHome          string
+	zcodeHome             string
+	query                 string
+	sortMode              index.SortMode
+	period                string
+	start                 string
+	end                   string
+	limit                 int
+	previewEdges          int
+	previewChars          int
+	previewOffset         int
+	includeNonInteractive bool
 }
 
 type resumeConfig struct {
@@ -133,7 +135,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return nil, err
 		}
-		return filterSessions(items, cfg.query, cfg.sortMode), nil
+		return filterSessions(filterVisibleSessions(items, cfg.includeNonInteractive), cfg.query, cfg.sortMode), nil
 	}
 	sessions, err := loadSessions(cfg.sinceDays)
 	if err != nil {
@@ -284,7 +286,7 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	sessions := withResumeCommands(filterSessions(items, cfg.query, cfg.sortMode))
+	sessions := withResumeCommands(filterReportSessions(items, cfg))
 	payload := reportpkg.BuildPayload(window, sessions)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -322,6 +324,7 @@ func parseFlags(args []string) (config, error) {
 	fs.IntVar(&cfg.sinceDays, "since-days", 30, "only scan session files modified in the last N days; 0 scans all")
 	fs.StringVar(&cfg.resumeID, "resume", "", "resume a session id without opening the TUI")
 	fs.BoolVar(&cfg.printExec, "print-exec", false, "print resume command instead of executing it")
+	fs.BoolVar(&cfg.includeNonInteractive, "include-non-interactive", false, "include automated and one-shot agent sessions")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -506,6 +509,7 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.IntVar(&cfg.previewEdges, "preview-messages-per-edge", session.DefaultPreviewMessagesPerEdge, "user message previews to include from both the start and end of each session")
 	fs.IntVar(&cfg.previewChars, "preview-max-chars", session.DefaultPreviewMaxChars, "maximum characters per message preview")
 	fs.IntVar(&cfg.previewOffset, "preview-edge-offset", 0, "skip this many user messages from both preview edges before selecting previews")
+	fs.BoolVar(&cfg.includeNonInteractive, "include-non-interactive", false, "include automated and one-shot agent sessions")
 	if err := fs.Parse(args); err != nil {
 		return reportConfig{}, err
 	}
@@ -526,6 +530,23 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	}
 	cfg.sortMode = index.SortMode(sortMode)
 	return cfg, nil
+}
+
+func filterReportSessions(items []session.Session, cfg reportConfig) []session.Session {
+	return filterSessions(filterVisibleSessions(items, cfg.includeNonInteractive), cfg.query, cfg.sortMode)
+}
+
+func filterVisibleSessions(items []session.Session, includeNonInteractive bool) []session.Session {
+	if includeNonInteractive {
+		return items
+	}
+	filtered := make([]session.Session, 0, len(items))
+	for _, item := range items {
+		if item.Metadata["interaction_mode"] != "non_interactive" {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func newProviders(codexHome, codexProfile, claudeHome, kimiHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, zcodeHome string) []session.Provider {
