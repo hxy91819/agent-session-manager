@@ -688,6 +688,111 @@ func TestCLIReportOversizedCrossDaySessionKeepsPerDayEdges(t *testing.T) {
 	}
 }
 
+func TestCLIReportOversizedSessionKeepsPerDayEdgesAcrossSiblingProviders(t *testing.T) {
+	for _, provider := range []string{"claude", "codebuddy", "cursor"} {
+		t.Run(provider, func(t *testing.T) {
+			codexHome := t.TempDir()
+			claudeHome := t.TempDir()
+			codebuddyHome := t.TempDir()
+			cursorHome := t.TempDir()
+			repo := t.TempDir()
+			loc := time.Local
+			dayOne := time.Date(2026, 6, 20, 0, 0, 0, 0, loc)
+			dayTwo := dayOne.AddDate(0, 0, 1)
+			sessionID := provider + "-oversized"
+			var transcript strings.Builder
+
+			writeUser := func(dayIndex, messageIndex int, day time.Time) {
+				at := day.Add(time.Duration(messageIndex+1) * time.Hour)
+				text := fmt.Sprintf("day %d message %d", dayIndex+1, messageIndex)
+				switch provider {
+				case "claude":
+					transcript.WriteString(`{"type":"user","sessionId":` + jsonString(sessionID) + `,"cwd":` + jsonString(repo) + `,"timestamp":"` + at.Format(time.RFC3339Nano) + `","message":{"role":"user","content":` + jsonString(text) + "}}\n")
+				case "codebuddy":
+					transcript.WriteString(`{"sessionId":` + jsonString(sessionID) + `,"cwd":` + jsonString(repo) + `,"timestamp":"` + at.Format(time.RFC3339Nano) + `","role":"user","content":` + jsonString(text) + "}\n")
+				case "cursor":
+					transcript.WriteString(`{"timestamp":"` + at.Format(time.RFC3339Nano) + `","role":"user","content":` + jsonString(text) + "}\n")
+				}
+			}
+			for dayIndex, day := range []time.Time{dayOne, dayTwo} {
+				for messageIndex := 1; messageIndex <= 5; messageIndex++ {
+					writeUser(dayIndex, messageIndex, day)
+				}
+				if dayIndex == 0 {
+					at := day.Add(23 * time.Hour).Format(time.RFC3339Nano)
+					largeOutput := jsonString(strings.Repeat("x", 8*1024*1024))
+					switch provider {
+					case "claude":
+						transcript.WriteString(`{"type":"assistant","sessionId":` + jsonString(sessionID) + `,"cwd":` + jsonString(repo) + `,"timestamp":"` + at + `","message":{"role":"assistant","content":` + largeOutput + "}}\n")
+					case "codebuddy":
+						transcript.WriteString(`{"sessionId":` + jsonString(sessionID) + `,"cwd":` + jsonString(repo) + `,"timestamp":"` + at + `","role":"assistant","content":` + largeOutput + "}\n")
+					case "cursor":
+						transcript.WriteString(`{"timestamp":"` + at + `","role":"assistant","content":` + largeOutput + "}\n")
+					}
+				}
+			}
+
+			var sessionPath string
+			switch provider {
+			case "claude":
+				sessionPath = filepath.Join(claudeHome, "projects", "-repo", sessionID+".jsonl")
+			case "codebuddy":
+				sessionPath = filepath.Join(codebuddyHome, "projects", "repo", sessionID+".jsonl")
+			case "cursor":
+				projectDir := filepath.Join(cursorHome, "projects", "repo")
+				writeFile(t, filepath.Join(projectDir, "worker.log"), "workspacePath="+repo+"\n")
+				sessionPath = filepath.Join(projectDir, "agent-transcripts", sessionID, sessionID+".jsonl")
+			}
+			writeFile(t, sessionPath, transcript.String())
+			if err := os.Chtimes(sessionPath, dayTwo.Add(12*time.Hour), dayTwo.Add(12*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+
+			want := []string{"message 1", "message 2", "message 4", "message 5"}
+			for dayIndex, day := range []time.Time{dayOne, dayTwo} {
+				end := day.AddDate(0, 0, 1)
+				out := runCommand(t, "report",
+					"--codex-home", codexHome,
+					"--claude-home", claudeHome,
+					"--codebuddy-home", codebuddyHome,
+					"--cursor-home", cursorHome,
+					"--start", day.Format("2006-01-02"),
+					"--end", end.Format("2006-01-02"))
+				var payload struct {
+					Sessions []struct {
+						ID       string            `json:"id"`
+						Provider string            `json:"provider"`
+						Metadata map[string]string `json:"metadata"`
+						Evidence []struct {
+							Text string `json:"text"`
+						} `json:"evidence"`
+					} `json:"sessions"`
+				}
+				if err := json.Unmarshal([]byte(out), &payload); err != nil {
+					t.Fatalf("day %d invalid JSON: %v\n%s", dayIndex+1, err, out)
+				}
+				if len(payload.Sessions) != 1 || payload.Sessions[0].ID != sessionID || payload.Sessions[0].Provider != provider {
+					t.Fatalf("day %d sessions = %#v", dayIndex+1, payload.Sessions)
+				}
+				var evidence []string
+				for _, item := range payload.Sessions[0].Evidence {
+					evidence = append(evidence, item.Text)
+				}
+				var expected []string
+				for _, suffix := range want {
+					expected = append(expected, fmt.Sprintf("day %d %s", dayIndex+1, suffix))
+				}
+				if strings.Join(evidence, "|") != strings.Join(expected, "|") {
+					t.Fatalf("day %d evidence = %#v, want %#v", dayIndex+1, evidence, expected)
+				}
+				if payload.Sessions[0].Metadata["report_evidence_status"] != "partial" {
+					t.Fatalf("day %d metadata = %#v, want partial evidence status", dayIndex+1, payload.Sessions[0].Metadata)
+				}
+			}
+		})
+	}
+}
+
 func TestCLIReportTodayIncludesSessionsThroughNow(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := t.TempDir()
