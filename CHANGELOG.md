@@ -6,6 +6,8 @@ Changes since [v0.7.1](https://github.com/hxy91819/agent-session-manager/compare
 
 ### Changes
 
+- Refresh existing release changelog sections ([#20](https://github.com/hxy91819/agent-session-manager/pull/20)). Thanks @hxy91819.
+- Ignore changelog-only merge commits ([#19](https://github.com/hxy91819/agent-session-manager/pull/19)). Thanks @hxy91819.
 - Automate attributed release changelogs ([#15](https://github.com/hxy91819/agent-session-manager/pull/15)). Thanks @hxy91819.
 - Exclude detected non-interactive sessions ([#14](https://github.com/hxy91819/agent-session-manager/pull/14)). Thanks @hxy91819.
 - Add end-to-end and cross-agent review skills ([#16](https://github.com/hxy91819/agent-session-manager/pull/16)). Thanks @hxy91819.
