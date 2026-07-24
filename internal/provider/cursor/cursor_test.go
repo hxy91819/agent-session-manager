@@ -97,6 +97,74 @@ func TestDiscoverReadsPastOversizedJSONLRecord(t *testing.T) {
 	}
 }
 
+func TestDiscoverMarksAutoreviewTempSessionNonInteractive(t *testing.T) {
+	home := t.TempDir()
+	projectKey := "tmp-autoreview-cursor-agent-fixture"
+	chatID := "automated-chat"
+	autoreviewCWD := filepath.Join(os.TempDir(), "autoreview-cursor-agent.fixture")
+	projectDir := filepath.Join(home, "projects", projectKey)
+	writeFile(t, filepath.Join(projectDir, "worker.log"), "workspacePath="+autoreviewCWD+"\n")
+	writeFile(t, filepath.Join(projectDir, "agent-transcripts", chatID, chatID+".jsonl"), `{"role":"user","message":{"content":[{"type":"text","text":"review this change"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Shell"}]}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sessions = %#v, want one", got)
+	}
+	if got[0].Metadata["automation"] != "autoreview" || got[0].Metadata["interaction_mode"] != "non_interactive" {
+		t.Fatalf("metadata = %#v", got[0].Metadata)
+	}
+}
+
+func TestIsAutoreviewTempCWDIsStableAcrossTempRoots(t *testing.T) {
+	if !isAutoreviewTempCWD(filepath.Join(os.TempDir(), "autoreview-cursor-agent.fixture")) {
+		t.Fatal("expected autoreview temp cwd to match")
+	}
+	if !isAutoreviewTempCWD(filepath.Join(t.TempDir(), "nested", "autoreview-fixture.fixture")) {
+		t.Fatal("expected autoreview cwd from a different temp root to match")
+	}
+	if isAutoreviewTempCWD(filepath.Join(os.TempDir(), "ordinary-project")) ||
+		isAutoreviewTempCWD("autoreview-cursor-agent.relative") {
+		t.Fatal("unexpected non-autoreview cwd match")
+	}
+}
+
+func TestParseSessionDoesNotInferNonInteractiveFromOneTurnWrapper(t *testing.T) {
+	input := strings.NewReader(`{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\nnon interactive prompt\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
+{"type":"turn_ended","status":"success"}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metadata["interaction_mode"] != "" {
+		t.Fatalf("ambiguous one-turn sessions must remain interactive: %#v", got.Metadata)
+	}
+}
+
+func TestParseSessionReadsInputTextBlocks(t *testing.T) {
+	input := strings.NewReader(`{"role":"user","message":{"content":[{"type":"input_text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\ninput text prompt\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Title, "input text prompt") {
+		t.Fatalf("Title = %q", got.Title)
+	}
+	if got.Metadata["interaction_mode"] != "" {
+		t.Fatalf("input_text does not prove a non-interactive entrypoint: %#v", got.Metadata)
+	}
+}
+
 func TestDiscoverMarksDecodedMissingCWD(t *testing.T) {
 	home := t.TempDir()
 	chatID := "chat-missing"

@@ -116,6 +116,23 @@ func TestParseSessionKeepsInteractiveSessionWithSDKPromptInteractive(t *testing.
 	}
 }
 
+func TestParseSessionIgnoresContinuationSummaryTitle(t *testing.T) {
+	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"real follow up"}}
+{"type":"summary","sessionId":"sid","summary":"This session is being continued from a previous conversation that ran out of context. Summary: OpenClaw testing hierarchy"}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "real follow up" {
+		t.Fatalf("Title = %q, want real user title", got.Title)
+	}
+	if got.Metadata["title_source"] != "user" {
+		t.Fatalf("title_source = %q, want user", got.Metadata["title_source"])
+	}
+}
+
 func TestDiscoverReadsUserPreviews(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()

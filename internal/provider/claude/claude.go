@@ -423,6 +423,7 @@ func isInjectedContext(text string) bool {
 		"<command-name>",
 		"<local-command-stdout>",
 		"<user_action",
+		"This session is being continued from a previous conversation that ran out of context.",
 		"The following is the Claude agent history",
 		"The following is the Codex agent history",
 	}

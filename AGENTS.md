@@ -13,6 +13,12 @@ small, testable, and compatible with future providers.
 - Resume command execution: `internal/launcher/`
 - Bubble Tea TUI: `internal/ui/`
 - CLI-level integration tests: `tests/`
+- Repository-maintainer skills: `.agents/skills/`
+- User-facing skills distributed with `asm`: `skills/`
+
+Keep development and review workflows under `.agents/skills/`. Put a skill
+under `skills/` only when it is part of the product's installed or released
+user-facing surface.
 
 Current providers:
 
@@ -80,6 +86,10 @@ parsing, index behavior, launcher behavior, and UI model behavior.
   `title_source`, `cwd_missing`, or `cwd_error`.
 - Do not hide stale or missing-cwd sessions by default. Mark them clearly and
   prevent unsafe resume attempts.
+- Default-hidden classifications require a stable, producer-persisted
+  discriminator whose semantics have been verified. A client name, prompt
+  text, transcript shape, or other ambiguous heuristic is not enough; keep
+  ambiguous sessions visible.
 
 ## Performance Rules
 
@@ -241,13 +251,13 @@ consume normalized sessions.
 
 Repository maintenance skills:
 
-- Use `skills/behavior-e2e-validation` for user-observable behavior changes and
-  bug fixes. If a public-boundary reproduction is feasible, add or update an
-  end-to-end test and prove the base failure and fixed pass.
-- Use `skills/cross-agent-pr-review` when reviewing provider or shared-session
-  PRs. Check whether the bug class affects other agents; contributors generally
-  do not need to fix every provider, but maintainers must create follow-up PRs
-  for confirmed sibling bugs with end-to-end coverage.
+- Use `.agents/skills/behavior-e2e-validation` for user-observable behavior
+  changes and bug fixes. If a public-boundary reproduction is feasible, add or
+  update an end-to-end test and prove the base failure and fixed pass.
+- Use `.agents/skills/cross-agent-pr-review` when reviewing provider or
+  shared-session PRs. Check whether the bug class affects other agents;
+  contributors generally do not need to fix every provider, but maintainers
+  must create follow-up PRs for confirmed sibling bugs with end-to-end coverage.
 
 For every bug fix, first add or update a focused regression test that reproduces
 the broken behavior, then change the implementation to make that test pass. Do
@@ -261,6 +271,18 @@ flows, and integration adapter behavior. Assert the behavior contract rather
 than internal implementation details. If an end-to-end test is not feasible in
 this repository, document the reason and the alternative coverage in the
 change.
+
+CLI end-to-end tests must isolate every unrelated provider store. Use explicit
+`--<provider>-home` flags for the stores under test and either flags or the
+shared test runner's sanitized environment for the rest. Inspect the runner
+before claiming that a test can read ambient developer data.
+
+When a change hides sessions by default, add paired coverage: the intended
+target is excluded and a plausible normal or ambiguous session remains visible.
+Validate the discriminator against producer documentation, source, or
+representative local records; report aggregate field values and counts rather
+than exposing transcript content. A base failure counts only when the expected
+product assertion fails, not when compilation, setup, or the test harness fails.
 
 Add tests near the behavior being changed:
 
@@ -296,6 +318,15 @@ For UI layout bugs, include tests that assert rendered width and height using
 
 - Commit after coherent development stages.
 - Do not revert unrelated user changes.
+- When the primary worktree already has unrelated changes, use a separate
+  worktree from the intended base for PR work. Do not switch or reset the dirty
+  checkout to make room.
+- Before aligning a dirty checkout with its remote branch, inventory the local
+  changes and create a recoverable snapshot branch or commit. Fast-forward the
+  branch, then replay only changes that are still unique and intended.
+- Track which worktrees existed before the task and which the task created.
+  After merge, remove only task-created worktrees that have no unique content;
+  never clean up pre-existing worktrees by assumption.
 - Keep generated binaries and local artifacts out of commits unless explicitly
   requested.
 - Keep `.gitignore` patterns anchored for root binaries, for example `/asm`,
