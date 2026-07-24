@@ -34,6 +34,11 @@ Review the mechanism, not only the provider named in the PR. Establish whether t
    Record both the shared primitive and trigger reachability. A provider may use
    the same scanner while its compact index schema cannot contain the oversized
    transcript payload that caused the reported bug.
+   For metadata-driven classifications, verify field semantics from producer
+   documentation, source, or representative local records. Distinguish a stable
+   producer-persisted entrypoint from a client type, prompt, or transcript-shape
+   heuristic. Keep ambiguous sessions visible rather than classifying them into
+   a default-hidden group.
 5. Use `behavior-e2e-validation` to construct the public-boundary proof:
    - First lock the target provider's failure and fix.
    - Then add the smallest cross-provider matrix that reproduces the same mechanism.
