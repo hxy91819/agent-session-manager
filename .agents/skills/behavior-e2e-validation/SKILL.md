@@ -15,11 +15,16 @@ Lock the product contract at the public boundary. Keep focused unit tests, but d
    - Treat provider files as fixture setup, not as the assertion surface.
 2. Decide whether repository-local end-to-end validation is feasible:
    - Prefer `tests/e2e_test.go` and invoke `go run ./cmd/asm`.
-   - Use temporary native provider stores and explicit `--<provider>-home` flags.
-   - Isolate every unrelated provider home so real local sessions cannot affect results.
+   - Use temporary native provider stores and explicit `--<provider>-home` flags
+     for the providers under test.
+   - Isolate every unrelated provider home so real local sessions cannot affect
+     results. A shared command helper may do this through a sanitized
+     environment; inspect it before duplicating flags or reporting pollution.
    - If the behavior cannot cross a public boundary in this repository, document the concrete reason and add the closest owner-level test instead.
 3. Add the regression test before the implementation for a bug fix:
    - Prove the test fails on the affected base revision for the expected product-level reason.
+   - Do not count compilation, setup, module-path, or harness failures as a base
+     reproduction.
    - Prove the same test passes with the fix.
    - For an intentional behavior change, prove the new public contract and update any conflicting existing contract test.
 4. Build realistic fixtures:
@@ -31,6 +36,8 @@ Lock the product contract at the public boundary. Keep focused unit tests, but d
    - Assert JSON fields, selected sessions, evidence order, command output, error text, or rendered dimensions.
    - Do not assert private helper calls, buffer types, cache internals, or incidental formatting.
    - Check negative behavior too: excluded sessions, unsafe resume rejection, out-of-window evidence, or absence of duplicates.
+   - For default-hidden classifications, pair the intended exclusion with a
+     plausible normal or ambiguous session that must remain visible.
 6. Check the bug class across providers:
    - When more than one provider exists, use `cross-agent-pr-review` and inspect
      every provider's actual reader path before classifying scope.
