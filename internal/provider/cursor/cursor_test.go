@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
@@ -91,9 +92,8 @@ func TestDiscoverReadsPastOversizedJSONLRecord(t *testing.T) {
 	if strings.Join(previews, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", previews, want)
 	}
-	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial ||
-		got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
-		t.Fatalf("metadata = %#v", got[0].Metadata)
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != "" {
+		t.Fatalf("known oversized assistant output should not reduce coverage: %#v", got[0].Metadata)
 	}
 }
 
@@ -162,6 +162,38 @@ func TestParseSessionReadsInputTextBlocks(t *testing.T) {
 	}
 	if got.Metadata["interaction_mode"] != "" {
 		t.Fatalf("input_text does not prove a non-interactive entrypoint: %#v", got.Metadata)
+	}
+	if got.Title != "input text prompt" {
+		t.Fatalf("Title = %q, want unwrapped prompt", got.Title)
+	}
+}
+
+func TestReadUserPreviewsUsesCursorEmbeddedTimestamp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	writeFile(t, path, `{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Friday, Jul 24, 2026, 2:16 PM (UTC+8)</timestamp>\n<user_query>\nreview the release\n</user_query>"}]}}
+`)
+
+	start := time.Date(2026, 7, 24, 14, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	got, oversized, err := readUserPreviews(path, session.PreviewOptions{
+		UserMessagesPerEdge: 1,
+		MaxChars:            500,
+		Since:               start,
+		Before:              start.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized != 0 {
+		t.Fatalf("oversized = %d, want 0", oversized)
+	}
+	if len(got) != 1 {
+		t.Fatalf("previews = %#v, want one", got)
+	}
+	if got[0].Text != "review the release" {
+		t.Fatalf("Text = %q, want unwrapped prompt", got[0].Text)
+	}
+	if !got[0].At.Equal(time.Date(2026, 7, 24, 6, 16, 0, 0, time.UTC)) {
+		t.Fatalf("At = %s, want 2026-07-24T06:16:00Z", got[0].At)
 	}
 }
 

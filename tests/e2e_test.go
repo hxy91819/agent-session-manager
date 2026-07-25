@@ -644,7 +644,9 @@ This block is automatically supplied ambient UI state, not part of the user's re
 			} `json:"evidence"`
 		} `json:"sessions"`
 		UnverifiedSessions []struct {
-			ID string `json:"id"`
+			ID              string `json:"id"`
+			ReasonCode      string `json:"reason_code"`
+			MayHideUserWork bool   `json:"may_hide_user_work"`
 		} `json:"unverified_sessions"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -673,6 +675,10 @@ This block is automatically supplied ambient UI state, not part of the user's re
 	}
 	if len(payload.UnverifiedSessions) != 1 || payload.UnverifiedSessions[0].ID != "injected-only" {
 		t.Fatalf("unverified sessions = %#v", payload.UnverifiedSessions)
+	}
+	if payload.UnverifiedSessions[0].ReasonCode != "updated_without_in_window_user_message" ||
+		payload.UnverifiedSessions[0].MayHideUserWork {
+		t.Fatalf("ordinary transcript activity was mislabeled as missing work: %#v", payload.UnverifiedSessions[0])
 	}
 	for _, injected := range []string{"recommended_plugins", "in-app-browser-context", "<heartbeat>"} {
 		if strings.Contains(out, injected) {
@@ -956,8 +962,8 @@ func TestCLIReportOversizedCrossDaySessionKeepsPerDayEdges(t *testing.T) {
 		if strings.Join(evidence, "|") != strings.Join(expected, "|") {
 			t.Fatalf("day %d evidence = %#v, want %#v", dayIndex+1, evidence, expected)
 		}
-		if payload.Sessions[0].Metadata["report_evidence_status"] != "partial" {
-			t.Fatalf("day %d metadata = %#v, want partial evidence status", dayIndex+1, payload.Sessions[0].Metadata)
+		if payload.Sessions[0].Metadata["report_evidence_status"] != "" {
+			t.Fatalf("day %d known oversized tool output should not reduce coverage: %#v", dayIndex+1, payload.Sessions[0].Metadata)
 		}
 	}
 }
@@ -1059,9 +1065,114 @@ func TestCLIReportOversizedSessionKeepsPerDayEdgesAcrossSiblingProviders(t *test
 				if strings.Join(evidence, "|") != strings.Join(expected, "|") {
 					t.Fatalf("day %d evidence = %#v, want %#v", dayIndex+1, evidence, expected)
 				}
-				if payload.Sessions[0].Metadata["report_evidence_status"] != "partial" {
-					t.Fatalf("day %d metadata = %#v, want partial evidence status", dayIndex+1, payload.Sessions[0].Metadata)
+				if payload.Sessions[0].Metadata["report_evidence_status"] != "" {
+					t.Fatalf("day %d known oversized assistant output should not reduce coverage: %#v", dayIndex+1, payload.Sessions[0].Metadata)
 				}
+			}
+		})
+	}
+}
+
+func TestCLIReportRecoversOversizedUserMessageEdgesAcrossJSONLProviders(t *testing.T) {
+	for _, provider := range []string{"codex", "claude", "codebuddy", "cursor"} {
+		t.Run(provider, func(t *testing.T) {
+			codexHome := t.TempDir()
+			claudeHome := t.TempDir()
+			codebuddyHome := t.TempDir()
+			cursorHome := t.TempDir()
+			repo := t.TempDir()
+			at := time.Date(2026, 6, 20, 9, 0, 0, 0, time.Local)
+			sessionID := provider + "-large-user"
+			largeText := "HEAD-user-request-" +
+				strings.Repeat("x", 8*1024*1024) +
+				"-TAIL-user-decision"
+
+			var sessionPath string
+			switch provider {
+			case "codex":
+				sessionPath = filepath.Join(
+					codexHome,
+					"sessions",
+					"2026",
+					"06",
+					"20",
+					sessionID+".jsonl",
+				)
+				writeFile(t, sessionPath,
+					`{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":`+jsonString(sessionID)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}`+"\n"+
+						`{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(largeText)+`}]}}`+"\n")
+			case "claude":
+				sessionPath = filepath.Join(
+					claudeHome,
+					"projects",
+					"-repo",
+					sessionID+".jsonl",
+				)
+				writeFile(t, sessionPath,
+					`{"type":"user","sessionId":`+jsonString(sessionID)+`,"cwd":`+jsonString(repo)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"message":{"role":"user","content":`+jsonString(largeText)+`}}`+"\n")
+			case "codebuddy":
+				sessionPath = filepath.Join(
+					codebuddyHome,
+					"projects",
+					"repo",
+					sessionID+".jsonl",
+				)
+				writeFile(t, sessionPath,
+					`{"sessionId":`+jsonString(sessionID)+`,"cwd":`+jsonString(repo)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"role":"user","content":`+jsonString(largeText)+`}`+"\n")
+			case "cursor":
+				projectDir := filepath.Join(cursorHome, "projects", "repo")
+				writeFile(t, filepath.Join(projectDir, "worker.log"), "workspacePath="+repo+"\n")
+				sessionPath = filepath.Join(
+					projectDir,
+					"agent-transcripts",
+					sessionID,
+					sessionID+".jsonl",
+				)
+				writeFile(t, sessionPath,
+					`{"role":"user","timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"content":`+jsonString(largeText)+`}`+"\n")
+			}
+			if err := os.Chtimes(sessionPath, at, at); err != nil {
+				t.Fatal(err)
+			}
+
+			out := runCommand(t, "report",
+				"--codex-home", codexHome,
+				"--claude-home", claudeHome,
+				"--codebuddy-home", codebuddyHome,
+				"--cursor-home", cursorHome,
+				"--start", "2026-06-20",
+				"--end", "2026-06-21",
+				"--preview-max-chars", "120")
+			var payload struct {
+				Sessions []struct {
+					ID       string            `json:"id"`
+					Provider string            `json:"provider"`
+					Metadata map[string]string `json:"metadata"`
+					Evidence []struct {
+						Text string    `json:"text"`
+						At   time.Time `json:"at"`
+					} `json:"evidence"`
+				} `json:"sessions"`
+			}
+			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+				t.Fatalf("invalid report JSON: %v\n%s", err, out)
+			}
+			if len(payload.Sessions) != 1 ||
+				payload.Sessions[0].ID != sessionID ||
+				payload.Sessions[0].Provider != provider ||
+				len(payload.Sessions[0].Evidence) != 1 {
+				t.Fatalf("sessions = %#v, want one recovered %s session", payload.Sessions, provider)
+			}
+			evidence := payload.Sessions[0].Evidence[0]
+			if !strings.Contains(evidence.Text, "HEAD-user-request") ||
+				!strings.Contains(evidence.Text, "TAIL-user-decision") {
+				t.Fatalf("evidence = %q, want both oversized message edges", evidence.Text)
+			}
+			if evidence.At.IsZero() {
+				t.Fatalf("evidence timestamp was not recovered: %#v", evidence)
+			}
+			if payload.Sessions[0].Metadata["report_evidence_status"] != "" {
+				t.Fatalf("recovered oversized user message should not reduce coverage: %#v", payload.Sessions[0].Metadata)
 			}
 		})
 	}

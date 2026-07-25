@@ -1,6 +1,7 @@
 package codebuddy
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,8 +21,10 @@ import (
 const (
 	Name                     = "codebuddy"
 	maxJSONLRecordBytes      = 8 * 1024 * 1024
-	oversizedJSONLRecordNote = "one or more CodeBuddy JSONL records exceeded the per-record safety limit and were skipped"
+	oversizedJSONLRecordNote = "one or more oversized CodeBuddy records may contain user evidence that bounded head/tail recovery could not identify"
 	previewReadErrorNote     = "the CodeBuddy transcript could not be read completely while collecting report evidence"
+	oversizedRecordEdgeBytes = 64 * 1024
+	oversizedTextEdgeBytes   = 4 * 1024
 )
 
 type Provider struct {
@@ -76,6 +79,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.Metadata == nil {
 			s.Metadata = make(map[string]string)
 		}
+		// Coverage is dynamic report state, not stable session identity. Clear
+		// cached warnings before re-reading previews with the current parser.
+		delete(s.Metadata, session.MetadataReportEvidenceStatus)
+		delete(s.Metadata, session.MetadataReportEvidenceNote)
 		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		s.Provider = Name
 		s.Path = file.Path
@@ -237,7 +244,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	var summaryTitle string
 	var lastUserTitle string
 
-	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := readCodeBuddyRecords(r, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -309,7 +316,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	defer func() { _ = f.Close() }()
 
 	var messages []session.MessagePreview
-	oversized, err := jsonlrecords.Read(f, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := readCodeBuddyRecords(f, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -328,6 +335,99 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 		return true
 	})
 	return session.SelectMessagePreviews(messages, opts), oversized, err
+}
+
+func readCodeBuddyRecords(r io.Reader, visit func([]byte) bool) (int, error) {
+	evidenceRisk := 0
+	stopped := false
+	_, err := jsonlrecords.ReadWithOversized(
+		r,
+		maxJSONLRecordBytes,
+		oversizedRecordEdgeBytes,
+		func(line []byte) bool {
+			if stopped {
+				return false
+			}
+			stopped = !visit(line)
+			return !stopped
+		},
+		func(record jsonlrecords.OversizedRecord) {
+			if stopped {
+				return
+			}
+			if recovered, timestamped, ok := recoverOversizedCodeBuddyUserRecord(record); ok {
+				stopped = !visit(recovered)
+				if !timestamped {
+					evidenceRisk++
+				}
+				return
+			}
+			if oversizedCodeBuddyCouldContainUserEvidence(record.Prefix) {
+				evidenceRisk++
+			}
+		},
+	)
+	return evidenceRisk, err
+}
+
+func recoverOversizedCodeBuddyUserRecord(
+	record jsonlrecords.OversizedRecord,
+) ([]byte, bool, bool) {
+	compact := jsonlrecords.Compact(record.Prefix)
+	if !bytes.Contains(compact, []byte(`"role":"user"`)) {
+		return nil, false, false
+	}
+	text, ok := jsonlrecords.TruncatedStringField(
+		record,
+		"content",
+		oversizedTextEdgeBytes,
+	)
+	if !ok {
+		text, ok = jsonlrecords.TruncatedStringField(
+			record,
+			"text",
+			oversizedTextEdgeBytes,
+		)
+	}
+	if !ok || strings.TrimSpace(text) == "" {
+		return nil, false, false
+	}
+
+	sessionID, _ := jsonlrecords.CompleteStringField(record.Prefix, "sessionId")
+	cwd, _ := jsonlrecords.CompleteStringField(record.Prefix, "cwd")
+	var timestamp flexibleTime
+	timestampRaw, timestamped := jsonlrecords.CompleteScalarField(
+		record.Prefix,
+		"timestamp",
+	)
+	if timestamped && json.Unmarshal(timestampRaw, &timestamp) != nil {
+		timestamped = false
+	}
+	synthetic := map[string]any{
+		"sessionId": sessionID,
+		"cwd":       cwd,
+		"role":      "user",
+		"content":   text,
+	}
+	if timestamped {
+		synthetic["timestamp"] = json.RawMessage(timestampRaw)
+	}
+	line, err := json.Marshal(synthetic)
+	if err != nil {
+		return nil, false, false
+	}
+	return line, timestamped, true
+}
+
+func oversizedCodeBuddyCouldContainUserEvidence(prefix []byte) bool {
+	compact := jsonlrecords.Compact(prefix)
+	if bytes.Contains(compact, []byte(`"role":"user"`)) {
+		return true
+	}
+	if bytes.Contains(compact, []byte(`"role":"assistant"`)) {
+		return false
+	}
+	return true
 }
 
 func markReportEvidencePartial(metadata map[string]string, note string) {

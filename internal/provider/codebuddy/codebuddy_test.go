@@ -187,9 +187,8 @@ func TestDiscoverReadsPastOversizedJSONLRecord(t *testing.T) {
 	if strings.Join(previews, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", previews, want)
 	}
-	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial ||
-		got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
-		t.Fatalf("metadata = %#v", got[0].Metadata)
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != "" {
+		t.Fatalf("known oversized assistant output should not reduce coverage: %#v", got[0].Metadata)
 	}
 }
 
