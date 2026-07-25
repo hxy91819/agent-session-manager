@@ -290,8 +290,11 @@ evidence. The main `sessions`, `projects`, and their totals contain only session
 with timestamped user-message evidence inside the requested half-open window.
 Session titles are omitted from report output because a long-lived session can
 have a title from another day. Session records updated within the window without
-timestamped message evidence are placed in `unverified_sessions`; this is a
-diagnostic signal, not proof that user work occurred in the window.
+a user-authored message whose original timestamp falls in the window are placed
+in `unverified_sessions`. Each item includes a `reason_code` and
+`may_hide_user_work`. This is primarily a transcript-activity diagnostic, not a
+count of missing work: only `may_hide_user_work: true` means a known provider
+limitation could conceal in-window prompts.
 Codex subagent threads remain discoverable and resumable, but reports exclude
 them because their rollout files inherit the parent thread's history and would
 otherwise duplicate the parent's work evidence.
@@ -305,6 +308,11 @@ If the default previews are not enough for a reliable summary, increase
 `--preview-messages-per-edge` or `--preview-max-chars` and rerun the report.
 For incremental context loading, keep `--preview-messages-per-edge` fixed and
 increase `--preview-edge-offset` to fetch the next layer from both ends.
+Oversized user records from the transcript-backed Codex, Claude, CodeBuddy, and
+Cursor providers are recovered as bounded head/tail previews with their
+original timestamp. Oversized known assistant/tool outputs are drained without
+reducing user-evidence coverage; an explicit partial-coverage warning remains
+only when a record may contain user evidence that cannot be identified safely.
 
 TUI keys:
 

@@ -200,12 +200,42 @@ func TestBuildPayloadDoesNotCountRecordUpdateWithoutWindowEvidence(t *testing.T)
 	if payload.UnverifiedSessions[0].ID != "touched-only" || payload.UnverifiedSessions[0].Reason == "" {
 		t.Fatalf("unverified activity = %#v", payload.UnverifiedSessions)
 	}
+	if payload.UnverifiedSessions[0].ReasonCode != "updated_without_in_window_user_message" ||
+		payload.UnverifiedSessions[0].MayHideUserWork {
+		t.Fatalf("ordinary transcript update was mislabeled as missing work: %#v", payload.UnverifiedSessions[0])
+	}
 	encoded, err := json.Marshal(payload.UnverifiedSessions)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(encoded), "old work") || strings.Contains(string(encoded), "stale evidence") {
 		t.Fatalf("unverified diagnostics leaked stale content: %s", encoded)
+	}
+}
+
+func TestBuildPayloadMarksOnlyProviderLimitationsAsPossibleMissingWork(t *testing.T) {
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	payload := BuildPayload(Window{
+		Period: PeriodCustom,
+		Start:  start,
+		End:    start.AddDate(0, 0, 1),
+	}, []session.Session{{
+		ID:        "latest-only",
+		Provider:  "kimi",
+		CWD:       "/repo",
+		UpdatedAt: start.Add(time.Hour),
+		Metadata: map[string]string{
+			session.MetadataReportEvidenceStatus: session.ReportEvidencePartial,
+			session.MetadataReportEvidenceNote:   "only the latest prompt is available",
+		},
+	}})
+
+	if len(payload.UnverifiedSessions) != 1 {
+		t.Fatalf("diagnostics = %#v, want one", payload.UnverifiedSessions)
+	}
+	got := payload.UnverifiedSessions[0]
+	if got.ReasonCode != "provider_coverage_limit" || !got.MayHideUserWork {
+		t.Fatalf("provider limitation = %#v", got)
 	}
 }
 

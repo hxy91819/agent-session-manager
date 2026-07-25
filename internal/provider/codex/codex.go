@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,9 +22,11 @@ import (
 const (
 	Name                     = "codex"
 	maxJSONLRecordBytes      = 8 * 1024 * 1024
-	oversizedJSONLRecordNote = "one or more Codex JSONL records exceeded the per-record safety limit and were skipped"
+	oversizedJSONLRecordNote = "one or more oversized Codex records may contain user evidence that bounded head/tail recovery could not identify"
 	previewReadErrorNote     = "the Codex rollout could not be read completely while collecting report evidence"
 	desktopRequestMarker     = "## My request for Codex:"
+	oversizedRecordEdgeBytes = 64 * 1024
+	oversizedTextEdgeBytes   = 4 * 1024
 )
 
 type Provider struct {
@@ -88,6 +91,11 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.Metadata == nil {
 			s.Metadata = make(map[string]string)
 		}
+		// Evidence coverage depends on the current preview window and parser
+		// rules. Never reuse an older cached warning after the underlying
+		// oversized record has been classified as non-user tool output.
+		delete(s.Metadata, session.MetadataReportEvidenceStatus)
+		delete(s.Metadata, session.MetadataReportEvidenceNote)
 		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		if _, ok := seen[s.ID]; ok {
 			continue
@@ -330,7 +338,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	out.Metadata = make(map[string]string)
 	haveSessionMeta := false
 
-	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := readCodexRecords(r, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -436,7 +444,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	defer func() { _ = f.Close() }()
 
 	var messages []session.MessagePreview
-	oversized, err := jsonlrecords.Read(f, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := readCodexRecords(f, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil || rec.Type != "response_item" {
 			return true
@@ -455,6 +463,103 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 		return true
 	})
 	return session.SelectMessagePreviews(messages, opts), oversized, err
+}
+
+func readCodexRecords(r io.Reader, visit func([]byte) bool) (int, error) {
+	evidenceRisk := 0
+	stopped := false
+	_, err := jsonlrecords.ReadWithOversized(
+		r,
+		maxJSONLRecordBytes,
+		oversizedRecordEdgeBytes,
+		func(line []byte) bool {
+			if stopped {
+				return false
+			}
+			stopped = !visit(line)
+			return !stopped
+		},
+		func(record jsonlrecords.OversizedRecord) {
+			if stopped {
+				return
+			}
+			if recovered, timestamped, ok := recoverOversizedCodexUserRecord(record); ok {
+				stopped = !visit(recovered)
+				if !timestamped {
+					evidenceRisk++
+				}
+				return
+			}
+			if oversizedCouldContainUserEvidence(record.Prefix) {
+				evidenceRisk++
+			}
+		},
+	)
+	return evidenceRisk, err
+}
+
+func recoverOversizedCodexUserRecord(
+	record jsonlrecords.OversizedRecord,
+) ([]byte, bool, bool) {
+	compact := jsonlrecords.Compact(record.Prefix)
+	if !bytes.Contains(compact, []byte(`"type":"response_item"`)) ||
+		!bytes.Contains(compact, []byte(`"type":"message"`)) ||
+		!bytes.Contains(compact, []byte(`"role":"user"`)) {
+		return nil, false, false
+	}
+
+	text, ok := jsonlrecords.TruncatedStringField(
+		record,
+		"text",
+		oversizedTextEdgeBytes,
+	)
+	if !ok {
+		text, ok = jsonlrecords.TruncatedStringField(
+			record,
+			"input_text",
+			oversizedTextEdgeBytes,
+		)
+	}
+	if !ok || strings.TrimSpace(text) == "" {
+		return nil, false, false
+	}
+
+	timestamp, _ := jsonlrecords.CompleteStringField(record.Prefix, "timestamp")
+	payload, err := json.Marshal(responseMessage{
+		Type: "message",
+		Role: "user",
+		Content: []messageContent{{
+			Type: "input_text",
+			Text: text,
+		}},
+	})
+	if err != nil {
+		return nil, false, false
+	}
+	line, err := json.Marshal(rawRecord{
+		Timestamp: timestamp,
+		Type:      "response_item",
+		Payload:   payload,
+	})
+	if err != nil {
+		return nil, false, false
+	}
+	return line, timestamp != "", true
+}
+
+func oversizedCouldContainUserEvidence(prefix []byte) bool {
+	compact := jsonlrecords.Compact(prefix)
+	if bytes.Contains(compact, []byte(`"role":"user"`)) {
+		return true
+	}
+	if bytes.Contains(compact, []byte(`"role":"assistant"`)) ||
+		bytes.Contains(compact, []byte(`"type":"custom_tool_call_output"`)) ||
+		bytes.Contains(compact, []byte(`"type":"function_call_output"`)) {
+		return false
+	}
+	// Unknown producer shapes remain conservative. Only known assistant/tool
+	// payloads are allowed to avoid a false partial-coverage warning.
+	return true
 }
 
 func markReportEvidencePartial(metadata map[string]string, note string) {

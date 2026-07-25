@@ -36,11 +36,13 @@ type ProviderCoverage struct {
 }
 
 type UnverifiedSession struct {
-	ID        string    `json:"id"`
-	Provider  string    `json:"provider"`
-	CWD       string    `json:"cwd,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Reason    string    `json:"reason"`
+	ID              string    `json:"id"`
+	Provider        string    `json:"provider"`
+	CWD             string    `json:"cwd,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	ReasonCode      string    `json:"reason_code"`
+	MayHideUserWork bool      `json:"may_hide_user_work"`
+	Reason          string    `json:"reason"`
 }
 
 type Payload struct {
@@ -138,7 +140,7 @@ func BuildPayload(window Window, sessions []session.Session) Payload {
 		Start:        window.Start,
 		End:          window.End,
 		Timezone:     window.Timezone,
-		EvidenceRule: "Only sessions[].evidence proves work inside the report window. Session titles are omitted; unverified_sessions are diagnostics, not work evidence.",
+		EvidenceRule: "Only sessions[].evidence proves work inside the report window. Session titles are omitted. unverified_sessions means a session file changed without an in-window timestamped user message; only entries with may_hide_user_work=true indicate a known source limitation.",
 		Totals: Totals{
 			Sessions:           len(windowSessions),
 			Projects:           len(projects),
@@ -198,11 +200,13 @@ func partitionWindow(sessions []session.Session, start, end time.Time) ([]sessio
 			continue
 		}
 		unverified = append(unverified, UnverifiedSession{
-			ID:        item.ID,
-			Provider:  item.Provider,
-			CWD:       item.CWD,
-			UpdatedAt: item.UpdatedAt,
-			Reason:    unverifiedReason(item),
+			ID:              item.ID,
+			Provider:        item.Provider,
+			CWD:             item.CWD,
+			UpdatedAt:       item.UpdatedAt,
+			ReasonCode:      unverifiedReasonCode(item),
+			MayHideUserWork: providerMayHideUserWork(item),
+			Reason:          unverifiedReason(item),
 		})
 	}
 	return out, unverified
@@ -212,7 +216,23 @@ func unverifiedReason(item session.Session) string {
 	if note := item.Metadata[session.MetadataReportEvidenceNote]; note != "" {
 		return note
 	}
-	return "the session record was updated in the report window, but no timestamped user-message evidence was available"
+	return "the transcript file changed in the report window, but parsing found no user-authored message whose original timestamp falls inside the window; this diagnostic is not itself a missing work item"
+}
+
+func unverifiedReasonCode(item session.Session) string {
+	if providerMayHideUserWork(item) {
+		return "provider_coverage_limit"
+	}
+	return "updated_without_in_window_user_message"
+}
+
+func providerMayHideUserWork(item session.Session) bool {
+	switch item.Metadata[session.MetadataReportEvidenceStatus] {
+	case session.ReportEvidencePartial, session.ReportEvidenceUnavailable:
+		return true
+	default:
+		return false
+	}
 }
 
 func providerCoverage(sessions []session.Session) map[string]ProviderCoverage {

@@ -271,7 +271,7 @@ func TestDiscoverReadsUserPreviews(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
-	want := []string{"first prompt", "second prompt with e", "fourth prompt", "fifth prompt"}
+	want := []string{"first prompt", "second pr … ra words", "fourth prompt", "fifth prompt"}
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
 	}
@@ -307,11 +307,57 @@ func TestDiscoverReadsPastLargeJSONLRecord(t *testing.T) {
 	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", texts, want)
 	}
-	if got[0].Metadata[session.MetadataReportEvidenceStatus] != session.ReportEvidencePartial {
-		t.Fatalf("report evidence status = %q, want partial", got[0].Metadata[session.MetadataReportEvidenceStatus])
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != "" {
+		t.Fatalf("known oversized tool output should not reduce evidence coverage: %#v", got[0].Metadata)
 	}
-	if got[0].Metadata[session.MetadataReportEvidenceNote] == "" {
-		t.Fatal("report evidence note is empty")
+}
+
+func TestDiscoverRecoversOversizedUserMessageEdges(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	largePrompt := "HEAD-user-request-" +
+		strings.Repeat("x", maxJSONLRecordBytes) +
+		"-TAIL-user-decision"
+	writeFile(t, filepath.Join(sessionDir, "session.jsonl"), `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(largePrompt)+`}]}}
+`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 1, MaxChars: 120},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[0].Previews) != 1 {
+		t.Fatalf("sessions = %#v, want one session with one preview", got)
+	}
+	preview := got[0].Previews[0]
+	if !strings.Contains(preview.Text, "HEAD-user-request") ||
+		!strings.Contains(preview.Text, "TAIL-user-decision") {
+		t.Fatalf("preview = %q, want both message edges", preview.Text)
+	}
+	if !preview.At.Equal(time.Date(2026, 6, 13, 1, 0, 1, 0, time.UTC)) {
+		t.Fatalf("preview time = %s, want original record timestamp", preview.At)
+	}
+	if got[0].Metadata[session.MetadataReportEvidenceStatus] != "" {
+		t.Fatalf("recovered oversized user message should not reduce coverage: %#v", got[0].Metadata)
+	}
+}
+
+func TestOversizedEvidenceRiskDistinguishesUserAndToolRecords(t *testing.T) {
+	if !oversizedCouldContainUserEvidence(
+		[]byte(`{"type":"response_item","payload":{"type":"message","role":"user"}`),
+	) {
+		t.Fatal("oversized user message must remain a coverage risk")
+	}
+	if oversizedCouldContainUserEvidence(
+		[]byte(`{"type":"response_item","payload":{"type":"custom_tool_call_output"}`),
+	) {
+		t.Fatal("oversized tool output must not reduce user-evidence coverage")
 	}
 }
 

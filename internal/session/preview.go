@@ -75,7 +75,17 @@ func NormalizePreviewText(text string, maxChars int) string {
 	if len(runes) <= maxChars {
 		return text
 	}
-	return string(runes[:maxChars])
+	const separator = " … "
+	separatorRunes := []rune(separator)
+	if maxChars < len(separatorRunes)+2 {
+		return string(runes[:maxChars])
+	}
+	contentBudget := maxChars - len(separatorRunes)
+	head := (contentBudget + 1) / 2
+	tail := contentBudget - head
+	return strings.TrimSpace(string(runes[:head])) +
+		separator +
+		strings.TrimSpace(string(runes[len(runes)-tail:]))
 }
 
 func (opts PreviewOptions) withDefaults() PreviewOptions {

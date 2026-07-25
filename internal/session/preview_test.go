@@ -92,6 +92,13 @@ func TestNormalizePreviewTextCollapsesWhitespaceAndTruncatesRunes(t *testing.T) 
 	}
 }
 
+func TestNormalizePreviewTextKeepsBothEdgesOfLongMessages(t *testing.T) {
+	got := NormalizePreviewText("abcdefghijklmnop", 10)
+	if got != "abcd … nop" {
+		t.Fatalf("text = %q, want head and tail", got)
+	}
+}
+
 func testTime(hour int) time.Time {
 	return time.Date(2026, 6, 17, hour, 0, 0, 0, time.UTC)
 }

@@ -98,7 +98,7 @@ func TestDiscoverUsesLastPromptPreview(t *testing.T) {
 	if len(got[0].Previews) != 1 {
 		t.Fatalf("previews = %#v", got[0].Previews)
 	}
-	if got[0].Previews[0].Text != "latest prompt" {
+	if got[0].Previews[0].Text != "lates … text" {
 		t.Fatalf("preview text = %q", got[0].Previews[0].Text)
 	}
 	if got[0].Previews[0].At.Format(time.RFC3339) != "2026-06-13T01:10:00Z" {

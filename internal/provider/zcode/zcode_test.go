@@ -64,6 +64,49 @@ func TestDiscoverReadsSessionsFromSQLite(t *testing.T) {
 	}
 }
 
+func TestDiscoverPreservesSubagentParentForReportFiltering(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createZCodeDB(t, home)
+	created := int64(1781882881955)
+	writeZCodeSession(t, db, zcodeSession{
+		ID:          "sess_parent",
+		Directory:   repo,
+		Title:       "parent work",
+		TitleSource: "generated",
+		TimeCreated: created,
+		TimeUpdated: created,
+	})
+	writeZCodeSession(t, db, zcodeSession{
+		ID:          "sess_subagent_agent_child",
+		ParentID:    "sess_parent",
+		Directory:   repo,
+		Title:       "delegated search",
+		TitleSource: "generated",
+		TimeCreated: created + 1,
+		TimeUpdated: created + 1,
+	})
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2 discoverable sessions", len(got))
+	}
+	byID := make(map[string]session.Session, len(got))
+	for _, item := range got {
+		byID[item.ID] = item
+	}
+	if parent := byID["sess_subagent_agent_child"].Metadata[session.MetadataParentThreadID]; parent != "sess_parent" {
+		t.Fatalf("parent_thread_id = %q, want sess_parent", parent)
+	}
+	if parent := byID["sess_parent"].Metadata[session.MetadataParentThreadID]; parent != "" {
+		t.Fatalf("parent session unexpectedly marked as child: %q", parent)
+	}
+}
+
 func TestDiscoverUsesFirstUserMessageTitleFallback(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -339,6 +382,7 @@ func contains(items []string, want string) bool {
 
 type zcodeSession struct {
 	ID          string
+	ParentID    string
 	Directory   string
 	Title       string
 	TitleSource string
@@ -430,13 +474,20 @@ func writeZCodeSession(t testing.TB, db *sql.DB, s zcodeSession) zcodeSession {
 	if titleSource == "" {
 		titleSource = "default"
 	}
-	_, err := db.Exec(`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated, title_source, time_archived)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, "proj_"+s.ID, s.ID, s.Directory, s.Title, "1", s.TimeCreated, s.TimeUpdated, titleSource, archived)
+	_, err := db.Exec(`INSERT INTO session (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated, title_source, time_archived)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, "proj_"+s.ID, nullableString(s.ParentID), s.ID, s.Directory, s.Title, "1", s.TimeCreated, s.TimeUpdated, titleSource, archived)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func addUserMessage(t testing.TB, db *sql.DB, sess zcodeSession, messageID string, createdAt int64, text string) {

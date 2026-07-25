@@ -2,8 +2,10 @@ package cursor
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/url"
@@ -22,8 +24,10 @@ import (
 const (
 	Name                     = "cursor"
 	maxJSONLRecordBytes      = 8 * 1024 * 1024
-	oversizedJSONLRecordNote = "one or more Cursor JSONL records exceeded the per-record safety limit and were skipped"
+	oversizedJSONLRecordNote = "one or more oversized Cursor records may contain user evidence that bounded head/tail recovery could not identify"
 	previewReadErrorNote     = "the Cursor transcript could not be read completely while collecting report evidence"
+	oversizedRecordEdgeBytes = 64 * 1024
+	oversizedTextEdgeBytes   = 4 * 1024
 )
 
 type Provider struct {
@@ -84,6 +88,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.Metadata == nil {
 			s.Metadata = make(map[string]string)
 		}
+		// Coverage is dynamic report state, not stable session identity. Clear
+		// cached warnings before re-reading previews with the current parser.
+		delete(s.Metadata, session.MetadataReportEvidenceStatus)
+		delete(s.Metadata, session.MetadataReportEvidenceNote)
 		s.Metadata["source_home"] = home
 		s.Metadata["project_key"] = file.ProjectKey
 		if isAutoreviewTempCWD(s.CWD) {
@@ -361,7 +369,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	out := session.Session{Metadata: make(map[string]string)}
 	var firstUserTitle string
 	var lastUserTitle string
-	oversized, err := jsonlrecords.Read(r, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := readCursorRecords(r, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -378,7 +386,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if messageRole(rec, msg) != "user" {
 			return true
 		}
-		title := cleanTitle(messageText(msg.Content))
+		title := cleanTitle(unwrapUserText(messageText(msg.Content)))
 		if title == "" {
 			return true
 		}
@@ -412,7 +420,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	defer func() { _ = f.Close() }()
 
 	var messages []session.MessagePreview
-	oversized, err := jsonlrecords.Read(f, maxJSONLRecordBytes, func(line []byte) bool {
+	oversized, err := readCursorRecords(f, func(line []byte) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -421,16 +429,96 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 		if messageRole(rec, msg) != "user" {
 			return true
 		}
-		if text := cleanTitle(messageText(msg.Content)); text != "" {
+		rawText := messageText(msg.Content)
+		if text := cleanTitle(unwrapUserText(rawText)); text != "" {
 			messages = append(messages, session.MessagePreview{
 				Text:   text,
-				At:     parseTime(rec.Timestamp),
+				At:     cursorMessageTime(rec.Timestamp, rawText),
 				Source: "cursor:user",
 			})
 		}
 		return true
 	})
 	return session.SelectMessagePreviews(messages, opts), oversized, err
+}
+
+func readCursorRecords(r io.Reader, visit func([]byte) bool) (int, error) {
+	evidenceRisk := 0
+	stopped := false
+	_, err := jsonlrecords.ReadWithOversized(
+		r,
+		maxJSONLRecordBytes,
+		oversizedRecordEdgeBytes,
+		func(line []byte) bool {
+			if stopped {
+				return false
+			}
+			stopped = !visit(line)
+			return !stopped
+		},
+		func(record jsonlrecords.OversizedRecord) {
+			if stopped {
+				return
+			}
+			if recovered, timestamped, ok := recoverOversizedCursorUserRecord(record); ok {
+				stopped = !visit(recovered)
+				if !timestamped {
+					evidenceRisk++
+				}
+				return
+			}
+			if oversizedCursorCouldContainUserEvidence(record.Prefix) {
+				evidenceRisk++
+			}
+		},
+	)
+	return evidenceRisk, err
+}
+
+func recoverOversizedCursorUserRecord(
+	record jsonlrecords.OversizedRecord,
+) ([]byte, bool, bool) {
+	compact := jsonlrecords.Compact(record.Prefix)
+	if !bytes.Contains(compact, []byte(`"role":"user"`)) {
+		return nil, false, false
+	}
+	text, ok := jsonlrecords.TruncatedStringField(
+		record,
+		"content",
+		oversizedTextEdgeBytes,
+	)
+	if !ok {
+		text, ok = jsonlrecords.TruncatedStringField(
+			record,
+			"text",
+			oversizedTextEdgeBytes,
+		)
+	}
+	if !ok || strings.TrimSpace(text) == "" {
+		return nil, false, false
+	}
+
+	timestamp, _ := jsonlrecords.CompleteStringField(record.Prefix, "timestamp")
+	line, err := json.Marshal(map[string]any{
+		"role":      "user",
+		"timestamp": timestamp,
+		"content":   text,
+	})
+	if err != nil {
+		return nil, false, false
+	}
+	return line, !cursorMessageTime(timestamp, text).IsZero(), true
+}
+
+func oversizedCursorCouldContainUserEvidence(prefix []byte) bool {
+	compact := jsonlrecords.Compact(prefix)
+	if bytes.Contains(compact, []byte(`"role":"user"`)) {
+		return true
+	}
+	if bytes.Contains(compact, []byte(`"role":"assistant"`)) {
+		return false
+	}
+	return true
 }
 
 func markReportEvidencePartial(metadata map[string]string, note string) {
@@ -485,6 +573,98 @@ func cleanTitle(text string) string {
 		return ""
 	}
 	return strings.Join(strings.Fields(text), " ")
+}
+
+func unwrapUserText(text string) string {
+	const (
+		openTag  = "<user_query>"
+		closeTag = "</user_query>"
+	)
+	start := strings.Index(text, openTag)
+	if start < 0 {
+		return text
+	}
+	start += len(openTag)
+	end := strings.Index(text[start:], closeTag)
+	if end < 0 {
+		return text
+	}
+	return strings.TrimSpace(text[start : start+end])
+}
+
+func cursorMessageTime(topLevel, text string) time.Time {
+	if parsed := parseTime(topLevel); !parsed.IsZero() {
+		return parsed
+	}
+	const (
+		openTag  = "<timestamp>"
+		closeTag = "</timestamp>"
+	)
+	start := strings.Index(text, openTag)
+	if start < 0 {
+		return time.Time{}
+	}
+	start += len(openTag)
+	end := strings.Index(text[start:], closeTag)
+	if end < 0 {
+		return time.Time{}
+	}
+	return parseCursorTimestamp(strings.TrimSpace(text[start : start+end]))
+}
+
+func parseCursorTimestamp(value string) time.Time {
+	open := strings.LastIndex(value, "(")
+	if open < 0 || !strings.HasSuffix(value, ")") {
+		return time.Time{}
+	}
+	localValue := strings.TrimSpace(value[:open])
+	zoneValue := strings.TrimSuffix(value[open+1:], ")")
+	offset, ok := cursorUTCOffset(zoneValue)
+	if !ok {
+		return time.Time{}
+	}
+	// Cursor owns this wrapper format. Parsing the persisted UTC offset is more
+	// reliable than file mtime and lets report windows prove when a prompt
+	// actually occurred.
+	location := time.FixedZone(zoneValue, offset)
+	parsed, err := time.ParseInLocation(
+		"Monday, Jan 2, 2006, 3:04 PM",
+		localValue,
+		location,
+	)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+func cursorUTCOffset(value string) (int, bool) {
+	if value == "UTC" {
+		return 0, true
+	}
+	if !strings.HasPrefix(value, "UTC") || len(value) < 5 {
+		return 0, false
+	}
+	sign := 1
+	offsetValue := value[3:]
+	switch offsetValue[0] {
+	case '+':
+	case '-':
+		sign = -1
+	default:
+		return 0, false
+	}
+	var hours, minutes int
+	if _, err := fmt.Sscanf(offsetValue[1:], "%d:%d", &hours, &minutes); err != nil {
+		minutes = 0
+		if _, hourErr := fmt.Sscanf(offsetValue[1:], "%d", &hours); hourErr != nil {
+			return 0, false
+		}
+	}
+	if hours > 23 || minutes > 59 {
+		return 0, false
+	}
+	return sign * (hours*60 + minutes) * 60, true
 }
 
 func isInjectedContext(text string) bool {

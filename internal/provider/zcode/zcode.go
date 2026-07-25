@@ -82,6 +82,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		var archived sql.NullInt64
 		if err := rows.Scan(&rec.ID, &rec.Directory, &rec.Title, &rec.TitleSource,
 			&rec.TimeCreated, &rec.TimeUpdated, &rec.Path, &rec.Slug,
+			&rec.ParentID,
 			&rec.ProjectID, &archived); err != nil {
 			return nil, fmt.Errorf("zcode scan session: %w", err)
 		}
@@ -130,6 +131,12 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		if rec.ProjectID.Valid && strings.TrimSpace(rec.ProjectID.String) != "" {
 			s.Metadata["zcode_project_id"] = rec.ProjectID.String
+		}
+		if rec.ParentID.Valid && strings.TrimSpace(rec.ParentID.String) != "" {
+			// ZCode persists the parent relation explicitly. Preserve it so the
+			// report layer can avoid counting delegated child prompts as a
+			// second copy of the user's work while the TUI still discovers them.
+			s.Metadata[session.MetadataParentThreadID] = strings.TrimSpace(rec.ParentID.String)
 		}
 		if rec.Slug.Valid && strings.TrimSpace(rec.Slug.String) != "" {
 			s.Metadata["zcode_slug"] = rec.Slug.String
@@ -204,7 +211,7 @@ func openDB(path string) (*sql.DB, error) {
 
 const sessionSelect = `
 SELECT id, directory, title, title_source, time_created, time_updated,
-       path, slug, project_id, time_archived
+       path, slug, parent_id, project_id, time_archived
 FROM session
 WHERE time_archived IS NULL
 `
@@ -234,6 +241,7 @@ type sessionRecord struct {
 	TimeUpdated int64
 	Path        sql.NullString
 	Slug        sql.NullString
+	ParentID    sql.NullString
 	ProjectID   sql.NullString
 }
 
