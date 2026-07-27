@@ -38,6 +38,14 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Govulncheck
+        if: matrix.os == 'ubuntu-latest'
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+          repo-checkout: false
+
       - name: Build
         run: go build ./cmd/asm
 
