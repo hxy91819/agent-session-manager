@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.8.1
+
+Changes since [v0.8.0](https://github.com/hxy91819/agent-session-manager/compare/v0.8.0...v0.8.1).
+
+### Changes
+
+- Verify release binaries use patched Go ([#32](https://github.com/hxy91819/agent-session-manager/pull/32)). Thanks @hxy91819.
+- Harden Go release security checks ([#29](https://github.com/hxy91819/agent-session-manager/pull/29)). Thanks @hxy91819.
+- Fix report evidence completeness across providers ([#25](https://github.com/hxy91819/agent-session-manager/pull/25)). Thanks @hxy91819.
+- Exclude injected Codex context from report evidence ([#22](https://github.com/hxy91819/agent-session-manager/pull/22)). Thanks @momothemage.
+- Document session review guardrails ([#24](https://github.com/hxy91819/agent-session-manager/pull/24)). Thanks @hxy91819.
+- Reconcile reviewed local session improvements ([#23](https://github.com/hxy91819/agent-session-manager/pull/23)). Thanks @hxy91819.
+
+### Contributors
+
+Thanks @hxy91819 and @momothemage for this release.
+
 ## v0.8.0
 
 Changes since [v0.7.1](https://github.com/hxy91819/agent-session-manager/compare/v0.7.1...v0.8.0).
