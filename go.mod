@@ -1,6 +1,6 @@
 module github.com/hxy91819/agent-session-manager
 
-go 1.26.1
+go 1.26.5
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
