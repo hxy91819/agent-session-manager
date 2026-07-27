@@ -102,8 +102,9 @@ type skillsInstallConfig struct {
 }
 
 type output struct {
-	Projects []session.Project `json:"projects"`
-	Sessions []session.Session `json:"sessions"`
+	Projects       []session.Project       `json:"projects"`
+	Sessions       []session.Session       `json:"sessions"`
+	ProviderErrors []session.ProviderError `json:"provider_errors,omitempty"`
 }
 
 func main() {
@@ -130,19 +131,29 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
-	loadSessions := func(days int) ([]session.Session, error) {
-		items, err := discoverAll(providers, cfg.limit, days)
-		if err != nil {
-			return nil, err
-		}
-		return filterSessions(filterVisibleSessions(items, cfg.includeNonInteractive), cfg.query, cfg.sortMode), nil
+	loadSessions := func(days int) (session.DiscoveryResult, error) {
+		result := discoverAll(providers, cfg.limit, days)
+		result.Sessions = filterSessions(
+			filterVisibleSessions(result.Sessions, cfg.includeNonInteractive),
+			cfg.query,
+			cfg.sortMode,
+		)
+		return result, nil
 	}
-	sessions, err := loadSessions(cfg.sinceDays)
+	discovery, err := loadSessions(cfg.sinceDays)
 	if err != nil {
 		return err
 	}
+	sessions := discovery.Sessions
 
 	if cfg.resumeID != "" {
+		if len(discovery.ProviderErrors) > 0 {
+			return fmt.Errorf(
+				"cannot safely resolve unqualified session %q while provider discovery is incomplete; use asm resume --provider <name>: %w",
+				cfg.resumeID,
+				providerDiscoveryError(discovery.ProviderErrors),
+			)
+		}
 		selected, err := findSession(sessions, cfg.resumeID, "")
 		if err != nil {
 			return err
@@ -158,12 +169,13 @@ func run(ctx context.Context, args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(output{
-			Projects: index.GroupProjects(sessions),
-			Sessions: sessions,
+			Projects:       index.GroupProjects(sessions),
+			Sessions:       sessions,
+			ProviderErrors: discovery.ProviderErrors,
 		})
 	}
 
-	model, err := tea.NewProgram(ui.NewWithLoader(sessions, cfg.sinceDays, 30, loadSessions), tea.WithAltScreen()).Run()
+	model, err := tea.NewProgram(ui.NewWithDiscovery(discovery, cfg.sinceDays, 30, loadSessions), tea.WithAltScreen()).Run()
 	if err != nil {
 		return err
 	}
@@ -184,11 +196,26 @@ func runResume(ctx context.Context, args []string) error {
 		return err
 	}
 	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
-	sessions, err := discoverAll(providers, cfg.limit, cfg.sinceDays)
-	if err != nil {
-		return err
+	discoveryProviders := providers
+	if cfg.provider != "" {
+		provider := providerByName(providers, cfg.provider)
+		if provider == nil {
+			return fmt.Errorf("no provider registered for %q", cfg.provider)
+		}
+		discoveryProviders = []session.Provider{provider}
 	}
-	selected, err := findSession(sessions, cfg.sessionID, cfg.provider)
+	discovery := discoverAll(discoveryProviders, cfg.limit, cfg.sinceDays)
+	if len(discovery.ProviderErrors) > 0 {
+		if cfg.provider == "" {
+			return fmt.Errorf(
+				"cannot safely resolve unqualified session %q while provider discovery is incomplete; pass --provider <name>: %w",
+				cfg.sessionID,
+				providerDiscoveryError(discovery.ProviderErrors),
+			)
+		}
+		return providerDiscoveryError(discovery.ProviderErrors)
+	}
+	selected, err := findSession(discovery.Sessions, cfg.sessionID, cfg.provider)
 	if err != nil {
 		return err
 	}
@@ -272,7 +299,7 @@ func runReport(args []string) error {
 	// TODO(report-live-validation): the per-provider file limit can hide a
 	// historical-window session when many newer files exist. Keep this explicit
 	// until discovery can return a reliable truncation diagnostic.
-	items, err := discoverAllWithOptions(providers, session.DiscoverOptions{
+	discovery := discoverAllWithOptions(providers, session.DiscoverOptions{
 		LimitFiles: cfg.limit,
 		Since:      window.Start,
 		Preview: session.PreviewOptions{
@@ -283,11 +310,9 @@ func runReport(args []string) error {
 			Before:              window.End,
 		},
 	})
-	if err != nil {
-		return err
-	}
-	sessions := withResumeCommands(filterReportSessions(items, cfg))
+	sessions := withResumeCommands(filterReportSessions(discovery.Sessions, cfg))
 	payload := reportpkg.BuildPayload(window, sessions)
+	payload.ProviderErrors = discovery.ProviderErrors
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(payload)
@@ -562,7 +587,7 @@ func newProviders(codexHome, codexProfile, claudeHome, kimiHome, opencodeHome, c
 	}
 }
 
-func discoverAll(providers []session.Provider, limit int, sinceDays int) ([]session.Session, error) {
+func discoverAll(providers []session.Provider, limit int, sinceDays int) session.DiscoveryResult {
 	var since time.Time
 	if sinceDays > 0 {
 		since = time.Now().Add(-time.Duration(sinceDays) * 24 * time.Hour)
@@ -570,7 +595,7 @@ func discoverAll(providers []session.Provider, limit int, sinceDays int) ([]sess
 	return discoverAllWithOptions(providers, session.DiscoverOptions{LimitFiles: limit, Since: since})
 }
 
-func discoverAllWithOptions(providers []session.Provider, opts session.DiscoverOptions) ([]session.Session, error) {
+func discoverAllWithOptions(providers []session.Provider, opts session.DiscoverOptions) session.DiscoveryResult {
 	type result struct {
 		items []session.Session
 		err   error
@@ -583,7 +608,7 @@ func discoverAllWithOptions(providers []session.Provider, opts session.DiscoverO
 			defer wg.Done()
 			items, err := provider.Discover(opts)
 			if err != nil {
-				results[i].err = fmt.Errorf("%s discover: %w", provider.Name(), err)
+				results[i].err = err
 				return
 			}
 			results[i].items = items
@@ -591,14 +616,26 @@ func discoverAllWithOptions(providers []session.Provider, opts session.DiscoverO
 	}
 	wg.Wait()
 
-	var out []session.Session
-	for _, result := range results {
+	var out session.DiscoveryResult
+	for i, result := range results {
 		if result.err != nil {
-			return nil, result.err
+			out.ProviderErrors = append(out.ProviderErrors, session.ProviderError{
+				Provider: providers[i].Name(),
+				Error:    result.err.Error(),
+			})
+			continue
 		}
-		out = append(out, result.items...)
+		out.Sessions = append(out.Sessions, result.items...)
 	}
-	return out, nil
+	return out
+}
+
+func providerDiscoveryError(items []session.ProviderError) error {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf("%s discover: %s", item.Provider, item.Error))
+	}
+	return errors.New(strings.Join(parts, "; "))
 }
 
 func filterSessions(sessions []session.Session, query string, sortMode index.SortMode) []session.Session {

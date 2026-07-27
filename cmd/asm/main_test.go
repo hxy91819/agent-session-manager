@@ -35,16 +35,9 @@ func TestDiscoverAllRunsProvidersConcurrentlyAndPreservesOrder(t *testing.T) {
 		blockingProvider{name: "second", entered: entered, release: release},
 	}
 
-	done := make(chan struct {
-		items []session.Session
-		err   error
-	}, 1)
+	done := make(chan session.DiscoveryResult, 1)
 	go func() {
-		items, err := discoverAll(providers, 10, 30)
-		done <- struct {
-			items []session.Session
-			err   error
-		}{items: items, err: err}
+		done <- discoverAll(providers, 10, 30)
 	}()
 
 	seen := map[string]bool{}
@@ -60,32 +53,34 @@ func TestDiscoverAllRunsProvidersConcurrentlyAndPreservesOrder(t *testing.T) {
 
 	select {
 	case got := <-done:
-		if got.err != nil {
-			t.Fatal(got.err)
+		if len(got.Sessions) != 2 {
+			t.Fatalf("len = %d, want 2", len(got.Sessions))
 		}
-		if len(got.items) != 2 {
-			t.Fatalf("len = %d, want 2", len(got.items))
+		if got.Sessions[0].Provider != "first" || got.Sessions[1].Provider != "second" {
+			t.Fatalf("items out of provider order: %#v", got.Sessions)
 		}
-		if got.items[0].Provider != "first" || got.items[1].Provider != "second" {
-			t.Fatalf("items out of provider order: %#v", got.items)
+		if len(got.ProviderErrors) != 0 {
+			t.Fatalf("unexpected provider errors: %#v", got.ProviderErrors)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("discoverAll did not return after providers were released")
 	}
 }
 
-func TestDiscoverAllWrapsProviderErrorWithName(t *testing.T) {
+func TestDiscoverAllKeepsSuccessfulResultsAndProviderErrors(t *testing.T) {
 	providers := []session.Provider{
 		staticProvider{name: "ok"},
 		staticProvider{name: "bad", err: errors.New("boom")},
 	}
 
-	_, err := discoverAll(providers, 10, 30)
-	if err == nil {
-		t.Fatal("expected error")
+	got := discoverAll(providers, 10, 30)
+	if len(got.Sessions) != 1 || got.Sessions[0].Provider != "ok" {
+		t.Fatalf("sessions = %#v", got.Sessions)
 	}
-	if !strings.Contains(err.Error(), "bad discover: boom") {
-		t.Fatalf("unexpected error: %v", err)
+	if len(got.ProviderErrors) != 1 ||
+		got.ProviderErrors[0].Provider != "bad" ||
+		got.ProviderErrors[0].Error != "boom" {
+		t.Fatalf("provider errors = %#v", got.ProviderErrors)
 	}
 }
 

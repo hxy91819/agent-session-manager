@@ -284,14 +284,14 @@ func TestModelLoadMoreExtendsWindow(t *testing.T) {
 		[]session.Session{{ID: "recent", CWD: "/repo", UpdatedAt: now}},
 		30,
 		30,
-		func(days int) ([]session.Session, error) {
+		func(days int) (session.DiscoveryResult, error) {
 			if days != 60 {
 				t.Fatalf("days = %d, want 60", days)
 			}
-			return []session.Session{
+			return session.DiscoveryResult{Sessions: []session.Session{
 				{ID: "recent", CWD: "/repo", UpdatedAt: now},
 				{ID: "older", CWD: "/repo", UpdatedAt: now.Add(-60 * 24 * time.Hour)},
-			}, nil
+			}}, nil
 		},
 	)
 
@@ -321,9 +321,9 @@ func TestModelLoadMoreDisabledForUnboundedWindow(t *testing.T) {
 		[]session.Session{{ID: "all", CWD: "/repo", UpdatedAt: time.Now()}},
 		0,
 		30,
-		func(days int) ([]session.Session, error) {
+		func(days int) (session.DiscoveryResult, error) {
 			t.Fatalf("loader should not run for unbounded window, got days=%d", days)
-			return nil, nil
+			return session.DiscoveryResult{}, nil
 		},
 	)
 
@@ -338,6 +338,45 @@ func TestModelLoadMoreDisabledForUnboundedWindow(t *testing.T) {
 	}
 	if strings.Contains(m.View(), "m +30d") {
 		t.Fatalf("unbounded view should not advertise load more:\n%s", m.View())
+	}
+}
+
+func TestModelShowsAndRefreshesProviderErrors(t *testing.T) {
+	m := NewWithDiscovery(
+		session.DiscoveryResult{
+			Sessions: []session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}},
+			ProviderErrors: []session.ProviderError{{
+				Provider: "zcode",
+				Error:    "file is not a database",
+			}},
+		},
+		30,
+		30,
+		func(int) (session.DiscoveryResult, error) {
+			return session.DiscoveryResult{
+				Sessions: []session.Session{{ID: "one", CWD: "/repo", UpdatedAt: time.Now()}},
+				ProviderErrors: []session.ProviderError{{
+					Provider: "kimi",
+					Error:    "session index is unavailable",
+				}},
+			}, nil
+		},
+	)
+
+	if view := m.View(); !strings.Contains(view, "provider errors: zcode: file is not a database") {
+		t.Fatalf("view missing initial provider error:\n%s", view)
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = next.(Model)
+	next, _ = m.Update(cmd().(loadedSessionsMsg))
+	m = next.(Model)
+	view := m.View()
+	if !strings.Contains(view, "provider errors: kimi: session index is unavailable") {
+		t.Fatalf("view missing refreshed provider error:\n%s", view)
+	}
+	if strings.Contains(view, "provider errors: zcode") {
+		t.Fatalf("view retained stale provider error:\n%s", view)
 	}
 }
 

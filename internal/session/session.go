@@ -37,6 +37,16 @@ type Project struct {
 	Sessions []Session `json:"sessions,omitempty"`
 }
 
+type ProviderError struct {
+	Provider string `json:"provider"`
+	Error    string `json:"error"`
+}
+
+type DiscoveryResult struct {
+	Sessions       []Session
+	ProviderErrors []ProviderError
+}
+
 type ExecSpec struct {
 	Dir               string   `json:"dir"`
 	Args              []string `json:"args"`

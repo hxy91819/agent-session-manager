@@ -365,6 +365,107 @@ func TestCLIIndexesZCodeAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIKeepsHealthyProviderResultsWhenAnotherProviderFails(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionPath := filepath.Join(codexHome, "sessions", "2026", "06", "13", "healthy.jsonl")
+	writeFile(t, sessionPath, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"healthy-codex","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"healthy provider work"}]}}
+`)
+	writeFile(t, filepath.Join(zcodeHome, "cli", "db", "db.sqlite"), "not a sqlite database")
+
+	assertPartialResult := func(t *testing.T, out string) {
+		t.Helper()
+		var payload struct {
+			Sessions []struct {
+				ID       string `json:"id"`
+				Provider string `json:"provider"`
+			} `json:"sessions"`
+			ProviderErrors []struct {
+				Provider string `json:"provider"`
+				Error    string `json:"error"`
+			} `json:"provider_errors"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, out)
+		}
+		if len(payload.Sessions) != 1 ||
+			payload.Sessions[0].ID != "healthy-codex" ||
+			payload.Sessions[0].Provider != "codex" {
+			t.Fatalf("healthy session was hidden: %#v", payload.Sessions)
+		}
+		if len(payload.ProviderErrors) != 1 ||
+			payload.ProviderErrors[0].Provider != "zcode" ||
+			!strings.Contains(payload.ProviderErrors[0].Error, "not a database") {
+			t.Fatalf("provider errors = %#v", payload.ProviderErrors)
+		}
+	}
+
+	out, err := runCommandAllowError(t,
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--zcode-home", zcodeHome,
+		"--since-days", "0",
+		"--json")
+	if err != nil {
+		t.Fatalf("partial JSON discovery failed: %v\n%s", err, out)
+	}
+	assertPartialResult(t, out)
+
+	out, err = runCommandAllowError(t,
+		"report",
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--zcode-home", zcodeHome,
+		"--start", "2026-06-13",
+		"--end", "2026-06-14")
+	if err != nil {
+		t.Fatalf("partial report discovery failed: %v\n%s", err, out)
+	}
+	assertPartialResult(t, out)
+
+	out, err = runCommandAllowError(t,
+		"resume",
+		"--codex-home", codexHome,
+		"--zcode-home", zcodeHome,
+		"--provider", "codex",
+		"--since-days", "0",
+		"--print-exec",
+		"healthy-codex")
+	if err != nil {
+		t.Fatalf("targeted healthy resume failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "'codex' 'resume' 'healthy-codex'") {
+		t.Fatalf("unexpected targeted resume command: %s", out)
+	}
+
+	out, err = runCommandAllowError(t,
+		"resume",
+		"--codex-home", codexHome,
+		"--zcode-home", zcodeHome,
+		"--since-days", "0",
+		"--print-exec",
+		"healthy-codex")
+	if err == nil ||
+		!strings.Contains(out, "cannot safely resolve unqualified session") ||
+		!strings.Contains(out, "pass --provider") {
+		t.Fatalf("unqualified resume ignored incomplete discovery: err=%v output=%q", err, out)
+	}
+
+	out, err = runCommandAllowError(t,
+		"resume",
+		"--zcode-home", zcodeHome,
+		"--provider", "zcode",
+		"--since-days", "0",
+		"--print-exec",
+		"unavailable-zcode")
+	if err == nil || !strings.Contains(out, "zcode discover:") || !strings.Contains(out, "not a database") {
+		t.Fatalf("targeted failing resume did not surface provider error: err=%v output=%q", err, out)
+	}
+}
+
 func TestCLIIndexesCursorAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
