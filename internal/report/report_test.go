@@ -168,6 +168,44 @@ func TestBuildPayloadIncludesCrossWindowSessionWithInWindowEvidence(t *testing.T
 	}
 }
 
+func TestBuildPayloadWithLimitCountsOnlyInWindowEvidence(t *testing.T) {
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+	payload := BuildPayloadWithLimit(Window{
+		Period: PeriodCustom,
+		Start:  start,
+		End:    end,
+	}, []session.Session{
+		{
+			ID:        "after-window",
+			Provider:  "codex",
+			UpdatedAt: end.Add(time.Hour),
+			Previews:  []session.MessagePreview{{Text: "later", At: end.Add(time.Hour)}},
+		},
+		{
+			ID:        "window-new",
+			Provider:  "codex",
+			UpdatedAt: start.Add(10 * time.Hour),
+			Previews:  []session.MessagePreview{{Text: "newer", At: start.Add(10 * time.Hour)}},
+		},
+		{
+			ID:        "window-old",
+			Provider:  "codex",
+			UpdatedAt: start.Add(9 * time.Hour),
+			Previews:  []session.MessagePreview{{Text: "older", At: start.Add(9 * time.Hour)}},
+		},
+	}, 1)
+
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "window-new" {
+		t.Fatalf("sessions = %#v totals=%#v", payload.Sessions, payload.Totals)
+	}
+	coverage := payload.Coverage["codex"]
+	if coverage.Status != session.ReportEvidencePartial || !coverage.Truncated ||
+		coverage.MatchedSessions != 2 || coverage.IncludedSessions != 1 {
+		t.Fatalf("coverage = %#v", coverage)
+	}
+}
+
 func TestBuildPayloadDoesNotCountRecordUpdateWithoutWindowEvidence(t *testing.T) {
 	loc := time.FixedZone("Local", 8*60*60)
 	start := time.Date(2026, 6, 17, 0, 0, 0, 0, loc)

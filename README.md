@@ -284,6 +284,12 @@ go run ./cmd/asm report --period yesterday --preview-messages-per-edge 2 --previ
 
 `asm report` prints JSON for agent consumption. It uses local-time natural
 windows and includes bounded user-message previews only for the report path.
+Report discovery scans every session file modified since the start of the
+requested window before applying `--limit`, so newer activity after a historical
+window cannot displace matching sessions. For reports, `--limit` caps matching
+sessions per provider after in-window evidence selection; `0` includes all.
+When this result limit omits matching sessions, the provider's `coverage` entry
+sets `truncated: true` and reports `matched_sessions` and `included_sessions`.
 Detected non-interactive generator sessions are excluded by default so report
 automation does not count its own work; use `--include-non-interactive` when
 those sessions are intentionally part of the report.

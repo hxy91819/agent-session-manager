@@ -664,6 +664,62 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	}
 }
 
+func TestCLIReportAppliesLimitAfterWindowEvidenceSelection(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(codexHome, "sessions", "2026", "07", "10")
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 0, 1)
+
+	writeReportSession := func(id, text string, at time.Time) {
+		t.Helper()
+		path := filepath.Join(sessionDir, id+".jsonl")
+		writeFile(t, path,
+			`{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}`+"\n"+
+				`{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(text)+`}]}}`+"\n")
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeReportSession("window-old", "older in-window work", start.Add(9*time.Hour))
+	writeReportSession("window-new", "newer in-window work", start.Add(10*time.Hour))
+	writeReportSession("after-window", "work after the requested window", end.Add(time.Hour))
+
+	out := runCommand(t, "report",
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--start", start.Format("2006-01-02"),
+		"--end", end.Format("2006-01-02"),
+		"--limit", "1")
+	var payload struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+		Coverage map[string]struct {
+			Status           string `json:"status"`
+			Truncated        bool   `json:"truncated"`
+			MatchedSessions  int    `json:"matched_sessions"`
+			IncludedSessions int    `json:"included_sessions"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "window-new" {
+		t.Fatalf("post-window activity consumed the report limit: %#v", payload)
+	}
+	coverage := payload.Coverage["codex"]
+	if coverage.Status != "partial" || !coverage.Truncated ||
+		coverage.MatchedSessions != 2 || coverage.IncludedSessions != 1 {
+		t.Fatalf("codex limit coverage = %#v", coverage)
+	}
+}
+
 func TestCLIReportExcludesInjectedCodexContexts(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()

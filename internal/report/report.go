@@ -31,8 +31,11 @@ type Totals struct {
 }
 
 type ProviderCoverage struct {
-	Status string `json:"status"`
-	Note   string `json:"note"`
+	Status           string `json:"status"`
+	Note             string `json:"note"`
+	Truncated        bool   `json:"truncated,omitempty"`
+	MatchedSessions  int    `json:"matched_sessions,omitempty"`
+	IncludedSessions int    `json:"included_sessions,omitempty"`
 }
 
 type UnverifiedSession struct {
@@ -133,15 +136,22 @@ func ParseBoundary(value string, loc *time.Location) (time.Time, error) {
 }
 
 func BuildPayload(window Window, sessions []session.Session) Payload {
+	return BuildPayloadWithLimit(window, sessions, 0)
+}
+
+func BuildPayloadWithLimit(window Window, sessions []session.Session, limit int) Payload {
 	windowSessions, unverified := partitionWindow(sessions, window.Start, window.End)
+	windowSessions, limits := limitProviderSessions(windowSessions, limit)
 	windowSessions = withEvidence(windowSessions)
 	projects := index.GroupProjects(windowSessions)
+	coverage := providerCoverage(sessions)
+	addLimitCoverage(coverage, limits)
 	return Payload{
 		Period:       window.Period,
 		Start:        window.Start,
 		End:          window.End,
 		Timezone:     window.Timezone,
-		EvidenceRule: "Only sessions[].evidence proves work inside the report window. Session titles are omitted. unverified_sessions means a session file changed without an in-window timestamped user message; only entries with may_hide_user_work=true indicate a known source limitation.",
+		EvidenceRule: "Only sessions[].evidence proves work inside the report window. Session titles are omitted. unverified_sessions means a session file changed without an in-window timestamped user message; only entries with may_hide_user_work=true indicate a known source limitation. A coverage entry with truncated=true means --limit omitted additional matching sessions.",
 		Totals: Totals{
 			Sessions:           len(windowSessions),
 			Projects:           len(projects),
@@ -150,8 +160,60 @@ func BuildPayload(window Window, sessions []session.Session) Payload {
 		},
 		Projects:           projects,
 		Sessions:           windowSessions,
-		Coverage:           providerCoverage(sessions),
+		Coverage:           coverage,
 		UnverifiedSessions: unverified,
+	}
+}
+
+type providerLimit struct {
+	Matched  int
+	Included int
+}
+
+func limitProviderSessions(sessions []session.Session, limit int) ([]session.Session, map[string]providerLimit) {
+	if limit <= 0 {
+		return sessions, nil
+	}
+
+	counts := make(map[string]providerLimit)
+	for _, item := range sessions {
+		count := counts[item.Provider]
+		count.Matched++
+		counts[item.Provider] = count
+	}
+
+	out := make([]session.Session, 0, len(sessions))
+	for _, item := range sessions {
+		count := counts[item.Provider]
+		if count.Included >= limit {
+			continue
+		}
+		count.Included++
+		counts[item.Provider] = count
+		out = append(out, item)
+	}
+	return out, counts
+}
+
+func addLimitCoverage(coverage map[string]ProviderCoverage, limits map[string]providerLimit) {
+	for provider, limit := range limits {
+		if limit.Matched <= limit.Included {
+			continue
+		}
+		current := coverage[provider]
+		if coverageRank(current.Status) < coverageRank(session.ReportEvidencePartial) {
+			current.Status = session.ReportEvidencePartial
+		}
+		limitNote := fmt.Sprintf("--limit included %d of %d sessions with in-window evidence", limit.Included, limit.Matched)
+		if current.Note == "" {
+			current.Note = limitNote
+		} else {
+			current.Note += "; " + limitNote
+		}
+		current.Truncated = true
+		current.MatchedSessions = limit.Matched
+		current.IncludedSessions = limit.Included
+		coverage[provider] = current
 	}
 }
 
