@@ -103,7 +103,10 @@ class DailyReportScriptTests(unittest.TestCase):
                 "created_at": evidence_at,
                 "updated_at": evidence_at,
                 "path": "/private/provider/path",
-                "evidence": [{"text": "推进项目交付并完成跨团队确认", "at": evidence_at}],
+                "evidence": [{
+                    "text": "清理 IPv6 合并限速与锐驰 COS 免费套餐包两项已结束的灰度控制",
+                    "at": evidence_at,
+                }],
                 "evidence_count": 1,
             }
             print(json.dumps({
@@ -214,6 +217,35 @@ class DailyReportScriptTests(unittest.TestCase):
             print("## 工作概览\\n1. [中投入] 自定义生成：完成替换验证；下一步：接入正式模型\\n\\n"
                   "## 后续跟进\\n- 暂无\\n\\n"
                   "## 风险与阻塞\\n- 暂无明确阻塞")
+            """,
+        )
+        self._write_executable(
+            "fake-granularity-generator",
+            """\
+            #!/usr/bin/env python3
+            import argparse
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--prompt", required=True)
+            args = parser.parse_args()
+            prompt = Path(args.prompt).read_text(encoding="utf-8")
+            preserves_scope = "抽象实现细节，不得抽象业务范围" in prompt
+            has_business_objects = (
+                "IPv6 合并限速" in prompt and "锐驰 COS 免费套餐包" in prompt
+            )
+            if preserves_scope and has_business_objects:
+                progress = (
+                    "完成 IPv6 合并限速与锐驰 COS 免费套餐包两项灰度控制清理"
+                )
+            else:
+                progress = "完成核心服务冗余代码清理"
+            print(
+                "## 工作概览\\n"
+                f"1. [高投入] Lighthouse：{progress}；下一步：完成回归验证\\n\\n"
+                "## 后续跟进\\n- 完成回归验证\\n\\n"
+                "## 风险与阻塞\\n- 暂无明确阻塞"
+            )
             """,
         )
         self._write_executable(
@@ -340,6 +372,17 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertIn("[中投入] 自定义生成", delivered)
         custom_prompt = (self.root / "custom-prompt-today.txt").read_text(encoding="utf-8")
         self.assertIn("UNTRUSTED REPORT EVIDENCE", custom_prompt)
+
+    def test_report_preserves_evidence_backed_business_scope(self) -> None:
+        result, _ = self.run_report(
+            "today",
+            generator_script=self.bin_dir / "fake-granularity-generator",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("IPv6 合并限速", result.stdout)
+        self.assertIn("锐驰 COS 免费套餐包", result.stdout)
+        self.assertNotIn("核心服务冗余代码清理", result.stdout)
 
     def test_bundled_adapters_expose_help(self) -> None:
         for adapter in (CODEBUDDY_GENERATOR, TELEGRAM_DELIVERY):

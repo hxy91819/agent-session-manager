@@ -61,7 +61,12 @@ Write the daily report for a cross-functional morning standup attended by produc
    - Judge daily reports relative to that day and weekly reports relative to the whole reporting week. Multiple matters may share a level; do not force all three levels to appear.
    - Show only the level. Do not add effort percentages or percentage ranges.
 4. State progress, impact, current status, and next step in plain language. Assume readers do not know repository internals.
-5. Abstract implementation details unless a detail is essential to a decision or blocker:
+5. Preserve concrete business scope while abstracting implementation details:
+   - 核心原则：抽象实现细节，不得抽象业务范围。
+   - Keep evidence-backed product names, business capabilities, affected workflows, and cleanup targets when they distinguish what was actually worked on. Do not replace them with vague labels such as “核心服务”“相关功能”“业务逻辑” or “冗余代码”.
+   - When one project contains multiple distinct business targets, keep one overview item for the project but name the targets compactly in its progress clause.
+   - For example, write “清理 IPv6 合并限速与 COS 免费套餐包两项灰度控制” instead of “清理核心服务冗余代码”.
+   - Continue to abstract repository internals and low-level implementation details unless a detail is essential to a decision or blocker:
    - Do not normally include API paths, command flags, environment variables, commit hashes, PR numbers, test names, internal metric values, class names, or low-level architecture terms.
    - Replace a diagnosis such as “`/api/status` 因指标过多变慢” with “推进管理面板加载缓慢问题的定位与优化”.
    - Do not explain low-level causes in `工作概览`. Replace terms such as “单写入口、分片、重试放大、状态发布批处理” with outcome language such as “发布稳定性治理、性能优化、分阶段功能交付”.
@@ -76,6 +81,7 @@ Write the daily report for a cross-functional morning standup attended by produc
    - different project paths have not been accidentally merged;
    - meeting work is represented when present;
    - a non-engineer can understand every overview item without explanation;
+   - evidence-backed business objects have not been generalized into vague project-level labels;
    - no low-level detail can be replaced by a clearer outcome-oriented phrase;
    - the report does not contain internal delivery labels, code identifiers, or engineering log language;
    - completed work, plans, and meeting discussions remain distinguishable.
