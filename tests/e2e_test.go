@@ -664,6 +664,199 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	}
 }
 
+func TestCLIReportAppliesLimitAfterWindowEvidenceSelection(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(codexHome, "sessions", "2026", "07", "10")
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 0, 1)
+
+	writeReportSession := func(id, text string, at time.Time) {
+		t.Helper()
+		path := filepath.Join(sessionDir, id+".jsonl")
+		writeFile(t, path,
+			`{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}`+"\n"+
+				`{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(text)+`}]}}`+"\n")
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeReportSession("window-old", "older in-window work", start.Add(9*time.Hour))
+	writeReportSession("window-new", "newer in-window work", start.Add(10*time.Hour))
+	writeReportSession("after-window", "work after the requested window", end.Add(time.Hour))
+
+	out := runCommand(t, "report",
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--start", start.Format("2006-01-02"),
+		"--end", end.Format("2006-01-02"),
+		"--limit", "1")
+	var payload struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+		Coverage map[string]struct {
+			Status           string `json:"status"`
+			Truncated        bool   `json:"truncated"`
+			MatchedSessions  int    `json:"matched_sessions"`
+			IncludedSessions int    `json:"included_sessions"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "window-new" {
+		t.Fatalf("post-window activity consumed the report limit: %#v", payload)
+	}
+	coverage := payload.Coverage["codex"]
+	if coverage.Status != "partial" || !coverage.Truncated ||
+		coverage.MatchedSessions != 2 || coverage.IncludedSessions != 1 {
+		t.Fatalf("codex limit coverage = %#v", coverage)
+	}
+}
+
+func TestCLIReportAppliesLimitAfterWindowEvidenceSelectionForZCode(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 0, 1)
+
+	writeZCodeSessions(t, zcodeHome, []zcodeSessionFixture{
+		{
+			ID:        "window-old",
+			CWD:       repo,
+			Title:     "older in-window work",
+			CreatedAt: start.Add(9 * time.Hour).UnixMilli(),
+			UpdatedAt: start.Add(9 * time.Hour).UnixMilli(),
+		},
+		{
+			ID:        "window-new",
+			CWD:       repo,
+			Title:     "newer in-window work",
+			CreatedAt: start.Add(10 * time.Hour).UnixMilli(),
+			UpdatedAt: start.Add(10 * time.Hour).UnixMilli(),
+		},
+		{
+			ID:        "after-window",
+			CWD:       repo,
+			Title:     "work after the requested window",
+			CreatedAt: end.Add(time.Hour).UnixMilli(),
+			UpdatedAt: end.Add(time.Hour).UnixMilli(),
+		},
+	})
+
+	out := runCommand(t, "report",
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--zcode-home", zcodeHome,
+		"--start", start.Format("2006-01-02"),
+		"--end", end.Format("2006-01-02"),
+		"--limit", "1")
+	var payload struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+		} `json:"sessions"`
+		Coverage map[string]struct {
+			Status           string `json:"status"`
+			Truncated        bool   `json:"truncated"`
+			MatchedSessions  int    `json:"matched_sessions"`
+			IncludedSessions int    `json:"included_sessions"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if payload.Totals.Sessions != 1 || len(payload.Sessions) != 1 ||
+		payload.Sessions[0].ID != "window-new" || payload.Sessions[0].Provider != "zcode" {
+		t.Fatalf("post-window ZCode activity consumed the report limit: %#v", payload)
+	}
+	coverage := payload.Coverage["zcode"]
+	if coverage.Status != "partial" || !coverage.Truncated ||
+		coverage.MatchedSessions != 2 || coverage.IncludedSessions != 1 {
+		t.Fatalf("zcode limit coverage = %#v", coverage)
+	}
+}
+
+func TestCLIReportPreservesProviderErrorsWhenApplyingLimit(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(codexHome, "sessions", "2026", "07", "10")
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 0, 1)
+
+	writeReportSession := func(id, text string, at time.Time) {
+		t.Helper()
+		path := filepath.Join(sessionDir, id+".jsonl")
+		writeFile(t, path,
+			`{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}`+"\n"+
+				`{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(text)+`}]}}`+"\n")
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeReportSession("window-old", "older healthy work", start.Add(9*time.Hour))
+	writeReportSession("window-new", "newer healthy work", start.Add(10*time.Hour))
+	writeFile(t, filepath.Join(zcodeHome, "cli", "db", "db.sqlite"), "not a sqlite database")
+
+	out, err := runCommandAllowError(t, "report",
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--zcode-home", zcodeHome,
+		"--start", start.Format("2006-01-02"),
+		"--end", end.Format("2006-01-02"),
+		"--limit", "1")
+	if err != nil {
+		t.Fatalf("partial report discovery failed: %v\n%s", err, out)
+	}
+	var payload struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+		} `json:"sessions"`
+		ProviderErrors []struct {
+			Provider string `json:"provider"`
+			Error    string `json:"error"`
+		} `json:"provider_errors"`
+		Coverage map[string]struct {
+			Status           string `json:"status"`
+			Truncated        bool   `json:"truncated"`
+			MatchedSessions  int    `json:"matched_sessions"`
+			IncludedSessions int    `json:"included_sessions"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 ||
+		payload.Sessions[0].ID != "window-new" ||
+		payload.Sessions[0].Provider != "codex" {
+		t.Fatalf("healthy sessions were not limited after evidence selection: %#v", payload.Sessions)
+	}
+	coverage := payload.Coverage["codex"]
+	if coverage.Status != "partial" || !coverage.Truncated ||
+		coverage.MatchedSessions != 2 || coverage.IncludedSessions != 1 {
+		t.Fatalf("codex limit coverage = %#v", coverage)
+	}
+	if len(payload.ProviderErrors) != 1 ||
+		payload.ProviderErrors[0].Provider != "zcode" ||
+		!strings.Contains(payload.ProviderErrors[0].Error, "not a database") {
+		t.Fatalf("provider errors = %#v", payload.ProviderErrors)
+	}
+}
+
 func TestCLIReportExcludesInjectedCodexContexts(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
@@ -1583,7 +1776,26 @@ func writeOpenClawSession(t *testing.T, stateDir, id, nativeID, title string) {
 	}`)
 }
 
+type zcodeSessionFixture struct {
+	ID        string
+	CWD       string
+	Title     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 func writeZCodeSession(t *testing.T, home, id, cwd, title string) {
+	t.Helper()
+	writeZCodeSessions(t, home, []zcodeSessionFixture{{
+		ID:        id,
+		CWD:       cwd,
+		Title:     title,
+		CreatedAt: 1781322000000,
+		UpdatedAt: 1781322060000,
+	}})
+}
+
+func writeZCodeSessions(t *testing.T, home string, sessions []zcodeSessionFixture) {
 	t.Helper()
 	dbDir := filepath.Join(home, "cli", "db")
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
@@ -1632,23 +1844,23 @@ CREATE TABLE part (
 		t.Fatal(err)
 	}
 
-	created := int64(1781322000000)
-	updated := int64(1781322060000)
-	if _, err := db.Exec(`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated, title_source)
+	for _, item := range sessions {
+		if _, err := db.Exec(`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated, title_source)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, "proj_"+id, id, cwd, title, "1", created, updated, "generated"); err != nil {
-		t.Fatal(err)
-	}
+			item.ID, "proj_"+item.ID, item.ID, item.CWD, item.Title, "1", item.CreatedAt, item.UpdatedAt, "generated"); err != nil {
+			t.Fatal(err)
+		}
 
-	msgData, _ := json.Marshal(map[string]any{"role": "user", "time": map[string]any{"created": created}})
-	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
-		"msg_"+id, id, created, created, string(msgData)); err != nil {
-		t.Fatal(err)
-	}
-	partData, _ := json.Marshal(map[string]any{"type": "text", "text": title})
-	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
-		"part_"+id, "msg_"+id, id, created, created, string(partData)); err != nil {
-		t.Fatal(err)
+		msgData, _ := json.Marshal(map[string]any{"role": "user", "time": map[string]any{"created": item.CreatedAt}})
+		if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+			"msg_"+item.ID, item.ID, item.CreatedAt, item.CreatedAt, string(msgData)); err != nil {
+			t.Fatal(err)
+		}
+		partData, _ := json.Marshal(map[string]any{"type": "text", "text": item.Title})
+		if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+			"part_"+item.ID, "msg_"+item.ID, item.ID, item.CreatedAt, item.CreatedAt, string(partData)); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

@@ -296,11 +296,12 @@ func runReport(args []string) error {
 		return err
 	}
 	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
-	// TODO(report-live-validation): the per-provider file limit can hide a
-	// historical-window session when many newer files exist. Keep this explicit
-	// until discovery can return a reliable truncation diagnostic.
 	discovery := discoverAllWithOptions(providers, session.DiscoverOptions{
-		LimitFiles: cfg.limit,
+		// A report cannot safely apply its limit while collecting candidate
+		// files: sessions updated after the report window may otherwise consume
+		// the limit, and long-lived sessions cannot be excluded by file mtime.
+		// Apply the report limit only after in-window evidence is selected.
+		LimitFiles: 0,
 		Since:      window.Start,
 		Preview: session.PreviewOptions{
 			UserMessagesPerEdge: cfg.previewEdges,
@@ -311,7 +312,7 @@ func runReport(args []string) error {
 		},
 	})
 	sessions := withResumeCommands(filterReportSessions(discovery.Sessions, cfg))
-	payload := reportpkg.BuildPayload(window, sessions)
+	payload := reportpkg.BuildPayloadWithLimit(window, sessions, cfg.limit)
 	payload.ProviderErrors = discovery.ProviderErrors
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -527,7 +528,7 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
-	fs.IntVar(&cfg.limit, "limit", 2000, "maximum session files to scan per provider")
+	fs.IntVar(&cfg.limit, "limit", 2000, "maximum matching report sessions per provider after evidence selection; 0 includes all")
 	fs.StringVar(&cfg.period, "period", reportpkg.PeriodYesterday, "report period: today, yesterday, last-week, last-7-days")
 	fs.StringVar(&cfg.start, "start", "", "custom report start time: YYYY-MM-DD, local YYYY-MM-DD HH:MM[:SS], or RFC3339")
 	fs.StringVar(&cfg.end, "end", "", "custom report end time, exclusive: YYYY-MM-DD, local YYYY-MM-DD HH:MM[:SS], or RFC3339")
