@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8.2
+
+Changes since [v0.8.1](https://github.com/hxy91819/agent-session-manager/compare/v0.8.1...v0.8.2).
+
+### Changes
+
+- Bump modernc.org/sqlite from 1.52.0 to 1.54.0 in the go-modules group ([#31](https://github.com/hxy91819/agent-session-manager/pull/31)).
+- Bump actions/setup-go from 6 to 7 in the github-actions group ([#30](https://github.com/hxy91819/agent-session-manager/pull/30)).
+- Fix historical report completeness under --limit ([#28](https://github.com/hxy91819/agent-session-manager/pull/28)). Thanks @momothemage.
+- Keep healthy sessions when provider discovery fails ([#26](https://github.com/hxy91819/agent-session-manager/pull/26)). Thanks @momothemage.
+- Preserve business scope in work reports (`2e69621`). Thanks masonxhuang.
+
+### Contributors
+
+Thanks @momothemage and masonxhuang for this release.
+
 ## v0.8.1
 
 Changes since [v0.8.0](https://github.com/hxy91819/agent-session-manager/compare/v0.8.0...v0.8.1).
