@@ -788,6 +788,75 @@ func TestCLIReportAppliesLimitAfterWindowEvidenceSelectionForZCode(t *testing.T)
 	}
 }
 
+func TestCLIReportPreservesProviderErrorsWhenApplyingLimit(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(codexHome, "sessions", "2026", "07", "10")
+	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 0, 1)
+
+	writeReportSession := func(id, text string, at time.Time) {
+		t.Helper()
+		path := filepath.Join(sessionDir, id+".jsonl")
+		writeFile(t, path,
+			`{"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":`+jsonString(at.Format(time.RFC3339Nano))+`,"cwd":`+jsonString(repo)+`}}`+"\n"+
+				`{"timestamp":`+jsonString(at.Add(time.Second).Format(time.RFC3339Nano))+`,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(text)+`}]}}`+"\n")
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeReportSession("window-old", "older healthy work", start.Add(9*time.Hour))
+	writeReportSession("window-new", "newer healthy work", start.Add(10*time.Hour))
+	writeFile(t, filepath.Join(zcodeHome, "cli", "db", "db.sqlite"), "not a sqlite database")
+
+	out, err := runCommandAllowError(t, "report",
+		"--codex-home", codexHome,
+		"--claude-home", claudeHome,
+		"--zcode-home", zcodeHome,
+		"--start", start.Format("2006-01-02"),
+		"--end", end.Format("2006-01-02"),
+		"--limit", "1")
+	if err != nil {
+		t.Fatalf("partial report discovery failed: %v\n%s", err, out)
+	}
+	var payload struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+		} `json:"sessions"`
+		ProviderErrors []struct {
+			Provider string `json:"provider"`
+			Error    string `json:"error"`
+		} `json:"provider_errors"`
+		Coverage map[string]struct {
+			Status           string `json:"status"`
+			Truncated        bool   `json:"truncated"`
+			MatchedSessions  int    `json:"matched_sessions"`
+			IncludedSessions int    `json:"included_sessions"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 ||
+		payload.Sessions[0].ID != "window-new" ||
+		payload.Sessions[0].Provider != "codex" {
+		t.Fatalf("healthy sessions were not limited after evidence selection: %#v", payload.Sessions)
+	}
+	coverage := payload.Coverage["codex"]
+	if coverage.Status != "partial" || !coverage.Truncated ||
+		coverage.MatchedSessions != 2 || coverage.IncludedSessions != 1 {
+		t.Fatalf("codex limit coverage = %#v", coverage)
+	}
+	if len(payload.ProviderErrors) != 1 ||
+		payload.ProviderErrors[0].Provider != "zcode" ||
+		!strings.Contains(payload.ProviderErrors[0].Error, "not a database") {
+		t.Fatalf("provider errors = %#v", payload.ProviderErrors)
+	}
+}
+
 func TestCLIReportExcludesInjectedCodexContexts(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
