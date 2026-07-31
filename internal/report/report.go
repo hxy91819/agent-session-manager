@@ -54,6 +54,7 @@ type Payload struct {
 	Totals             Totals                      `json:"totals"`
 	Projects           []session.Project           `json:"projects"`
 	Sessions           []session.Session           `json:"sessions"`
+	ProviderErrors     []session.ProviderError     `json:"provider_errors,omitempty"`
 	Coverage           map[string]ProviderCoverage `json:"coverage,omitempty"`
 	UnverifiedSessions []UnverifiedSession         `json:"unverified_sessions,omitempty"`
 }

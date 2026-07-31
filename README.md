@@ -156,6 +156,13 @@ Automated and one-shot sessions are hidden when their provider exposes a
 reliable non-interactive marker. Pass `--include-non-interactive` to include
 them in JSON output or the TUI.
 
+Discovery is isolated per provider. If one local provider store cannot be read,
+JSON and report output keep sessions from healthy providers and add a
+`provider_errors` array with the affected provider and error. The TUI shows the
+same diagnostic in its status line. `asm resume --provider <name>` scans only
+the selected provider; unqualified resume refuses to guess while any provider
+could not be scanned.
+
 macOS Gatekeeper:
 
 Release binaries are not Apple Developer ID signed or notarized yet. If macOS

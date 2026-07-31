@@ -15,23 +15,24 @@ import (
 )
 
 type Model struct {
-	allSessions []session.Session
-	sessions    []session.Session
-	projects    []session.Project
-	projectIdx  int
-	sessionIdx  int
-	sortMode    index.SortMode
-	search      textinput.Model
-	width       int
-	height      int
-	windowDays  int
-	stepDays    int
-	loading     bool
-	loadErr     string
-	message     string
-	loadMore    LoadMoreFunc
-	selected    *Selection
-	quitting    bool
+	allSessions    []session.Session
+	sessions       []session.Session
+	projects       []session.Project
+	projectIdx     int
+	sessionIdx     int
+	sortMode       index.SortMode
+	search         textinput.Model
+	width          int
+	height         int
+	windowDays     int
+	stepDays       int
+	loading        bool
+	loadErr        string
+	providerErrors []session.ProviderError
+	message        string
+	loadMore       LoadMoreFunc
+	selected       *Selection
+	quitting       bool
 }
 
 type SelectionKind string
@@ -48,12 +49,12 @@ type Selection struct {
 	CWD      string
 }
 
-type LoadMoreFunc func(days int) ([]session.Session, error)
+type LoadMoreFunc func(days int) (session.DiscoveryResult, error)
 
 type loadedSessionsMsg struct {
-	days     int
-	sessions []session.Session
-	err      error
+	days   int
+	result session.DiscoveryResult
+	err    error
 }
 
 const defaultWindowDays = 30
@@ -69,21 +70,26 @@ func New(sessions []session.Session) Model {
 }
 
 func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMore LoadMoreFunc) Model {
+	return NewWithDiscovery(session.DiscoveryResult{Sessions: sessions}, windowDays, stepDays, loadMore)
+}
+
+func NewWithDiscovery(result session.DiscoveryResult, windowDays, stepDays int, loadMore LoadMoreFunc) Model {
 	search := textinput.New()
 	search.Placeholder = "Search sessions"
 	search.Prompt = "/ "
 	search.CharLimit = 160
 
 	m := Model{
-		allSessions: sessions,
-		sessionIdx:  1,
-		sortMode:    index.SortActive,
-		search:      search,
-		width:       120,
-		height:      32,
-		windowDays:  windowDays,
-		stepDays:    stepDays,
-		loadMore:    loadMore,
+		allSessions:    result.Sessions,
+		providerErrors: result.ProviderErrors,
+		sessionIdx:     1,
+		sortMode:       index.SortActive,
+		search:         search,
+		width:          120,
+		height:         32,
+		windowDays:     windowDays,
+		stepDays:       stepDays,
+		loadMore:       loadMore,
 	}
 	if m.stepDays <= 0 {
 		m.stepDays = defaultStepDays
@@ -114,7 +120,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadErr = ""
 		m.windowDays = msg.days
-		m.allSessions = msg.sessions
+		m.allSessions = msg.result.Sessions
+		m.providerErrors = msg.result.ProviderErrors
 		m.refresh()
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -301,6 +308,9 @@ func (m Model) View() string {
 	if m.loadErr != "" {
 		metaParts = append(metaParts, "load error: "+m.loadErr)
 	}
+	if len(m.providerErrors) > 0 {
+		metaParts = append(metaParts, providerErrorSummary(m.providerErrors))
+	}
 	if m.message != "" {
 		metaParts = append(metaParts, m.message)
 	}
@@ -335,9 +345,17 @@ func (m Model) View() string {
 
 func loadMoreCmd(loader LoadMoreFunc, days int) tea.Cmd {
 	return func() tea.Msg {
-		sessions, err := loader(days)
-		return loadedSessionsMsg{days: days, sessions: sessions, err: err}
+		result, err := loader(days)
+		return loadedSessionsMsg{days: days, result: result, err: err}
 	}
+}
+
+func providerErrorSummary(items []session.ProviderError) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, item.Provider+": "+item.Error)
+	}
+	return "provider errors: " + strings.Join(parts, "; ")
 }
 
 func renderPanel(outerWidth, contentHeight int, content string) string {
