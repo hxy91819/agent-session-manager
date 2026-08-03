@@ -17,8 +17,8 @@ umask 077
 #   --skip-meetings disables Tencent Meeting enrichment.
 #   --report-validator defaults to the bundled work-report format validator.
 #   --generator-script overrides the selected bundled provider.
-#   --delivery-provider selects a bundled delivery provider; local-file is the
-#   default and Telegram remains available for compatibility.
+#   --delivery-provider selects a bundled delivery provider; both local-file and
+#   Telegram are the default, while either adapter remains selectable alone.
 #   --delivery-script overrides the selected bundled delivery provider.
 #   --dry-run skips delivery and prints the generated report.
 #
@@ -58,7 +58,7 @@ Options:
                               Collector script. Default: bundled Tencent Meeting summary collector.
   --report-validator <path>   Output validator. Default: bundled work-report validator.
   --generator-script <path>   Custom generator adapter; overrides --generator-provider.
-  --delivery-provider <name>  Built-in delivery: local-file or telegram. Default: local-file.
+  --delivery-provider <name>  Built-in delivery: both, local-file, or telegram. Default: both.
   --local-report-dir <path>   Local Markdown directory. Default: .local/agent-work-reports.
   --delivery-script <path>    Custom delivery adapter; overrides --delivery-provider.
   --skip-meetings             Disable Tencent Meeting enrichment.
@@ -78,7 +78,7 @@ Outputs:
   <out-dir>/*-prompt.txt   Self-contained prompt sent to the generator.
   <out-dir>/*-attempt*.err Generator stderr for failed or noisy attempts.
   <out-dir>/*.md          Generated and validated report.
-  <local-report-dir>/*.md Canonical local delivery files when using local-file.
+  <local-report-dir>/*.md Canonical local delivery files when using local-file or both.
   exit 0                  Success, including no activity found.
   exit non-zero           Missing dependency, invalid input, generation, validation, or delivery failure.
 
@@ -126,7 +126,7 @@ generator_max_turns=50
 custom_start=
 custom_end=
 period_set=0
-delivery_provider=${REPORT_DELIVERY_PROVIDER:-local-file}
+delivery_provider=${REPORT_DELIVERY_PROVIDER:-both}
 delivery_provider_set=0
 local_report_dir=${REPORT_LOCAL_REPORT_DIR:-.local/agent-work-reports}
 local_report_dir_set=0
@@ -270,7 +270,7 @@ if [[ "$codebuddy_bin" == "codebuddy" && -n "${REPORT_CODEBUDDY_BIN:-}" ]]; then
   codebuddy_bin=$REPORT_CODEBUDDY_BIN
 fi
 if [[ "$delivery_provider_set" == "0" ]]; then
-  delivery_provider=${REPORT_DELIVERY_PROVIDER:-local-file}
+  delivery_provider=${REPORT_DELIVERY_PROVIDER:-both}
 fi
 if [[ "$local_report_dir_set" == "0" && -n "${REPORT_LOCAL_REPORT_DIR:-}" ]]; then
   local_report_dir=$REPORT_LOCAL_REPORT_DIR
@@ -315,6 +315,9 @@ fi
 
 if [[ -z "$delivery_script" ]]; then
   case "$delivery_provider" in
+    both)
+      delivery_script="${script_dir}/report-deliveries/local-file-and-telegram.sh"
+      ;;
     local-file)
       delivery_script="${script_dir}/report-deliveries/local-file.sh"
       ;;
@@ -323,7 +326,7 @@ if [[ -z "$delivery_script" ]]; then
       ;;
     *)
       log_error "Unknown delivery provider: $delivery_provider"
-      log_error "Supported providers: local-file, telegram"
+      log_error "Supported providers: both, local-file, telegram"
       exit 1
       ;;
   esac

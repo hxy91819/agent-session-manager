@@ -256,13 +256,15 @@ The requested provider can be switched explicitly with
 [`codebuddy.sh`](scripts/report-generators/codebuddy.sh) remains available.
 The orchestrator also exports `REPORT_MODEL`, `REPORT_MAX_TURNS`, and
 `REPORT_CODEBUDDY_BIN` for providers that need them. The bundled
-[`local-file.sh`](scripts/report-deliveries/local-file.sh) is the default
-delivery provider. It writes one canonical Markdown file per report kind and
-window start under `.local/agent-work-reports/`; an existing file is kept as
-the authoritative local version and is not overwritten. Telegram remains
-available with `--delivery-provider telegram` or a custom
-[`telegram.sh`](scripts/report-deliveries/telegram.sh) adapter. Delivery
-adapters receive `--report <path>`, `REPORT_DELIVERY_CONFIG`, and `REPORT_TITLE`.
+[`local-file-and-telegram.sh`](scripts/report-deliveries/local-file-and-telegram.sh)
+is the default delivery provider. It first writes one canonical Markdown file
+per report kind and window start under `.local/agent-work-reports/`, keeping an
+existing file as the authoritative local version, then sends the report to
+Telegram. If Telegram fails, the local report remains available and the next
+run can retry Telegram without overwriting the local file. Either route remains
+available alone with `--delivery-provider local-file` or
+`--delivery-provider telegram`. Delivery adapters receive `--report <path>`,
+`REPORT_DELIVERY_CONFIG`, and `REPORT_TITLE`.
 
 Replace either side without changing report collection, validation, or retry
 behavior:

@@ -19,6 +19,7 @@ VALIDATOR = REPO_ROOT / "scripts" / "validate-agent-work-report.py"
 CODEBUDDY_GENERATOR = REPO_ROOT / "scripts" / "report-generators" / "codebuddy.sh"
 OLLAMA_GENERATOR = REPO_ROOT / "scripts" / "report-generators" / "ollama.sh"
 LOCAL_DELIVERY = REPO_ROOT / "scripts" / "report-deliveries" / "local-file.sh"
+COMBINED_DELIVERY = REPO_ROOT / "scripts" / "report-deliveries" / "local-file-and-telegram.sh"
 TELEGRAM_DELIVERY = REPO_ROOT / "scripts" / "report-deliveries" / "telegram.sh"
 MEETING_COLLECTOR = (
     REPO_ROOT
@@ -363,7 +364,7 @@ class DailyReportScriptTests(unittest.TestCase):
         generator_script: Path | None = None,
         delivery_script: Path | None = None,
         generator_provider: str = "codebuddy",
-        delivery_provider: str = "local-file",
+        delivery_provider: str = "both",
         local_report_dir: Path | None = None,
         custom_start: str | None = None,
         custom_end: str | None = None,
@@ -492,6 +493,7 @@ class DailyReportScriptTests(unittest.TestCase):
         result, _ = self.run_report(
             "today",
             dry_run=False,
+            delivery_provider="local-file",
             local_report_dir=local_report_dir,
         )
 
@@ -504,10 +506,49 @@ class DailyReportScriptTests(unittest.TestCase):
         second = self.run_report(
             "today-second-run",
             dry_run=False,
+            delivery_provider="local-file",
             local_report_dir=local_report_dir,
         )[0]
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertIn("already exists", second.stdout)
+        self.assertEqual(len(list(local_report_dir.glob("*.md"))), 1)
+
+    def test_default_delivery_writes_local_and_sends_telegram(self) -> None:
+        local_report_dir = self.root / "combined-reports"
+        curl_args_path = self.root / "combined-curl-args.json"
+        delivery_env = {
+            "PATH": f"{self.bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "TELEGRAM_BOT_TOKEN": "fixture-token",
+            "TELEGRAM_CHAT_ID": "fixture-chat",
+            "FAKE_CURL_ARGS": str(curl_args_path),
+        }
+        result, _ = self.run_report(
+            "combined-delivery",
+            dry_run=False,
+            local_report_dir=local_report_dir,
+            extra_env=delivery_env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report_path = local_report_dir / "daily-2026-07-23.md"
+        self.assertTrue(report_path.is_file())
+        self.assertIn("Local report written", result.stdout)
+        self.assertIn("Telegram report sent.", result.stdout)
+        curl_args = json.loads(curl_args_path.read_text(encoding="utf-8"))
+        self.assertIn(
+            "https://api.telegram.org/botfixture-token/sendMessage",
+            curl_args,
+        )
+
+        second, _ = self.run_report(
+            "combined-delivery-second",
+            dry_run=False,
+            local_report_dir=local_report_dir,
+            extra_env=delivery_env,
+        )
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("already exists", second.stdout)
+        self.assertIn("Telegram report sent.", second.stdout)
         self.assertEqual(len(list(local_report_dir.glob("*.md"))), 1)
 
     def test_report_preserves_evidence_backed_business_scope(self) -> None:
@@ -540,6 +581,7 @@ class DailyReportScriptTests(unittest.TestCase):
             CODEBUDDY_GENERATOR,
             OLLAMA_GENERATOR,
             LOCAL_DELIVERY,
+            COMBINED_DELIVERY,
             TELEGRAM_DELIVERY,
         ):
             with self.subTest(adapter=adapter):
