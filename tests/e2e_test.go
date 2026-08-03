@@ -250,6 +250,87 @@ func TestCLIIndexesKimiAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesKiroAndPrintsResumeCommand(t *testing.T) {
+	providerArgs := []string{
+		"--codex-home", t.TempDir(),
+		"--claude-home", t.TempDir(),
+		"--kimi-home", t.TempDir(),
+		"--opencode-home", t.TempDir(),
+		"--codebuddy-home", t.TempDir(),
+		"--cursor-home", t.TempDir(),
+		"--openclaw-home", t.TempDir(),
+		"--zcode-home", t.TempDir(),
+	}
+	kiroHome := t.TempDir()
+	repo := t.TempDir()
+	writeKiroSession(t, kiroHome, "ses_kiro", repo, "fix openclaw with kiro")
+	runKiroCommand := func(extra ...string) string {
+		args := append(append([]string{}, providerArgs...), "--kiro-home", kiroHome)
+		return runCommand(t, append(args, extra...)...)
+	}
+
+	out := runKiroCommand("--since-days", "0", "--json", "--query", "kiro")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string            `json:"id"`
+			Provider string            `json:"provider"`
+			CWD      string            `json:"cwd"`
+			Title    string            `json:"title"`
+			Metadata map[string]string `json:"metadata"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_kiro" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	item := payload.Sessions[0]
+	if item.Provider != "kiro" || item.CWD != repo || item.Title != "fix openclaw with kiro" {
+		t.Fatalf("unexpected Kiro session: %#v", item)
+	}
+	if item.Metadata["session_created_reason"] != "user" {
+		t.Fatalf("metadata = %#v", item.Metadata)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].CWD != repo || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runKiroCommand("--since-days", "0", "--resume", "ses_kiro", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'kiro-cli' 'chat' '--resume-id' 'ses_kiro'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+
+	reportArgs := append([]string{"report"}, providerArgs...)
+	reportArgs = append(reportArgs, "--kiro-home", kiroHome, "--start", "2026-06-13", "--end", "2026-06-14")
+	out = runCommand(t, reportArgs...)
+	var report struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if report.Totals.Sessions != 1 || len(report.Sessions) != 1 || report.Sessions[0].ID != "ses_kiro" || report.Sessions[0].Provider != "kiro" {
+		t.Fatalf("unexpected Kiro report: %#v", report)
+	}
+	if len(report.Sessions[0].Evidence) != 1 || report.Sessions[0].Evidence[0].Text != "fix openclaw with kiro" {
+		t.Fatalf("unexpected Kiro evidence: %#v", report.Sessions[0].Evidence)
+	}
+}
+
 func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
@@ -1697,6 +1778,7 @@ func runCommandAllowError(t *testing.T, args ...string) (string, error) {
 		"OPENCLAW_STATE_DIR="+t.TempDir(),
 		"ASM_CODEX_EXTRA_HOMES=",
 		"ASM_CLAUDE_EXTRA_HOMES=",
+		"KIRO_HOME="+t.TempDir(),
 		"ZCODE_HOME="+t.TempDir(),
 	)
 	out, err := cmd.CombinedOutput()
@@ -1723,6 +1805,15 @@ func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, title string) {
 	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"sessionId":`+jsonString(id)+`,"sessionDir":`+jsonString(sessionDir)+`,"workDir":`+jsonString(cwd)+`}
 `)
 	writeFile(t, filepath.Join(sessionDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","title":`+jsonString(title)+`}
+`)
+}
+
+func writeKiroSession(t *testing.T, home, id, cwd, title string) {
+	t.Helper()
+	sessionsDir := filepath.Join(home, "sessions", "cli")
+	writeFile(t, filepath.Join(sessionsDir, id+".json"), `{"session_id":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"created_at":"2026-06-13T01:00:00Z","updated_at":"2026-06-13T01:01:00Z","title":`+jsonString(title)+`,"session_created_reason":"user","session_state":{"version":"1"}}
+`)
+	writeFile(t, filepath.Join(sessionsDir, id+".jsonl"), `{"kind":"Prompt","version":"v1","data":{"message_id":"msg-kiro","content":[{"kind":"text","data":`+jsonString(title)+`}],"meta":{"timestamp":1781312400}}}
 `)
 }
 

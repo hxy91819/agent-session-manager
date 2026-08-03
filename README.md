@@ -14,6 +14,9 @@ Providers:
 - Kimi Code sessions stored under `$KIMI_CODE_HOME` / `$KIMI_HOME` or
   `~/.kimi-code`. Resume runs from the original session cwd with
   `kimi --session <session-id>`.
+- Kiro CLI sessions stored under `$KIRO_HOME/sessions/cli` or
+  `~/.kiro/sessions/cli`. Resume runs from the original session cwd with
+  `kiro-cli chat --resume-id <session-id>`.
 - opencode sessions stored under `$OPENCODE_HOME/storage` or
   `~/.local/share/opencode/storage`. Resume runs from the original session cwd
   with `opencode -s <session-id>`.
@@ -95,6 +98,7 @@ go run ./cmd/asm --resume <session-id> --print-exec
 go run ./cmd/asm resume --provider codex <session-id>
 go run ./cmd/asm --claude-home /tmp/fake-claude --json
 go run ./cmd/asm --kimi-home /tmp/fake-kimi --json
+go run ./cmd/asm --kiro-home /tmp/fake-kiro --json
 go run ./cmd/asm --opencode-home /tmp/fake-opencode --json
 go run ./cmd/asm --zcode-home /tmp/fake-zcode --json
 go run ./cmd/asm report --period yesterday
@@ -112,7 +116,7 @@ pre-commit run --all-files
 go test ./...
 go build ./cmd/asm
 go run ./tools/check-provider-performance
-go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode ./internal/provider/zcode
+go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/kiro ./internal/provider/opencode ./internal/provider/zcode
 python3 -m unittest scripts/generate_release_changelog_test.py
 ```
 
@@ -148,7 +152,7 @@ go run ./cmd/asm --limit 1000 --since-days 30
 ```
 
 `--limit` caps how many session files are parsed per provider after newest-first
-ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`,
+ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`, `--kiro-home`,
 `--opencode-home`, or `--zcode-home` to point at alternate provider stores. By
 default only sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
@@ -186,6 +190,7 @@ Direct resume:
 ```sh
 go run ./cmd/asm resume --provider codex <session-id>
 go run ./cmd/asm resume --provider claude <session-id> --print-exec
+go run ./cmd/asm resume --provider kiro <session-id> --print-exec
 ```
 
 The provider flag disambiguates session IDs across agent providers. Report JSON

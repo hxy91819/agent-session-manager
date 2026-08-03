@@ -30,6 +30,9 @@ Current providers:
 - Kimi Code scans `$KIMI_CODE_HOME` / `$KIMI_HOME` or `~/.kimi-code`, using
   `session_index.jsonl` plus per-session `state.json`, and resumes with
   `kimi --session <session-id>` from the original cwd.
+- Kiro CLI scans `$KIRO_HOME/sessions/cli` or `~/.kiro/sessions/cli`, using
+  per-session JSON metadata plus companion JSONL `Prompt` records, and resumes
+  with `kiro-cli chat --resume-id <session-id>` from the original cwd.
 - opencode scans `$OPENCODE_HOME/storage` or
   `~/.local/share/opencode/storage`, using session JSON plus project and message
   fallback files, and resumes with `opencode -s <session-id>` from the original
@@ -69,6 +72,7 @@ go run ./cmd/asm --json --query openclaw
 go run ./cmd/asm --resume <session-id> --print-exec
 go run ./cmd/asm --since-days 0 --json
 go run ./cmd/asm --json --query kimi
+go run ./cmd/asm --json --query kiro
 go run ./cmd/asm --json --query opencode
 ```
 
@@ -211,6 +215,20 @@ consume normalized sessions.
   and timestamps.
 - Keep Kimi resume as `kimi --session <session-id>`. Do not add `-y` or change
   permission mode by default.
+
+## Kiro CLI Provider Notes
+
+- Treat `$KIRO_HOME/sessions/cli` or `~/.kiro/sessions/cli` as the supported
+  Kiro CLI store. Do not scan Kiro IDE session directories.
+- The per-session `<session-id>.json` file is the primary source for
+  `session_id`, `cwd`, titles, RFC3339 timestamps, `session_created_reason`, and
+  `parent_session_id`; the companion `<session-id>.jsonl` file contains
+  timestamped `Prompt` records for title fallback and report evidence.
+- Kiro prompt timestamps are Unix seconds in `data.meta.timestamp`. Ignore
+  assistant and tool records when collecting user previews.
+- Cache only the primary session JSON with `internal/sessioncache`; re-read
+  prompt fallback, report previews, and cwd status on every discovery pass.
+- Keep Kiro resume as `kiro-cli chat --resume-id <session-id>` from the original cwd.
 
 ## opencode Provider Notes
 
