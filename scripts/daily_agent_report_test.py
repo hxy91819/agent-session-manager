@@ -17,6 +17,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORT_SCRIPT = REPO_ROOT / "scripts" / "daily-agent-report.sh"
 VALIDATOR = REPO_ROOT / "scripts" / "validate-agent-work-report.py"
 CODEBUDDY_GENERATOR = REPO_ROOT / "scripts" / "report-generators" / "codebuddy.sh"
+OLLAMA_GENERATOR = REPO_ROOT / "scripts" / "report-generators" / "ollama.sh"
+LOCAL_DELIVERY = REPO_ROOT / "scripts" / "report-deliveries" / "local-file.sh"
 TELEGRAM_DELIVERY = REPO_ROOT / "scripts" / "report-deliveries" / "telegram.sh"
 MEETING_COLLECTOR = (
     REPO_ROOT
@@ -84,6 +86,8 @@ class DailyReportScriptTests(unittest.TestCase):
         self.bin_dir.mkdir()
         self.config = self.root / "config.json"
         self.config.write_text("{}\n", encoding="utf-8")
+        self.empty_env = self.root / "empty.env"
+        self.empty_env.write_text("", encoding="utf-8")
         self._write_executable(
             "fake-asm",
             """\
@@ -91,11 +95,20 @@ class DailyReportScriptTests(unittest.TestCase):
             import json
             import sys
 
-            period = sys.argv[sys.argv.index("--period") + 1]
+            if "--period" in sys.argv:
+                period = sys.argv[sys.argv.index("--period") + 1]
+                custom_start = None
+                custom_end = None
+            else:
+                period = "custom"
+                custom_start = sys.argv[sys.argv.index("--start") + 1]
+                custom_end = sys.argv[sys.argv.index("--end") + 1]
             weekly = period in {"last-week", "last-7-days"}
-            start = "2026-07-13T00:00:00+08:00" if weekly else "2026-07-23T00:00:00+08:00"
-            end = "2026-07-20T00:00:00+08:00" if weekly else "2026-07-24T00:00:00+08:00"
-            evidence_at = "2026-07-15T10:00:00+08:00" if weekly else "2026-07-23T10:00:00+08:00"
+            start = custom_start or ("2026-07-13T00:00:00+08:00" if weekly else "2026-07-23T00:00:00+08:00")
+            end = custom_end or ("2026-07-20T00:00:00+08:00" if weekly else "2026-07-24T00:00:00+08:00")
+            evidence_at = "2026-07-31T10:00:00+08:00" if custom_start else (
+                "2026-07-15T10:00:00+08:00" if weekly else "2026-07-23T10:00:00+08:00"
+            )
             session = {
                 "id": "session-1",
                 "provider": "codex",
@@ -127,6 +140,7 @@ class DailyReportScriptTests(unittest.TestCase):
             #!/usr/bin/env python3
             import argparse
             import json
+            import os
             from pathlib import Path
 
             parser = argparse.ArgumentParser()
@@ -135,7 +149,7 @@ class DailyReportScriptTests(unittest.TestCase):
             parser.add_argument("--output", required=True)
             args = parser.parse_args()
             Path(args.output).write_text(json.dumps({
-                "status": "ok",
+                "status": os.environ.get("FAKE_MEETING_STATUS", "ok"),
                 "start": args.start,
                 "end": args.end,
                 "meetings": [{
@@ -202,6 +216,44 @@ class DailyReportScriptTests(unittest.TestCase):
             """,
         )
         self._write_executable(
+            "fake-ollama-curl",
+            """\
+            #!/usr/bin/env python3
+            import json
+            import os
+            from pathlib import Path
+            import sys
+
+            args = sys.argv[1:]
+            if args_path := os.environ.get("FAKE_OLLAMA_ARGS"):
+                Path(args_path).write_text(
+                    json.dumps(args, ensure_ascii=False), encoding="utf-8"
+                )
+
+            def option_value(name):
+                return args[args.index(name) + 1]
+
+            request_path = option_value("--data-binary")[1:]
+            response_path = option_value("--output")
+            config_path = option_value("--config")
+            Path(os.environ["FAKE_OLLAMA_REQUEST"]).write_text(
+                Path(request_path).read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            Path(os.environ["FAKE_OLLAMA_CONFIG"]).write_text(
+                Path(config_path).read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            Path(response_path).write_text(json.dumps({
+                "choices": [{"message": {"content": (
+                    "## 工作概览\\n"
+                    "1. [中投入] Ollama 试验：完成生成验证；下一步：持续推送\\n\\n"
+                    "## 后续跟进\\n- 持续推送\\n\\n"
+                    "## 风险与阻塞\\n- 暂无明确阻塞"
+                )}}]
+            }, ensure_ascii=False), encoding="utf-8")
+            print("200")
+            """,
+        )
+        self._write_executable(
             "fake-generator",
             """\
             #!/usr/bin/env python3
@@ -249,6 +301,35 @@ class DailyReportScriptTests(unittest.TestCase):
             """,
         )
         self._write_executable(
+            "fake-meeting-fallback-generator",
+            """\
+            #!/usr/bin/env python3
+            import argparse
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--prompt", required=True)
+            args = parser.parse_args()
+            prompt = Path(args.prompt).read_text(encoding="utf-8")
+            legacy_coverage_warning = "在风险与阻塞中简要说明会议覆盖不完整" in prompt
+            if legacy_coverage_warning:
+                report = (
+                    "## 工作概览\\n"
+                    "1. [中投入] 工作事项：继续推进；下一步：补充确认\\n\\n"
+                    "## 后续跟进\\n- 补充确认会议结论\\n\\n"
+                    "## 风险与阻塞\\n- 会议覆盖不完整"
+                )
+            else:
+                report = (
+                    "## 工作概览\\n"
+                    "1. [中投入] 项目协作会：围绕项目协作进行宽泛沟通（据会议名称推测）；下一步：结合实际讨论补充确认\\n\\n"
+                    "## 后续跟进\\n- 如需会议结论，补充确认具体讨论内容\\n\\n"
+                    "## 风险与阻塞\\n- 暂无明确阻塞"
+                )
+            print(report)
+            """,
+        )
+        self._write_executable(
             "fake-delivery",
             """\
             #!/usr/bin/env python3
@@ -281,6 +362,13 @@ class DailyReportScriptTests(unittest.TestCase):
         dry_run: bool = True,
         generator_script: Path | None = None,
         delivery_script: Path | None = None,
+        generator_provider: str = "codebuddy",
+        delivery_provider: str = "local-file",
+        local_report_dir: Path | None = None,
+        custom_start: str | None = None,
+        custom_end: str | None = None,
+        extra_env: dict[str, str] | None = None,
+        env_file: Path | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], Path]:
         run_dir = self.root / f"run-{period}"
         prompt_dir = self.root / f"prompts-{period}"
@@ -294,15 +382,19 @@ class DailyReportScriptTests(unittest.TestCase):
             "FAKE_CUSTOM_PROMPT": str(self.root / f"custom-prompt-{period}.txt"),
             "FAKE_DELIVERY_SINK": str(self.root / f"delivery-{period}.md"),
         }
+        if extra_env:
+            env.update(extra_env)
         command = [
             "bash",
             str(REPORT_SCRIPT),
-            "--period",
-            period,
             "--asm-bin",
             str(self.bin_dir / "fake-asm"),
             "--codebuddy-bin",
             str(self.bin_dir / "fake-codebuddy"),
+            "--generator-provider",
+            generator_provider,
+            "--delivery-provider",
+            delivery_provider,
             "--config",
             str(self.config),
             "--out-dir",
@@ -312,6 +404,16 @@ class DailyReportScriptTests(unittest.TestCase):
             "--codebuddy-attempts",
             "2",
         ]
+        if local_report_dir is not None:
+            command.extend(["--local-report-dir", str(local_report_dir)])
+        if custom_start is not None or custom_end is not None:
+            if custom_start is None or custom_end is None:
+                raise ValueError("custom_start and custom_end must be provided together")
+            command.extend(["--start", custom_start, "--end", custom_end])
+        else:
+            command.extend(["--period", period])
+        if env_file is not None:
+            command.extend(["--env-file", str(env_file)])
         if generator_script is not None:
             command.extend(["--generator-script", str(generator_script)])
         if delivery_script is not None:
@@ -360,6 +462,18 @@ class DailyReportScriptTests(unittest.TestCase):
             (weekly_prompts / "prompt-1.txt").read_text(encoding="utf-8"),
         )
 
+    def test_custom_window_can_generate_last_friday_report(self) -> None:
+        result, prompt_dir = self.run_report(
+            "last-friday",
+            custom_start="2026-07-31",
+            custom_end="2026-08-01",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (prompt_dir / "prompt-1.txt").read_text(encoding="utf-8")
+        self.assertIn('"start": "2026-07-31"', prompt)
+        self.assertIn('"end": "2026-08-01"', prompt)
+
     def test_custom_generator_and_delivery_replace_defaults(self) -> None:
         result, _ = self.run_report(
             "today",
@@ -373,6 +487,29 @@ class DailyReportScriptTests(unittest.TestCase):
         custom_prompt = (self.root / "custom-prompt-today.txt").read_text(encoding="utf-8")
         self.assertIn("UNTRUSTED REPORT EVIDENCE", custom_prompt)
 
+    def test_default_delivery_writes_one_authoritative_local_markdown_file(self) -> None:
+        local_report_dir = self.root / "local-reports"
+        result, _ = self.run_report(
+            "today",
+            dry_run=False,
+            local_report_dir=local_report_dir,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report_path = local_report_dir / "daily-2026-07-23.md"
+        self.assertTrue(report_path.is_file())
+        self.assertIn("[高投入] 项目：推进主要交付", report_path.read_text(encoding="utf-8"))
+        self.assertIn("Local report written", result.stdout)
+
+        second = self.run_report(
+            "today-second-run",
+            dry_run=False,
+            local_report_dir=local_report_dir,
+        )[0]
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("already exists", second.stdout)
+        self.assertEqual(len(list(local_report_dir.glob("*.md"))), 1)
+
     def test_report_preserves_evidence_backed_business_scope(self) -> None:
         result, _ = self.run_report(
             "today",
@@ -384,8 +521,27 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertIn("锐驰 COS 免费套餐包", result.stdout)
         self.assertNotIn("核心服务冗余代码清理", result.stdout)
 
+    def test_failed_meeting_context_uses_subject_fallback_without_coverage_risk(self) -> None:
+        for status in ("partial", "unavailable"):
+            with self.subTest(status=status):
+                result, _ = self.run_report(
+                    f"meeting-title-fallback-{status}",
+                    generator_script=self.bin_dir / "fake-meeting-fallback-generator",
+                    extra_env={"FAKE_MEETING_STATUS": status},
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("项目协作会", result.stdout)
+                self.assertIn("据会议名称推测", result.stdout)
+                self.assertNotIn("会议覆盖不完整", result.stdout)
+
     def test_bundled_adapters_expose_help(self) -> None:
-        for adapter in (CODEBUDDY_GENERATOR, TELEGRAM_DELIVERY):
+        for adapter in (
+            CODEBUDDY_GENERATOR,
+            OLLAMA_GENERATOR,
+            LOCAL_DELIVERY,
+            TELEGRAM_DELIVERY,
+        ):
             with self.subTest(adapter=adapter):
                 result = subprocess.run(
                     [str(adapter), "--help"],
@@ -396,6 +552,138 @@ class DailyReportScriptTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("Examples:", result.stdout)
+
+    def test_local_delivery_keeps_existing_report_as_authoritative(self) -> None:
+        report = self.root / "local-report.md"
+        report.write_text("第一版报告\n", encoding="utf-8")
+        output_dir = self.root / "local-output"
+        env = {
+            **os.environ,
+            "REPORT_WINDOW_START": "2026-07-31T00:00:00+08:00",
+            "REPORT_REPORT_KIND": "daily",
+        }
+
+        first = subprocess.run(
+            [str(LOCAL_DELIVERY), "--report", str(report), "--output-dir", str(output_dir)],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        report.write_text("第二版报告\n", encoding="utf-8")
+        second = subprocess.run(
+            [str(LOCAL_DELIVERY), "--report", str(report), "--output-dir", str(output_dir)],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("already exists", second.stdout)
+        self.assertEqual(
+            (output_dir / "daily-2026-07-31.md").read_text(encoding="utf-8"),
+            "第一版报告\n",
+        )
+
+    def test_local_delivery_rejects_symlink_target(self) -> None:
+        report = self.root / "symlink-report.md"
+        report.write_text("新报告\n", encoding="utf-8")
+        output_dir = self.root / "symlink-output"
+        output_dir.mkdir()
+        symlink_target = self.root / "authoritative-target.md"
+        symlink_target.write_text("原始文件\n", encoding="utf-8")
+        (output_dir / "daily-2026-07-31.md").symlink_to(symlink_target)
+
+        result = subprocess.run(
+            [
+                str(LOCAL_DELIVERY),
+                "--report",
+                str(report),
+                "--output-dir",
+                str(output_dir),
+                "--key",
+                "daily-2026-07-31",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertEqual(symlink_target.read_text(encoding="utf-8"), "原始文件\n")
+
+    def test_ollama_adapter_uses_openai_compatible_cloud_contract(self) -> None:
+        prompt = self.root / "ollama-prompt.txt"
+        prompt.write_text("只根据这里的证据生成报告", encoding="utf-8")
+        request_path = self.root / "ollama-request.json"
+        config_path = self.root / "ollama-curl.conf"
+        args_path = self.root / "ollama-curl-args.json"
+        env = {
+            **os.environ,
+            "PATH": f"{self.bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "OLLAMA_API_KEY": "fixture-secret",
+            "OLLAMA_BASE_URL": "https://ollama.example/v1",
+            "OLLAMA_MODEL": "deepseek-v4-flash:0731-cloud",
+            "FAKE_OLLAMA_REQUEST": str(request_path),
+            "FAKE_OLLAMA_CONFIG": str(config_path),
+            "FAKE_OLLAMA_ARGS": str(args_path),
+        }
+
+        result = subprocess.run(
+            [str(OLLAMA_GENERATOR), "--prompt", str(prompt)],
+            cwd=REPO_ROOT,
+            env={**env, "OLLAMA_CURL_BIN": str(self.bin_dir / "fake-ollama-curl")},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## 工作概览", result.stdout)
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        self.assertEqual(request["model"], "deepseek-v4-flash:0731-cloud")
+        self.assertEqual(request["reasoning_effort"], "max")
+        self.assertEqual(request["messages"], [{
+            "role": "user",
+            "content": "只根据这里的证据生成报告",
+        }])
+        curl_args = json.loads(args_path.read_text(encoding="utf-8"))
+        self.assertEqual(curl_args[-1], "https://ollama.example/v1/chat/completions")
+        self.assertNotIn("fixture-secret", curl_args)
+        self.assertIn(
+            'header = "Authorization: Bearer fixture-secret"',
+            config_path.read_text(encoding="utf-8"),
+        )
+
+    def test_ollama_provider_can_replace_codebuddy_in_orchestrator(self) -> None:
+        request_path = self.root / "orchestrator-ollama-request.json"
+        config_path = self.root / "orchestrator-ollama-curl.conf"
+        result, _ = self.run_report(
+            "today",
+            generator_provider="ollama",
+            extra_env={
+                "PATH": f"{self.bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "OLLAMA_API_KEY": "fixture-secret",
+                "OLLAMA_BASE_URL": "https://ollama.example/v1",
+                "OLLAMA_MODEL": "fixture-model",
+                "OLLAMA_CURL_BIN": str(self.bin_dir / "fake-ollama-curl"),
+                "FAKE_OLLAMA_REQUEST": str(request_path),
+                "FAKE_OLLAMA_CONFIG": str(config_path),
+            },
+            env_file=self.empty_env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("report-generators/ollama.sh", result.stdout)
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        self.assertEqual(request["model"], "fixture-model")
+        self.assertEqual(request["reasoning_effort"], "max")
 
     def test_codebuddy_adapter_preserves_safe_default_generation_contract(self) -> None:
         prompt = self.root / "adapter-prompt.txt"

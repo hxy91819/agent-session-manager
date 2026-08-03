@@ -7,14 +7,19 @@ umask 077
 #   Meeting context, then pass it through replaceable generation and delivery adapters.
 #
 # Parameters:
-#   --period defaults to "today"; --model defaults to the generator's configuration.
+#   --period defaults to "today"; --model defaults to the selected provider.
 #   DAILY_REPORT_MODEL provides a non-command-line model override.
+#   --generator-provider selects a bundled provider; Ollama is the default and
+#   CodeBuddy remains available for compatibility.
 #   --generator-attempts defaults to 3; --generator-max-turns defaults to 50.
-#   --env-file defaults to .env and supplies TENCENT_MEETING_TOKEN.
+#   --env-file defaults to .env and supplies integration credentials.
+#   --start and --end select a custom half-open report window together.
 #   --skip-meetings disables Tencent Meeting enrichment.
 #   --report-validator defaults to the bundled work-report format validator.
-#   --generator-script defaults to the bundled CodeBuddy adapter.
-#   --delivery-script defaults to the bundled Telegram adapter.
+#   --generator-script overrides the selected bundled provider.
+#   --delivery-provider selects a bundled delivery provider; local-file is the
+#   default and Telegram remains available for compatibility.
+#   --delivery-script overrides the selected bundled delivery provider.
 #   --dry-run skips delivery and prints the generated report.
 #
 # Outputs:
@@ -23,8 +28,9 @@ umask 077
 #   Exits 0 when neither source has in-period activity.
 #
 # Decision:
-#   Meeting collection is best-effort: API/auth failures are recorded for
-#   report coverage but never suppress the authoritative asm session report.
+#   Meeting collection is best-effort: API/auth failures are retained in the
+#   context artifact, while any returned meeting subjects remain usable as
+#   explicitly uncertain fallback context and never suppress the asm report.
 
 usage() {
   cat <<'EOF'
@@ -40,15 +46,21 @@ Options:
   --period <value>        asm report period. Default: today.
   --model <value>         Optional generator model. Default: adapter configuration.
   --asm-bin <path>        asm executable. Default: asm.
-  --codebuddy-bin <path>  Executable for the bundled CodeBuddy adapter. Default: codebuddy.
+  --generator-provider <name>
+                              Built-in provider: ollama or codebuddy. Default: ollama.
+  --codebuddy-bin <path>      Executable for the CodeBuddy provider. Default: codebuddy.
   --config <path>             Delivery adapter config. Default: ~/.config/agent-notify/config.json.
   --out-dir <path>            Output directory. Default: .local/daily-agent-report-runs.
   --env-file <path>           Optional env file. Default: .env.
+  --start <time>              Custom report window start; requires --end.
+  --end <time>                Custom report window end (exclusive); requires --start.
   --meeting-context-script <path>
                               Collector script. Default: bundled Tencent Meeting summary collector.
   --report-validator <path>   Output validator. Default: bundled work-report validator.
-  --generator-script <path>   Generator adapter. Default: bundled CodeBuddy adapter.
-  --delivery-script <path>    Delivery adapter. Default: bundled Telegram adapter.
+  --generator-script <path>   Custom generator adapter; overrides --generator-provider.
+  --delivery-provider <name>  Built-in delivery: local-file or telegram. Default: local-file.
+  --local-report-dir <path>   Local Markdown directory. Default: .local/agent-work-reports.
+  --delivery-script <path>    Custom delivery adapter; overrides --delivery-provider.
   --skip-meetings             Disable Tencent Meeting enrichment.
   --generator-attempts <n>    Generation attempts. Default: 3.
   --generator-max-turns <n>   Optional adapter turn budget. Default: 50.
@@ -66,6 +78,7 @@ Outputs:
   <out-dir>/*-prompt.txt   Self-contained prompt sent to the generator.
   <out-dir>/*-attempt*.err Generator stderr for failed or noisy attempts.
   <out-dir>/*.md          Generated and validated report.
+  <local-report-dir>/*.md Canonical local delivery files when using local-file.
   exit 0                  Success, including no activity found.
   exit non-zero           Missing dependency, invalid input, generation, validation, or delivery failure.
 
@@ -73,6 +86,7 @@ Examples:
   bash scripts/daily-agent-report.sh
   bash scripts/daily-agent-report.sh --dry-run
   bash scripts/daily-agent-report.sh --period yesterday --model your-model
+  bash scripts/daily-agent-report.sh --start 2026-07-31 --end 2026-08-01
   bash scripts/daily-agent-report.sh --period yesterday --skip-meetings --dry-run
   bash scripts/daily-agent-report.sh --generator-script ./my-generator --delivery-script ./my-delivery
 EOF
@@ -93,6 +107,8 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 period=today
 model=${DAILY_REPORT_MODEL:-}
+generator_provider=${REPORT_GENERATOR_PROVIDER:-ollama}
+generator_provider_set=0
 asm_bin=asm
 codebuddy_bin=codebuddy
 config_path="${HOME}/.config/agent-notify/config.json"
@@ -101,18 +117,26 @@ env_file=.env
 meeting_context_script="${script_dir}/../skills/tencent-meeting-summary/scripts/collect-tencent-meeting-context.py"
 agent_work_report_skill="${script_dir}/../skills/agent-work-report/SKILL.md"
 report_validator="${script_dir}/validate-agent-work-report.py"
-generator_script="${script_dir}/report-generators/codebuddy.sh"
-delivery_script="${script_dir}/report-deliveries/telegram.sh"
+generator_script=
+delivery_script=
 skip_meetings=0
 dry_run=0
-codebuddy_attempts=3
-codebuddy_max_turns=50
+generator_attempts=3
+generator_max_turns=50
+custom_start=
+custom_end=
+period_set=0
+delivery_provider=${REPORT_DELIVERY_PROVIDER:-local-file}
+delivery_provider_set=0
+local_report_dir=${REPORT_LOCAL_REPORT_DIR:-.local/agent-work-reports}
+local_report_dir_set=0
 
 while (($#)); do
   case "$1" in
     --period)
       [[ $# -ge 2 ]] || { log_error "--period requires a value"; exit 1; }
       period=$2
+      period_set=1
       shift 2
       ;;
     --model)
@@ -125,9 +149,25 @@ while (($#)); do
       asm_bin=$2
       shift 2
       ;;
+    --generator-provider)
+      [[ $# -ge 2 ]] || { log_error "--generator-provider requires a value"; exit 1; }
+      generator_provider=$2
+      generator_provider_set=1
+      shift 2
+      ;;
     --codebuddy-bin)
       [[ $# -ge 2 ]] || { log_error "--codebuddy-bin requires a value"; exit 1; }
       codebuddy_bin=$2
+      shift 2
+      ;;
+    --start)
+      [[ $# -ge 2 ]] || { log_error "--start requires a value"; exit 1; }
+      custom_start=$2
+      shift 2
+      ;;
+    --end)
+      [[ $# -ge 2 ]] || { log_error "--end requires a value"; exit 1; }
+      custom_end=$2
       shift 2
       ;;
     --config)
@@ -165,18 +205,30 @@ while (($#)); do
       delivery_script=$2
       shift 2
       ;;
+    --delivery-provider)
+      [[ $# -ge 2 ]] || { log_error "--delivery-provider requires a value"; exit 1; }
+      delivery_provider=$2
+      delivery_provider_set=1
+      shift 2
+      ;;
+    --local-report-dir)
+      [[ $# -ge 2 ]] || { log_error "--local-report-dir requires a value"; exit 1; }
+      local_report_dir=$2
+      local_report_dir_set=1
+      shift 2
+      ;;
     --skip-meetings)
       skip_meetings=1
       shift
       ;;
     --generator-attempts | --codebuddy-attempts)
       [[ $# -ge 2 ]] || { log_error "$1 requires a value"; exit 1; }
-      codebuddy_attempts=$2
+      generator_attempts=$2
       shift 2
       ;;
     --generator-max-turns | --codebuddy-max-turns)
       [[ $# -ge 2 ]] || { log_error "$1 requires a value"; exit 1; }
-      codebuddy_max_turns=$2
+      generator_max_turns=$2
       shift 2
       ;;
     --dry-run)
@@ -208,14 +260,73 @@ if [[ -f "$env_file" ]]; then
   set +a
 fi
 
-if ! [[ "$codebuddy_attempts" =~ ^[1-9][0-9]*$ ]]; then
+if [[ -z "$model" && -n "${DAILY_REPORT_MODEL:-}" ]]; then
+  model=$DAILY_REPORT_MODEL
+fi
+if [[ "$generator_provider_set" == "0" ]]; then
+  generator_provider=${REPORT_GENERATOR_PROVIDER:-ollama}
+fi
+if [[ "$codebuddy_bin" == "codebuddy" && -n "${REPORT_CODEBUDDY_BIN:-}" ]]; then
+  codebuddy_bin=$REPORT_CODEBUDDY_BIN
+fi
+if [[ "$delivery_provider_set" == "0" ]]; then
+  delivery_provider=${REPORT_DELIVERY_PROVIDER:-local-file}
+fi
+if [[ "$local_report_dir_set" == "0" && -n "${REPORT_LOCAL_REPORT_DIR:-}" ]]; then
+  local_report_dir=$REPORT_LOCAL_REPORT_DIR
+fi
+
+if [[ -n "$custom_start" || -n "$custom_end" ]]; then
+  if [[ -z "$custom_start" || -z "$custom_end" ]]; then
+    log_error "--start and --end must be provided together"
+    exit 1
+  fi
+  if [[ "$period_set" == "1" ]]; then
+    log_error "--period cannot be combined with --start/--end"
+    exit 1
+  fi
+fi
+
+if ! [[ "$generator_attempts" =~ ^[1-9][0-9]*$ ]]; then
   log_error "--generator-attempts must be a positive integer"
   exit 1
 fi
 
-if ! [[ "$codebuddy_max_turns" =~ ^[1-9][0-9]*$ ]]; then
+if ! [[ "$generator_max_turns" =~ ^[1-9][0-9]*$ ]]; then
   log_error "--generator-max-turns must be a positive integer"
   exit 1
+fi
+
+if [[ -z "$generator_script" ]]; then
+  case "$generator_provider" in
+    ollama)
+      generator_script="${script_dir}/report-generators/ollama.sh"
+      ;;
+    codebuddy)
+      generator_script="${script_dir}/report-generators/codebuddy.sh"
+      ;;
+    *)
+      log_error "Unknown generator provider: $generator_provider"
+      log_error "Supported providers: ollama, codebuddy"
+      exit 1
+      ;;
+  esac
+fi
+
+if [[ -z "$delivery_script" ]]; then
+  case "$delivery_provider" in
+    local-file)
+      delivery_script="${script_dir}/report-deliveries/local-file.sh"
+      ;;
+    telegram)
+      delivery_script="${script_dir}/report-deliveries/telegram.sh"
+      ;;
+    *)
+      log_error "Unknown delivery provider: $delivery_provider"
+      log_error "Supported providers: local-file, telegram"
+      exit 1
+      ;;
+  esac
 fi
 
 if [[ ! -f "$agent_work_report_skill" ]]; then
@@ -237,15 +348,21 @@ fi
 
 mkdir -p "$out_dir"
 timestamp=$(date '+%Y%m%d-%H%M%S')
-json_out="${out_dir}/asm-report-${period}-${timestamp}.json"
-compact_json_out="${out_dir}/asm-report-${period}-${timestamp}-compact.json"
-prompt_out="${out_dir}/agent-report-${period}-${timestamp}-prompt.txt"
-report_out="${out_dir}/agent-report-${period}-${timestamp}.md"
-meeting_json_out="${out_dir}/meeting-context-${period}-${timestamp}.json"
-report_context_out="${out_dir}/report-context-${period}-${timestamp}.json"
+window_label=$period
+asm_args=(report --period "$period")
+if [[ -n "$custom_start" ]]; then
+  window_label=custom
+  asm_args=(report --start "$custom_start" --end "$custom_end")
+fi
+json_out="${out_dir}/asm-report-${window_label}-${timestamp}.json"
+compact_json_out="${out_dir}/asm-report-${window_label}-${timestamp}-compact.json"
+prompt_out="${out_dir}/agent-report-${window_label}-${timestamp}-prompt.txt"
+report_out="${out_dir}/agent-report-${window_label}-${timestamp}.md"
+meeting_json_out="${out_dir}/meeting-context-${window_label}-${timestamp}.json"
+report_context_out="${out_dir}/report-context-${window_label}-${timestamp}.json"
 
-log_info "Collecting asm report: period=${period}"
-"$asm_bin" report --period "$period" > "$json_out"
+log_info "Collecting asm report: window=${window_label}"
+"$asm_bin" "${asm_args[@]}" > "$json_out"
 
 session_count=$(jq -r '.totals.sessions // 0' "$json_out")
 project_count=$(jq -r '.totals.projects // 0' "$json_out")
@@ -272,24 +389,26 @@ if [[ "$skip_meetings" == "0" ]]; then
 fi
 
 if [[ "$session_count" == "0" && "$meeting_count" == "0" ]]; then
-  log_info "No asm sessions or meetings found for period=${period}; skipping generation and delivery."
+  log_info "No asm sessions or meetings found for window=${window_label}; skipping generation and delivery."
   log_info "Payload: $json_out"
   exit 0
 fi
 
 log_info "Found ${session_count} sessions across ${project_count} projects."
 log_info "Evidence-backed sessions: ${evidence_session_count}; compacting report input."
-log_info "Generating report with adapter=${generator_script} model=${model:-adapter-default} attempts=${codebuddy_attempts} max_turns=${codebuddy_max_turns}"
+log_info "Generating report with provider=${generator_provider} adapter=${generator_script} model=${model:-provider-default} attempts=${generator_attempts} max_turns=${generator_max_turns}"
 
 case "$period" in
   last-week | last-7-days)
     report_kind=周报
     report_title="Agent 工作周报"
+    delivery_kind=weekly
     effort_window_rule=周报按整个统计周相对投入判断
     ;;
   *)
     report_kind=日报
     report_title="Agent 工作日报"
+    delivery_kind=daily
     effort_window_rule=日报按当天相对投入判断
     ;;
 esac
@@ -340,14 +459,14 @@ cat <<EOF
 请使用下方嵌入的当前仓库最新版 agent-work-report skill 规则，根据嵌入的工作报告上下文 JSON 生成中文${report_kind}。
 
 硬性规则：
-- 只把 asm.evidence_sessions[].evidence[].text 当作 ${period} 窗口内实际工作的证据。
+- 只把 asm.evidence_sessions[].evidence[].text 当作 ${window_label} 窗口内实际工作的证据。
 - 必须保留并总结 asm evidence 中的工作；腾讯会议信息只能增量补充，不能替代或覆盖 asm 内容。
 - tencent_meeting.meetings 只说明会议出现在用户的已结束会议历史中；smart_minutes 是二手会议上下文，不能证明代码已经完成。
 - 会议内容适合补充决策、负责人、时间点、风险和待办。会议独有主题必须写成“会议讨论/会议明确/会议待办”，不能伪装成已完成实现。
-- 没有 smart_minutes 的会议可以根据 subject 推断宽泛主题，但必须明确写“据会议名称推测”；不得从名称推断具体结论、负责人、截止时间或完成状态。
+- 没有 smart_minutes 的会议（包括 status 为 partial/unavailable 但仍返回 subject 的会议）可以根据 subject 推断宽泛主题，但必须明确写“据会议名称推测”；不得从名称推断具体结论、负责人、截止时间或完成状态。
 - 不要大段复制智能纪要，只提炼能提高日报有效性的上下文。
-- tencent_meeting.status 为 partial/unavailable 时，在风险与阻塞中简要说明会议覆盖不完整；不要因此丢弃 asm 日报。
-- 不要使用 no-evidence session、continuation summary、压缩摘要、title-only 内容来生成工作进展或后续跟进。
+- tencent_meeting.status 为 partial/unavailable 时，继续使用 asm 日报；只要有会议 subject，就按上述规则做标题兜底，不要仅因会议详情失败写“会议覆盖不完整”。没有 subject 时不得编造会议内容。
+- 不要使用 no-evidence session、continuation summary、压缩摘要来生成工作进展或后续跟进；会议 subject-only 内容只能按上述标题兜底规则写宽泛主题。
 - 标题、cwd、resume_command 只能作为 evidence 已确认后的标签或后续定位信息。
 - 写作前先逐项检查 evidence_sessions，确保每个 evidence-backed session 要么被合并进某个事项，要么因明显噪声被忽略。
 - 不要遗漏 evidence 中明确出现、且对晨会有价值的独立事项。
@@ -406,13 +525,14 @@ printf '%s\n' '--- END UNTRUSTED REPORT EVIDENCE ---'
 
 generate_report() {
   local attempt attempt_report attempt_stderr
-  for ((attempt = 1; attempt <= codebuddy_attempts; attempt++)); do
+  for ((attempt = 1; attempt <= generator_attempts; attempt++)); do
     attempt_report="${report_out}.attempt-${attempt}"
     attempt_stderr="${report_out}.attempt-${attempt}.err"
     rm -f "$attempt_report" "$attempt_stderr"
-    log_info "Generator attempt ${attempt}/${codebuddy_attempts}: prompt=${prompt_out}"
+    log_info "Generator attempt ${attempt}/${generator_attempts}: prompt=${prompt_out}"
     if REPORT_MODEL="$model" \
-      REPORT_MAX_TURNS="$codebuddy_max_turns" \
+      REPORT_MAX_TURNS="$generator_max_turns" \
+      REPORT_GENERATOR_PROVIDER="$generator_provider" \
       REPORT_CODEBUDDY_BIN="$codebuddy_bin" \
       "$generator_script" --prompt "$prompt_out" \
       > "$attempt_report" 2> "$attempt_stderr"; then
@@ -434,7 +554,7 @@ generate_report() {
       log_error "Generator attempt ${attempt} failed; stderr: $attempt_stderr"
     fi
     rm -f "$attempt_report"
-    if ((attempt < codebuddy_attempts)); then
+    if ((attempt < generator_attempts)); then
       sleep "$attempt"
     fi
   done
@@ -443,7 +563,7 @@ generate_report() {
 }
 
 if ! generate_report; then
-  log_error "Report generator failed after ${codebuddy_attempts} attempts: $report_out"
+  log_error "Report generator failed after ${generator_attempts} attempts: $report_out"
   exit 1
 fi
 
@@ -461,8 +581,14 @@ if [[ "$dry_run" == "1" ]]; then
   exit 0
 fi
 
-log_info "Delivering report with adapter=${delivery_script}"
+log_info "Delivering report with provider=${delivery_provider} adapter=${delivery_script}"
 REPORT_DELIVERY_CONFIG="$config_path" \
 REPORT_TITLE="$report_title" \
+REPORT_DELIVERY_PROVIDER="$delivery_provider" \
+REPORT_REPORT_KIND="$delivery_kind" \
+REPORT_WINDOW_LABEL="$window_label" \
+REPORT_WINDOW_START="$start_time" \
+REPORT_WINDOW_END="$end_time" \
+REPORT_LOCAL_REPORT_DIR="$local_report_dir" \
   "$delivery_script" --report "$report_out"
 log_info "Report delivery succeeded."

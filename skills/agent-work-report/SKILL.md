@@ -26,8 +26,8 @@ Use `asm report` as the source of truth. Do not inspect provider-private session
    - Load `TENCENT_MEETING_TOKEN` from the environment. For a repository-local scheduled job, source the ignored root `.env` first.
    - Use the sibling `tencent-meeting-summary` skill and run `python3 skills/tencent-meeting-summary/scripts/collect-tencent-meeting-context.py --start <start> --end <end> --output <path>` from the repository root.
    - Treat the ended-meeting list as evidence that a meeting was on the user's meeting history. Treat smart minutes as secondary meeting context, not proof of coding work.
-   - Prefer smart minutes. When they are unavailable, infer only a broad topic from the meeting subject, explicitly label it “据会议名称推测”, and never infer decisions, owners, deadlines, or completed work. Do not request recording permission or submit feedback from an unattended report job.
-   - If collection is `partial` or `unavailable`, continue with the asm report and mention the missing meeting coverage under risks.
+   - Prefer smart minutes. When they are unavailable, including when collection is `partial` or `unavailable`, use an available meeting subject to infer only a broad topic and explicitly label it “据会议名称推测”. Never infer decisions, owners, deadlines, or completed work from a subject. Do not request recording permission or submit feedback from an unattended report job.
+   - If collection is `partial` or `unavailable`, continue with the asm report and use any available meeting subjects as the fallback context. Do not add a meeting-coverage risk solely because meeting details or smart minutes were unavailable; if no subject is available, omit unverified meeting content.
 4. If the default previews are not enough to classify a session, prefer incremental loading before asking for a larger full window:
    - First incremental pass: add `--preview-messages-per-edge 2 --preview-edge-offset 2`.
    - Second incremental pass: add `--preview-messages-per-edge 2 --preview-edge-offset 4`.
@@ -36,7 +36,7 @@ Use `asm report` as the source of truth. Do not inspect provider-private session
 5. Read the JSON payload. Treat `sessions[].evidence[].text` as the only evidence that specific coding-agent work happened inside the requested period. `sessions[].previews` is kept for compatibility and has the same in-window content, but prefer `evidence` because its name encodes the reporting contract.
    - Main `sessions`, `projects`, and `totals.sessions` include only sessions with timestamped in-window evidence.
    - `unverified_sessions` contains session-record update diagnostics without trustworthy message evidence. Never infer that user work occurred from these entries.
-   - Read `coverage` before summarizing. Report `partial` or `unavailable` providers under risks when they could make the requested report incomplete.
+   - Read `coverage` before summarizing. Report `partial` or `unavailable` asm providers under risks when they could make the requested report incomplete; Tencent Meeting detail failures follow the subject-only fallback rule above.
    - Session titles are intentionally omitted from report output so a long-lived session's older topic cannot anchor the current report.
 6. Classify coding work by project path first, then merge related sessions into themes using evidence text only. Merge meeting context afterward:
    - Use meetings to clarify decisions, ownership, deadlines, risks, and follow-ups related to evidence-backed coding themes.
