@@ -301,7 +301,7 @@ func TestCLIIndexesKiroAndPrintsResumeCommand(t *testing.T) {
 	}
 
 	cmd := runKiroCommand("--since-days", "0", "--resume", "ses_kiro", "--print-exec")
-	if !strings.Contains(cmd, `cd '`+repo+`' && 'kiro-cli' '--resume-id' 'ses_kiro'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'kiro-cli' 'chat' '--resume-id' 'ses_kiro'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 

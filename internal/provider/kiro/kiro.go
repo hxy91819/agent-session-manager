@@ -121,7 +121,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
 	return session.ExecSpec{
 		Dir:  s.CWD,
-		Args: []string{"kiro-cli", "--resume-id", s.ID},
+		Args: []string{"kiro-cli", "chat", "--resume-id", s.ID},
 	}
 }
 

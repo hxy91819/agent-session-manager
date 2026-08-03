@@ -16,7 +16,7 @@ Providers:
   `kimi --session <session-id>`.
 - Kiro CLI sessions stored under `$KIRO_HOME/sessions/cli` or
   `~/.kiro/sessions/cli`. Resume runs from the original session cwd with
-  `kiro-cli --resume-id <session-id>`.
+  `kiro-cli chat --resume-id <session-id>`.
 - opencode sessions stored under `$OPENCODE_HOME/storage` or
   `~/.local/share/opencode/storage`. Resume runs from the original session cwd
   with `opencode -s <session-id>`.

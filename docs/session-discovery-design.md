@@ -62,7 +62,7 @@ External provider commands are only used for resume:
 - `codex resume <session-id>`
 - `claude --resume <session-id>`
 - `kimi --session <session-id>`
-- `kiro-cli --resume-id <session-id>`
+- `kiro-cli chat --resume-id <session-id>`
 - `opencode -s <session-id>`
 
 This keeps listing independent from provider CLI startup time and makes JSON

@@ -159,7 +159,7 @@ func TestResumeCommandUsesKiroCLIFromSessionCWD(t *testing.T) {
 	if spec.Dir != "/repo" {
 		t.Fatalf("Dir = %q", spec.Dir)
 	}
-	if strings.Join(spec.Args, " ") != "kiro-cli --resume-id ses_one" {
+	if strings.Join(spec.Args, " ") != "kiro-cli chat --resume-id ses_one" {
 		t.Fatalf("Args = %#v", spec.Args)
 	}
 }

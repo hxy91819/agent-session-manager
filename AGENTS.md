@@ -32,7 +32,7 @@ Current providers:
   `kimi --session <session-id>` from the original cwd.
 - Kiro CLI scans `$KIRO_HOME/sessions/cli` or `~/.kiro/sessions/cli`, using
   per-session JSON metadata plus companion JSONL `Prompt` records, and resumes
-  with `kiro-cli --resume-id <session-id>` from the original cwd.
+  with `kiro-cli chat --resume-id <session-id>` from the original cwd.
 - opencode scans `$OPENCODE_HOME/storage` or
   `~/.local/share/opencode/storage`, using session JSON plus project and message
   fallback files, and resumes with `opencode -s <session-id>` from the original
@@ -228,7 +228,7 @@ consume normalized sessions.
   assistant and tool records when collecting user previews.
 - Cache only the primary session JSON with `internal/sessioncache`; re-read
   prompt fallback, report previews, and cwd status on every discovery pass.
-- Keep Kiro resume as `kiro-cli --resume-id <session-id>` from the original cwd.
+- Keep Kiro resume as `kiro-cli chat --resume-id <session-id>` from the original cwd.
 
 ## opencode Provider Notes
 
