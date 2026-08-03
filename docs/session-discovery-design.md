@@ -2,7 +2,8 @@
 
 This document records the core discovery model used by
 `asm`. The manager reads provider session stores directly; it
-does not call Codex, Claude, Kimi, or opencode to list or parse sessions.
+does not call Codex, Claude, Kimi, Kiro CLI, or opencode to list or parse
+sessions.
 
 ## Goals
 
@@ -20,6 +21,7 @@ The CLI registers all providers in `cmd/asm/main.go`:
 - Codex: `internal/provider/codex`
 - Claude Code: `internal/provider/claude`
 - Kimi Code: `internal/provider/kimi`
+- Kiro CLI: `internal/provider/kiro`
 - opencode: `internal/provider/opencode`
 
 `discoverAll` runs providers concurrently. Each provider receives the same
@@ -48,6 +50,8 @@ Each provider parses its own local storage format directly:
   per-session `*.jsonl` files, and parses `sessionId`, `cwd`, native summary or
   title records, user messages, model, and branch metadata.
 - Kimi reads `~/.kimi-code/session_index.jsonl` plus per-session `state.json`.
+- Kiro CLI reads `~/.kiro/sessions/cli/<session-id>.json` metadata and the
+  companion JSONL transcript for prompt fallback and timestamped evidence.
 - opencode scans `$OPENCODE_HOME/storage` or
   `~/.local/share/opencode/storage`, reads session JSON files, and falls back to
   project worktree and message part JSON when a session does not carry cwd or
@@ -58,6 +62,7 @@ External provider commands are only used for resume:
 - `codex resume <session-id>`
 - `claude --resume <session-id>`
 - `kimi --session <session-id>`
+- `kiro-cli --resume-id <session-id>`
 - `opencode -s <session-id>`
 
 This keeps listing independent from provider CLI startup time and makes JSON
@@ -65,9 +70,9 @@ output and tests deterministic.
 
 ## File-Level Parse Cache
 
-Codex, Claude, and opencode parsing can dominate startup when stores contain
-many sessions or large active histories. To avoid reparsing unchanged files,
-discovery uses a file-level cache in `internal/sessioncache`.
+Codex, Claude, Kiro, and opencode parsing can dominate startup when stores
+contain many sessions or large active histories. To avoid reparsing unchanged
+files, discovery uses a file-level cache in `internal/sessioncache`.
 
 Cache identity:
 
@@ -86,6 +91,7 @@ The persistent cache is a simple JSON file under the user cache directory:
 
 - `asm/codex-sessions.json`
 - `asm/claude-sessions.json`
+- `asm/kiro-sessions.json`
 - `asm/opencode-sessions.json`
 
 The cache stores parse results only. Discovery still reapplies dynamic state on
@@ -98,6 +104,8 @@ each run:
   applied every time, including cache hits.
 - opencode project worktree and message title fallbacks are applied every time
   when the cached session JSON does not include cwd or title directly.
+- Kiro prompt title fallbacks and report previews are read from the companion
+  transcript every time, including on metadata cache hits.
 
 Default 30-day discovery does not prune older cache entries because those files
 were intentionally not scanned and may be needed by TUI load-more. Cache pruning
@@ -124,11 +132,12 @@ Benchmarks live next to the providers:
 - `internal/provider/codex/codex_benchmark_test.go`
 - `internal/provider/claude/claude_benchmark_test.go`
 - `internal/provider/opencode/opencode_benchmark_test.go`
+- `internal/provider/kiro/kiro_benchmark_test.go`
 
 Run them with:
 
 ```sh
-go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/opencode
+go test -run '^$' -bench 'BenchmarkDiscover' -benchmem ./internal/provider/codex ./internal/provider/claude ./internal/provider/kiro ./internal/provider/opencode
 ```
 
 Every new discovery optimization should add or update a benchmark that captures
