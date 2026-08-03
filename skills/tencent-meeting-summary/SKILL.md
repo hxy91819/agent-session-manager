@@ -33,5 +33,5 @@ Collect meeting context for the same half-open time window as the work report. K
 - Label meeting-only content as “会议讨论”, “会议明确”, or “会议待办”.
 - Do not download or reprocess full transcripts for routine reports.
 - Do not request recording permission, schedule or modify meetings, or submit feedback from unattended report jobs.
-- If smart minutes are unavailable, infer only the broad topic from the meeting subject and label it “据会议名称推测”. Do not infer decisions, owners, deadlines, or completed work from a title.
-- If collection is partial or unavailable, preserve other report sources and state the coverage limitation.
+- If smart minutes are unavailable, including when collection is `partial` or `unavailable`, infer only the broad topic from each available meeting subject and label it “据会议名称推测”. Do not infer decisions, owners, deadlines, or completed work from a title.
+- If collection is partial or unavailable, preserve other report sources and use available meeting subjects as fallback context. Do not state a meeting-coverage limitation solely because details or smart minutes failed; if no subject is available, omit unverified meeting content.

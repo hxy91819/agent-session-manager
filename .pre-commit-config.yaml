@@ -25,13 +25,13 @@ repos:
 
       - id: go-vet
         name: go vet
-        entry: go vet ./...
+        entry: env GOTOOLCHAIN=auto go vet ./...
         language: system
         pass_filenames: false
 
       - id: provider-performance-contract
         name: provider performance contract
-        entry: go run ./tools/check-provider-performance
+        entry: env GOTOOLCHAIN=auto go run ./tools/check-provider-performance
         language: system
         pass_filenames: false
 
@@ -43,12 +43,12 @@ repos:
 
       - id: go-test
         name: go test
-        entry: go test ./...
+        entry: env GOTOOLCHAIN=auto go test ./...
         language: system
         pass_filenames: false
 
       - id: golangci-lint
         name: golangci-lint
-        entry: golangci-lint run ./...
+        entry: env GOTOOLCHAIN=auto golangci-lint run ./...
         language: system
         pass_filenames: false

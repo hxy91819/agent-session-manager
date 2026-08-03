@@ -245,13 +245,24 @@ before delivery so an overview without effort levels, or one using effort
 percentages, is retried instead of being sent.
 
 Generation and delivery are separate executable adapters. The bundled
-[`codebuddy.sh`](scripts/report-generators/codebuddy.sh) adapter receives
-`--prompt <path>` and writes Markdown to stdout. The orchestrator also exports
-`REPORT_MODEL`, `REPORT_MAX_TURNS`, and `REPORT_CODEBUDDY_BIN` for generators
-that need them. The bundled
-[`telegram.sh`](scripts/report-deliveries/telegram.sh) adapter receives
-`--report <path>`; delivery adapters also receive `REPORT_DELIVERY_CONFIG` and
-`REPORT_TITLE`.
+[`ollama.sh`](scripts/report-generators/ollama.sh) is the default generator
+provider and receives `--prompt <path>`, sending the prompt to Ollama Cloud's
+OpenAI-compatible `/v1/chat/completions` endpoint. Set
+`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_REASONING_EFFORT=max`, and
+`OLLAMA_API_KEY` in the ignored `.env`; the DeepSeek default uses maximum
+thinking depth.
+The requested provider can be switched explicitly with
+`--generator-provider ollama` or `--generator-provider codebuddy`; the bundled
+[`codebuddy.sh`](scripts/report-generators/codebuddy.sh) remains available.
+The orchestrator also exports `REPORT_MODEL`, `REPORT_MAX_TURNS`, and
+`REPORT_CODEBUDDY_BIN` for providers that need them. The bundled
+[`local-file.sh`](scripts/report-deliveries/local-file.sh) is the default
+delivery provider. It writes one canonical Markdown file per report kind and
+window start under `.local/agent-work-reports/`; an existing file is kept as
+the authoritative local version and is not overwritten. Telegram remains
+available with `--delivery-provider telegram` or a custom
+[`telegram.sh`](scripts/report-deliveries/telegram.sh) adapter. Delivery
+adapters receive `--report <path>`, `REPORT_DELIVERY_CONFIG`, and `REPORT_TITLE`.
 
 Replace either side without changing report collection, validation, or retry
 behavior:
@@ -265,10 +276,12 @@ bash scripts/daily-agent-report.sh \
 A replacement generator must accept `--prompt <path>`, write only the Markdown
 report to stdout, and use stderr for diagnostics. A replacement delivery
 adapter must accept `--report <path>` and return non-zero when delivery fails.
-Copy the bundled adapters as starting points for another model or a Tencent
-Docs API integration. Keep all service credentials in the ignored `.env`,
+Copy the bundled providers as starting points for another model or a Tencent
+Docs API integration. For a one-off historical resend, pass a half-open custom
+window such as `--start 2026-07-31 --end 2026-08-01`. Keep all service
+credentials in the ignored `.env`,
 user-local configuration, or a secret manager; `.env.example` intentionally
-contains no values.
+contains no credentials.
 
 Agent report export:
 
