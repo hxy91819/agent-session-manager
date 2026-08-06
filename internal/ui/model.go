@@ -15,24 +15,30 @@ import (
 )
 
 type Model struct {
-	allSessions    []session.Session
-	sessions       []session.Session
-	projects       []session.Project
-	projectIdx     int
-	sessionIdx     int
-	sortMode       index.SortMode
-	search         textinput.Model
-	width          int
-	height         int
-	windowDays     int
-	stepDays       int
-	loading        bool
-	loadErr        string
-	providerErrors []session.ProviderError
-	message        string
-	loadMore       LoadMoreFunc
-	selected       *Selection
-	quitting       bool
+	allSessions               []session.Session
+	sessions                  []session.Session
+	projects                  []session.Project
+	projectIdx                int
+	sessionIdx                int
+	newSessionProviders       []string
+	newProviderChoices        []string
+	newProviderIdx            int
+	newSessionCWD             string
+	newProviderDefaultWasUsed bool
+	choosingNewProvider       bool
+	sortMode                  index.SortMode
+	search                    textinput.Model
+	width                     int
+	height                    int
+	windowDays                int
+	stepDays                  int
+	loading                   bool
+	loadErr                   string
+	providerErrors            []session.ProviderError
+	message                   string
+	loadMore                  LoadMoreFunc
+	selected                  *Selection
+	quitting                  bool
 }
 
 type SelectionKind string
@@ -50,6 +56,13 @@ type Selection struct {
 }
 
 type LoadMoreFunc func(days int) (session.DiscoveryResult, error)
+
+type ModelOptions struct {
+	WindowDays          int
+	StepDays            int
+	LoadMore            LoadMoreFunc
+	NewSessionProviders []string
+}
 
 type loadedSessionsMsg struct {
 	days   int
@@ -74,22 +87,32 @@ func NewWithLoader(sessions []session.Session, windowDays, stepDays int, loadMor
 }
 
 func NewWithDiscovery(result session.DiscoveryResult, windowDays, stepDays int, loadMore LoadMoreFunc) Model {
+	return NewWithDiscoveryOptions(result, ModelOptions{
+		WindowDays:          windowDays,
+		StepDays:            stepDays,
+		LoadMore:            loadMore,
+		NewSessionProviders: inferredNewSessionProviders(result.Sessions),
+	})
+}
+
+func NewWithDiscoveryOptions(result session.DiscoveryResult, opts ModelOptions) Model {
 	search := textinput.New()
 	search.Placeholder = "Search sessions"
 	search.Prompt = "/ "
 	search.CharLimit = 160
 
 	m := Model{
-		allSessions:    result.Sessions,
-		providerErrors: result.ProviderErrors,
-		sessionIdx:     1,
-		sortMode:       index.SortActive,
-		search:         search,
-		width:          120,
-		height:         32,
-		windowDays:     windowDays,
-		stepDays:       stepDays,
-		loadMore:       loadMore,
+		allSessions:         result.Sessions,
+		providerErrors:      result.ProviderErrors,
+		sessionIdx:          1,
+		newSessionProviders: uniqueProviders(opts.NewSessionProviders),
+		sortMode:            index.SortActive,
+		search:              search,
+		width:               120,
+		height:              32,
+		windowDays:          opts.WindowDays,
+		stepDays:            opts.StepDays,
+		loadMore:            opts.LoadMore,
 	}
 	if m.stepDays <= 0 {
 		m.stepDays = defaultStepDays
@@ -148,6 +171,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 			return m, cmd
 		}
+		if m.choosingNewProvider {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				m.quitting = true
+				return m, tea.Quit
+			case "esc":
+				m.closeNewSessionChooser()
+				return m, nil
+			case "up", "k":
+				if m.newProviderIdx > 0 {
+					m.newProviderIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.newProviderIdx < len(m.newProviderChoices)-1 {
+					m.newProviderIdx++
+				}
+				return m, nil
+			case "enter":
+				if m.newProviderIdx < 0 || m.newProviderIdx >= len(m.newProviderChoices) {
+					return m, nil
+				}
+				m.selected = &Selection{
+					Kind:     SelectionNew,
+					Provider: m.newProviderChoices[m.newProviderIdx],
+					CWD:      m.newSessionCWD,
+				}
+				m.quitting = true
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -156,6 +211,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			m.search.Focus()
 			return m, textinput.Blink
+		case "n":
+			m.openNewSessionChooser()
+			return m, nil
 		case "s":
 			m.message = ""
 			m.cycleSort()
@@ -278,7 +336,10 @@ func (m Model) View() string {
 	}
 
 	headerTitle := "Session Manager"
-	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter open · / search · s sort · q quit"
+	headerHint := "←/→ projects · ↑/↓ sessions · pgup/pgdn page · enter open · n new · / search · s sort · q quit"
+	if m.choosingNewProvider {
+		headerHint = "↑/↓ choose agent · enter start · esc back · q quit"
+	}
 	displayTitle := truncate(headerTitle, viewportWidth)
 	header := titleStyle.Render(displayTitle)
 	if hintWidth := viewportWidth - lipgloss.Width(displayTitle) - 2; hintWidth > 0 {
@@ -428,20 +489,95 @@ func (m Model) currentProjectNewSession() (session.Session, bool) {
 		return session.Session{}, false
 	}
 	cwd := m.projects[m.projectIdx].CWD
-	var newest session.Session
-	// New sessions use the project's most recently active provider, not the
-	// current display order, because sort/search can reorder visible rows.
+	if !m.projectCWDAvailable(cwd) {
+		return session.Session{}, false
+	}
+	provider, _ := m.defaultNewSessionProvider(cwd)
+	if provider == "" && !m.supportsNewSessionProvider("") {
+		return session.Session{}, false
+	}
+	return session.Session{Provider: provider, CWD: cwd}, true
+}
+
+func (m Model) projectCWDAvailable(cwd string) bool {
 	for _, item := range m.allSessions {
-		// The synthetic "new" row must inherit a provider that can actually
-		// start work; index-only or missing-cwd sessions remain resumable rows.
-		if item.CWD != cwd || cwdUnavailable(item) {
+		if item.CWD == cwd && !sessionCWDUnavailable(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) defaultNewSessionProvider(cwd string) (string, bool) {
+	var newest session.Session
+	for _, item := range m.allSessions {
+		if item.CWD != cwd || sessionCWDUnavailable(item) || !m.supportsNewSessionProvider(item.Provider) {
 			continue
 		}
 		if newest.ID == "" || item.UpdatedAt.After(newest.UpdatedAt) {
 			newest = item
 		}
 	}
-	return newest, newest.ID != ""
+	if newest.ID != "" {
+		return newest.Provider, true
+	}
+
+	for _, item := range m.allSessions {
+		if !m.supportsNewSessionProvider(item.Provider) {
+			continue
+		}
+		if newest.ID == "" || item.UpdatedAt.After(newest.UpdatedAt) {
+			newest = item
+		}
+	}
+	if newest.ID != "" {
+		return newest.Provider, true
+	}
+	if len(m.newSessionProviders) > 0 {
+		return m.newSessionProviders[0], false
+	}
+	return "", false
+}
+
+func (m Model) supportsNewSessionProvider(provider string) bool {
+	for _, available := range m.newSessionProviders {
+		if available == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) openNewSessionChooser() {
+	newSession, ok := m.currentProjectNewSession()
+	if !ok {
+		return
+	}
+	defaultProvider, defaultWasUsed := m.defaultNewSessionProvider(newSession.CWD)
+	choices := make([]string, 0, len(m.newSessionProviders))
+	choices = append(choices, defaultProvider)
+	for _, provider := range m.newSessionProviders {
+		if provider != defaultProvider {
+			choices = append(choices, provider)
+		}
+	}
+	if len(choices) == 0 {
+		return
+	}
+	m.newProviderChoices = choices
+	m.newProviderIdx = 0
+	m.newSessionCWD = newSession.CWD
+	m.newProviderDefaultWasUsed = defaultWasUsed
+	m.choosingNewProvider = true
+	m.message = ""
+}
+
+func (m *Model) closeNewSessionChooser() {
+	m.choosingNewProvider = false
+	m.newProviderChoices = nil
+	m.newProviderIdx = 0
+	m.newSessionCWD = ""
+	m.newProviderDefaultWasUsed = false
 }
 
 func (m Model) defaultSessionIdx() int {
@@ -525,6 +661,9 @@ func (m Model) projectsView(height int, width int) string {
 }
 
 func (m Model) sessionsView(height int, width int) string {
+	if m.choosingNewProvider {
+		return m.newSessionChooserView(height, width)
+	}
 	items := m.currentSessions()
 	if len(items) == 0 {
 		if m.searchActive() {
@@ -581,13 +720,19 @@ func (m Model) sessionsView(height int, width int) string {
 		selected := newSession
 		b.WriteString(mutedStyle.Render(detailLine("action", "new session", width)))
 		b.WriteByte('\n')
-		b.WriteString(mutedStyle.Render(detailLine("provider", providerTag(selected.Provider), width)))
+		provider := providerTag(selected.Provider)
+		if _, wasUsed := m.defaultNewSessionProvider(selected.CWD); wasUsed {
+			provider += " (last used)"
+		}
+		b.WriteString(mutedStyle.Render(detailLine("provider", provider, width)))
 		b.WriteByte('\n')
 		b.WriteString(mutedStyle.Render(detailLine("cwd", selected.CWD, width)))
 		if cwdUnavailable(selected) {
 			b.WriteByte('\n')
 			b.WriteString(mutedStyle.Render(truncate(missingCWDMessage(selected), width)))
 		}
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Render(truncate("enter start · n choose agent", width)))
 		b.WriteByte('\n')
 		b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, total, limit), width)))
 		return strings.TrimRight(b.String(), "\n")
@@ -613,6 +758,47 @@ func (m Model) sessionsView(height int, width int) string {
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, total, limit), width)))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (m Model) newSessionChooserView(height int, width int) string {
+	if len(m.newProviderChoices) == 0 {
+		return mutedStyle.Render("No coding agents available")
+	}
+	rowLimit := height - 3
+	if rowLimit < 1 {
+		rowLimit = 1
+	}
+	start := windowStart(m.newProviderIdx, rowLimit, len(m.newProviderChoices))
+	end := start + rowLimit
+	if end > len(m.newProviderChoices) {
+		end = len(m.newProviderChoices)
+	}
+
+	lines := []string{
+		sectionStyle.Render(truncate("Choose coding agent", width)),
+		mutedStyle.Render(detailLine("cwd", m.newSessionCWD, width)),
+	}
+	for i := start; i < end; i++ {
+		provider := providerTag(m.newProviderChoices[i])
+		if i == 0 {
+			if m.newProviderDefaultWasUsed {
+				provider += "  last used · default"
+			} else {
+				provider += "  default"
+			}
+		}
+		line := truncate(provider, width)
+		if i == m.newProviderIdx {
+			line = selectedStyle.Render(line)
+		}
+		lines = append(lines, line)
+	}
+	footer := "↑/↓ choose · enter start · esc back"
+	if len(m.newProviderChoices) > rowLimit {
+		footer = fmt.Sprintf("%s · %s", rangeStatus(start, end, len(m.newProviderChoices)), footer)
+	}
+	lines = append(lines, mutedStyle.Render(truncate(footer, width)))
+	return fitLines(strings.Join(lines, "\n"), height)
 }
 
 func (m Model) searchActive() bool {
@@ -702,6 +888,34 @@ func fitLines(value string, height int) string {
 
 func cwdUnavailable(s session.Session) bool {
 	return s.Metadata["cwd_missing"] == "true" || s.Metadata["cwd_error"] != "" || s.Metadata["resume_unsupported"] != ""
+}
+
+func sessionCWDUnavailable(s session.Session) bool {
+	return s.Metadata["cwd_missing"] == "true" || s.Metadata["cwd_error"] != ""
+}
+
+func inferredNewSessionProviders(sessions []session.Session) []string {
+	providers := make([]string, 0)
+	for _, item := range sessions {
+		if item.Metadata["resume_unsupported"] != "" {
+			continue
+		}
+		providers = append(providers, item.Provider)
+	}
+	return uniqueProviders(providers)
+}
+
+func uniqueProviders(providers []string) []string {
+	seen := make(map[string]struct{}, len(providers))
+	unique := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		if _, ok := seen[provider]; ok {
+			continue
+		}
+		seen[provider] = struct{}{}
+		unique = append(unique, provider)
+	}
+	return unique
 }
 
 func missingCWDMessage(s session.Session) string {

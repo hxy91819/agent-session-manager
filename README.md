@@ -347,9 +347,14 @@ original timestamp. Oversized known assistant/tool outputs are drained without
 reducing user-evidence coverage; an explicit partial-coverage warning remains
 only when a record may contain user evidence that cannot be identified safely.
 
+The synthetic `new` row starts a fresh session with the project's most recently
+used launchable agent. Press `n` from anywhere in the project to choose another
+agent; the last-used agent is highlighted as the default.
+
 TUI keys:
 
-- `enter`: resume selected session
+- `enter`: resume the selected session, start the selected `new` action, or confirm an agent choice
+- `n`: choose an agent for a new session in the current project
 - `left` / `right`: switch projects
 - `up` / `down`: switch sessions
 - `pgup` / `pgdown`: switch session pages
@@ -357,6 +362,7 @@ TUI keys:
 - `/`: search sessions
 - `s`: cycle sort mode
 - `m`: load 30 more days of history
+- `esc`: close the new-session agent chooser
 - `q`: quit
 
 Sessions or project counts marked with `!` have a missing or unavailable cwd and

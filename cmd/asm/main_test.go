@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
@@ -147,6 +149,52 @@ func TestDispatchSelectionPrintsNewCommand(t *testing.T) {
 
 	if !strings.Contains(out, `cd '/repo with spaces' && 'codex'`) {
 		t.Fatalf("unexpected command: %s", out)
+	}
+}
+
+func TestNewSessionProviderNamesIncludesOnlyLaunchableProviders(t *testing.T) {
+	got := newSessionProviderNames(newProviders("", "", "", "", "", "", "", "", "", ""))
+	want := []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("new-session providers = %#v, want %#v", got, want)
+	}
+}
+
+func TestTUIProviderChoiceDispatchesNewCommand(t *testing.T) {
+	// A process-level TUI test is not portable in this repository because
+	// Bubble Tea opens /dev/tty. Drive the complete model-selection-to-command
+	// boundary here instead, without executing the selected agent command.
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := ui.NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{
+		{ID: "codex-session", Provider: "codex", CWD: "/repo with spaces", UpdatedAt: base},
+		{ID: "claude-session", Provider: "claude", CWD: "/repo with spaces", UpdatedAt: base.Add(time.Hour)},
+	}}, ui.ModelOptions{
+		WindowDays:          30,
+		StepDays:            30,
+		NewSessionProviders: []string{"codex", "claude"},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(ui.Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(ui.Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	selected, ok := next.(ui.Model).Selected()
+	if !ok {
+		t.Fatal("expected provider chooser selection")
+	}
+
+	out := captureStdout(t, func() {
+		err := dispatchSelection(context.Background(), []session.Provider{
+			staticProvider{name: "codex"},
+			staticProvider{name: "claude"},
+		}, selected, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, `cd '/repo with spaces' && 'codex'`) {
+		t.Fatalf("unexpected selected new-session command: %s", out)
 	}
 }
 

@@ -142,6 +142,7 @@ parsing, index behavior, launcher behavior, and UI model behavior.
   - `/`: search
   - `s`: cycle sort
   - `m`: load more history
+  - `n`: choose an agent for a new session in the current project
   - `enter`: resume when cwd is available
   - `q`: quit
 

@@ -56,6 +56,159 @@ func TestModelUpThenEnterSelectsNewSession(t *testing.T) {
 	}
 }
 
+func TestModelNewShortcutChoosesDifferentProvider(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := New([]session.Session{
+		{ID: "codex-session", Provider: "codex", CWD: "/repo", UpdatedAt: base},
+		{ID: "claude-session", Provider: "claude", CWD: "/repo", UpdatedAt: base.Add(time.Hour)},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(Model)
+	view := m.View()
+	if !strings.Contains(view, "Choose coding agent") ||
+		!strings.Contains(view, "claude") ||
+		!strings.Contains(view, "last used · default") ||
+		!strings.Contains(view, "codex") {
+		t.Fatalf("new-session chooser missing providers or default:\n%s", view)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+	if !ok {
+		t.Fatal("expected a selected new-session action")
+	}
+	if got.Kind != SelectionNew || got.Provider != "codex" || got.CWD != "/repo" {
+		t.Fatalf("selection = %#v, want new codex session in /repo", got)
+	}
+}
+
+func TestModelNewSessionChooserIncludesProviderWithoutProjectHistory(t *testing.T) {
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{{
+		ID:        "claude-session",
+		Provider:  "claude",
+		CWD:       "/repo",
+		UpdatedAt: time.Now(),
+	}}}, ModelOptions{
+		WindowDays:          defaultWindowDays,
+		StepDays:            defaultStepDays,
+		NewSessionProviders: []string{"codex", "claude", "kimi"},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	view := next.(Model).View()
+	for _, provider := range []string{"claude", "codex", "kimi"} {
+		if !strings.Contains(view, provider) {
+			t.Fatalf("chooser missing configured provider %q:\n%s", provider, view)
+		}
+	}
+}
+
+func TestModelNewSessionChooserEscapeReturnsToSessions(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "codex-session",
+		Provider:  "codex",
+		CWD:       "/repo",
+		UpdatedAt: time.Now(),
+	}})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if _, ok := m.Selected(); ok {
+		t.Fatal("escape should not select a new session")
+	}
+	if strings.Contains(m.View(), "Choose coding agent") || !strings.Contains(m.View(), "codex-session") {
+		t.Fatalf("escape did not return to the session list:\n%s", m.View())
+	}
+}
+
+func TestModelNewSessionChooserKeepsOriginalProjectAcrossRefresh(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{{
+		ID:        "target-session",
+		Provider:  "codex",
+		CWD:       "/target",
+		UpdatedAt: base,
+	}}}, ModelOptions{
+		WindowDays:          defaultWindowDays,
+		StepDays:            defaultStepDays,
+		NewSessionProviders: []string{"codex", "claude"},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(Model)
+	next, _ = m.Update(loadedSessionsMsg{
+		days: defaultWindowDays + defaultStepDays,
+		result: session.DiscoveryResult{Sessions: []session.Session{
+			{ID: "other-session", Provider: "claude", CWD: "/other", UpdatedAt: base.Add(time.Hour)},
+			{ID: "target-session", Provider: "codex", CWD: "/target", UpdatedAt: base},
+		}},
+	})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+	if !ok || got.CWD != "/target" {
+		t.Fatalf("selection = %#v, ok=%v, want chooser's original /target cwd", got, ok)
+	}
+}
+
+func TestModelCanStartSupportedProviderFromDiscoverOnlyProject(t *testing.T) {
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{{
+		ID:        "agent:main:main",
+		Provider:  "openclaw",
+		CWD:       "/repo",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"resume_unsupported": "OpenClaw resume is not supported by asm yet"},
+	}}}, ModelOptions{
+		WindowDays:          defaultWindowDays,
+		StepDays:            defaultStepDays,
+		NewSessionProviders: []string{"codex", "claude"},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(Model)
+	if view := m.View(); !strings.Contains(view, "codex") || strings.Contains(view, "openclaw  last used") {
+		t.Fatalf("chooser should fall back to a launchable provider:\n%s", view)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+	if !ok || got.Kind != SelectionNew || got.Provider != "codex" || got.CWD != "/repo" {
+		t.Fatalf("selection = %#v, ok=%v, want new codex session in /repo", got, ok)
+	}
+}
+
+func TestModelNewSessionChooserFallsBackToGloballyLastUsedProvider(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{
+		{
+			ID:        "openclaw-session",
+			Provider:  "openclaw",
+			CWD:       "/target",
+			UpdatedAt: base.Add(2 * time.Hour),
+			Metadata:  map[string]string{"resume_unsupported": "OpenClaw resume is not supported by asm yet"},
+		},
+		{ID: "claude-session", Provider: "claude", CWD: "/other", UpdatedAt: base.Add(time.Hour)},
+		{ID: "codex-session", Provider: "codex", CWD: "/other", UpdatedAt: base},
+	}}, ModelOptions{
+		WindowDays:          defaultWindowDays,
+		StepDays:            defaultStepDays,
+		NewSessionProviders: []string{"codex", "claude"},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got, ok := next.(Model).Selected()
+	if !ok || got.Provider != "claude" || got.CWD != "/target" {
+		t.Fatalf("selection = %#v, ok=%v, want globally last-used claude in /target", got, ok)
+	}
+}
+
 func TestModelNewSessionUsesNewestProjectProviderDespiteSortOrder(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	m := New([]session.Session{
@@ -501,6 +654,41 @@ func TestSessionsViewShowsProviderTags(t *testing.T) {
 	}
 	if !strings.Contains(view, "provider: claude") {
 		t.Fatalf("view missing selected provider detail:\n%s", view)
+	}
+}
+
+func TestNewSessionChooserFitsContentHeightAndWidth(t *testing.T) {
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{{
+		ID:        "codex-session",
+		Provider:  "codex",
+		CWD:       "/repo/包含很长中文名字的项目路径",
+		UpdatedAt: time.Now(),
+	}}}, ModelOptions{
+		WindowDays: defaultWindowDays,
+		StepDays:   defaultStepDays,
+		NewSessionProviders: []string{
+			"codex",
+			"claude",
+			"kimi",
+			"opencode",
+			"codebuddy",
+			"cursor",
+		},
+	})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = next.(Model)
+
+	view := m.sessionsView(7, 32)
+	if got := lipgloss.Height(view); got > 7 {
+		t.Fatalf("height = %d, want <= 7\n%s", got, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 32 {
+			t.Fatalf("line width = %d, want <= 32\n%s", got, line)
+		}
+	}
+	if !strings.Contains(view, "showing 1-4/6") {
+		t.Fatalf("chooser missing clipped range:\n%s", view)
 	}
 }
 
