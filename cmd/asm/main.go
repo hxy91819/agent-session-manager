@@ -179,7 +179,12 @@ func run(ctx context.Context, args []string) error {
 		})
 	}
 
-	model, err := tea.NewProgram(ui.NewWithDiscovery(discovery, cfg.sinceDays, 30, loadSessions), tea.WithAltScreen()).Run()
+	model, err := tea.NewProgram(ui.NewWithDiscoveryOptions(discovery, ui.ModelOptions{
+		WindowDays:          cfg.sinceDays,
+		StepDays:            30,
+		LoadMore:            loadSessions,
+		NewSessionProviders: newSessionProviderNames(providers),
+	}), tea.WithAltScreen()).Run()
 	if err != nil {
 		return err
 	}
@@ -594,6 +599,18 @@ func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, openc
 		openclaw.New(openclawHome),
 		zcode.New(zcodeHome),
 	}
+}
+
+func newSessionProviderNames(providers []session.Provider) []string {
+	names := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		spec := provider.NewCommand("")
+		if spec.UnsupportedReason != "" || len(spec.Args) == 0 {
+			continue
+		}
+		names = append(names, provider.Name())
+	}
+	return names
 }
 
 func discoverAll(providers []session.Provider, limit int, sinceDays int) session.DiscoveryResult {
