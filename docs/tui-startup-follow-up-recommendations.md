@@ -101,12 +101,11 @@ user-preview evidence 路径。
 完整资源、raw path、cache/RSS 取舍和 cross-agent matrix 见性能基线文档 P2 节。
 本项保留并停止，不进入 P3。
 
-### 4. P3：Codex dynamic title index 增量化
+### 4. P3：Codex dynamic title index 增量化（已完成）
 
-状态：待从 P2 合并提交 `4053965` 开始独立执行，工作分支为
-`agent/tui-startup-p3`。P0 后 Codex 非 primary 热成本中，`session_index`/`history`
-dynamic side input 约 36 ms；P2 后真实热启动中位数约 82 ms，因此 P3 值得重新验证，
-但该历史估算不能代替本项 base。
+P3 已从 P2 合并提交 `4053965` 独立执行，工作分支为 `agent/tui-startup-p3`。测试提交
+`af07933`，生产实现 `cffdfb3`。独立 base 确认两个 title index 的重复全量解析在
+producer-schema fixture 中为 27.747 ms，约占当时真实热启动三分之一，实施门槛成立。
 
 先测试和测量，后实现。必须重新采集独立 P3 base，并分解普通 discovery 的热路径；
 只有确认 `session_index.jsonl`/`history.jsonl` 的重复全量解析仍是剩余关键路径，且预期
@@ -138,6 +137,15 @@ provider performance contract、`golangci-lint`、`go test ./...`、build、pre-
 `behavior-e2e-validation`、`cross-agent-pr-review` 和 `autoreview`。将 raw 临时路径、
 独立 base/after、cache/RSS 取舍及最终决策追加到性能基线和本文档。P3 不顺带实施其他
 provider 优化或后续性能项。
+
+2026-08-07 已完成统一门槛：相同 fixture wall time `-66.82%`、B/op `-49.26%`、
+allocs/op `-74.37%`；真实 title-index source bytes 从 3,414,037 降至 213,495
+（`-93.75%`）。冻结真实 store 并稳定 30 天窗口后的公共 runner 中，冷启动中位数
+`3.941→4.046 s`（`+2.65%`），热启动 `77.24→44.24 ms`（`-42.72%`）；cache 增加
+约 151 KiB，RSS 无显著风险。1196 sessions、90 projects、provider counts、0 error 和
+两类不可逆哈希完全一致；last-week 的 311 条 evidence 哈希与聚合哈希也完全一致。
+完整 raw path、无效 live-run 说明、cache/RSS 取舍、cross-agent matrix 和命令见性能
+基线文档 P3 节。P3 决定保留并停止，不进入其他 provider 或后续性能项。
 
 ### 每个优化项的统一执行门槛
 
