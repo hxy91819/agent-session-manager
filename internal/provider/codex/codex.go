@@ -3,6 +3,8 @@ package codex
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -27,6 +29,8 @@ const (
 	desktopRequestMarker     = "## My request for Codex:"
 	oversizedRecordEdgeBytes = 64 * 1024
 	oversizedTextEdgeBytes   = 4 * 1024
+	incrementalHashEdgeBytes = 64 * 1024
+	minimumIncrementalBytes  = 1024 * 1024
 )
 
 type Provider struct {
@@ -81,12 +85,18 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		s, ok := cache.Get(id)
 		if !ok {
+			var state []byte
+			if previousID, previous, previousState, found := cache.GetLatest(Name, file.Path); found {
+				s, state, ok = parseSessionFileIncremental(file.Path, id, previousID, previous, previousState)
+			}
 			var err error
-			s, err = parseSessionFile(file.Path)
+			if !ok {
+				s, state, err = parseSessionFileWithState(file.Path, id.Size)
+			}
 			if err != nil || s.ID == "" || s.CWD == "" {
 				continue
 			}
-			s = cache.Put(id, s)
+			s = cache.PutWithState(id, s, state)
 		}
 		if s.ID == "" || s.CWD == "" {
 			continue
@@ -327,19 +337,139 @@ type messageContent struct {
 	InputText string `json:"input_text"`
 }
 
-func parseSessionFile(path string) (session.Session, error) {
+type incrementalParseState struct {
+	Offset     int64  `json:"offset"`
+	HeadSHA256 string `json:"head_sha256"`
+	TailSHA256 string `json:"tail_sha256"`
+}
+
+func parseSessionFileWithState(path string, expectedSize int64) (session.Session, []byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return session.Session{}, err
+		return session.Session{}, nil, err
 	}
 	defer func() { _ = f.Close() }()
-	return parseSession(f)
+
+	out, stopped, err := parseSessionInto(f, session.Session{})
+	if err != nil {
+		return out, nil, err
+	}
+	if expectedSize < minimumIncrementalBytes || stopped ||
+		!readerAtEnd(f, expectedSize) || !hasTrailingNewline(f, expectedSize) {
+		return out, nil, nil
+	}
+	head, tail, ok := prefixBoundaryHashes(f, expectedSize)
+	if !ok {
+		return out, nil, nil
+	}
+	state, err := json.Marshal(incrementalParseState{
+		Offset:     expectedSize,
+		HeadSHA256: head,
+		TailSHA256: tail,
+	})
+	return out, state, err
+}
+
+func parseSessionFileIncremental(
+	path string,
+	currentID sessioncache.FileIdentity,
+	previousID sessioncache.FileIdentity,
+	previous session.Session,
+	rawState []byte,
+) (session.Session, []byte, bool) {
+	var state incrementalParseState
+	if json.Unmarshal(rawState, &state) != nil ||
+		state.Offset <= 0 || state.Offset != previousID.Size || currentID.Size <= state.Offset {
+		return session.Session{}, nil, false
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return session.Session{}, nil, false
+	}
+	defer func() { _ = f.Close() }()
+	head, tail, ok := prefixBoundaryHashes(f, state.Offset)
+	if !ok || head != state.HeadSHA256 || tail != state.TailSHA256 {
+		return session.Session{}, nil, false
+	}
+	if _, err := f.Seek(state.Offset, io.SeekStart); err != nil {
+		return session.Session{}, nil, false
+	}
+
+	out, stopped, err := parseSessionInto(f, previous)
+	if err != nil {
+		return session.Session{}, nil, false
+	}
+	var nextState []byte
+	if !stopped && readerAtEnd(f, currentID.Size) && hasTrailingNewline(f, currentID.Size) {
+		head, tail, ok = prefixBoundaryHashes(f, currentID.Size)
+		if !ok {
+			return session.Session{}, nil, false
+		}
+		nextState, err = json.Marshal(incrementalParseState{
+			Offset:     currentID.Size,
+			HeadSHA256: head,
+			TailSHA256: tail,
+		})
+		if err != nil {
+			return session.Session{}, nil, false
+		}
+	}
+	return out, nextState, true
+}
+
+func readerAtEnd(f *os.File, expectedSize int64) bool {
+	offset, err := f.Seek(0, io.SeekCurrent)
+	return err == nil && offset == expectedSize
+}
+
+func hasTrailingNewline(f *os.File, size int64) bool {
+	if size <= 0 {
+		return false
+	}
+	var last [1]byte
+	_, err := f.ReadAt(last[:], size-1)
+	return err == nil && last[0] == '\n'
+}
+
+func prefixBoundaryHashes(f *os.File, size int64) (string, string, bool) {
+	if size <= 0 {
+		return "", "", false
+	}
+	// Hashing the whole old prefix would preserve the original O(file size)
+	// startup cost. The producer's append-only contract plus both 64 KiB edges
+	// rejects edge-altering replacements, prefix rewrites, and append-boundary
+	// rewrites without rereading a multi-megabyte rollout; size checks reject
+	// truncation separately.
+	edgeSize := min(size, incrementalHashEdgeBytes)
+	head := make([]byte, edgeSize)
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return "", "", false
+	}
+	tail := make([]byte, edgeSize)
+	if _, err := f.ReadAt(tail, size-edgeSize); err != nil {
+		return "", "", false
+	}
+	headSum := sha256.Sum256(head)
+	tailSum := sha256.Sum256(tail)
+	return formatSHA256(headSum[:]), formatSHA256(tailSum[:]), true
+}
+
+func formatSHA256(sum []byte) string {
+	return hex.EncodeToString(sum)
 }
 
 func parseSession(r io.Reader) (session.Session, error) {
-	var out session.Session
-	out.Metadata = make(map[string]string)
-	haveSessionMeta := false
+	out, _, err := parseSessionInto(r, session.Session{})
+	return out, err
+}
+
+func parseSessionInto(r io.Reader, out session.Session) (session.Session, bool, error) {
+	if out.Metadata == nil {
+		out.Metadata = make(map[string]string)
+	}
+	haveSessionMeta := out.ID != ""
+	stoppedAtInheritedHistory := false
 
 	oversized, err := readCodexRecords(r, func(line []byte) bool {
 		var rec rawRecord
@@ -354,6 +484,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 				if parentID := out.Metadata[session.MetadataParentThreadID]; parentID != "" {
 					var meta sessionMeta
 					if json.Unmarshal(rec.Payload, &meta) == nil && meta.ID == parentID {
+						stoppedAtInheritedHistory = true
 						return false
 					}
 				}
@@ -401,7 +532,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	if oversized > 0 {
 		markReportEvidencePartial(out.Metadata, oversizedJSONLRecordNote)
 	}
-	return out, err
+	return out, stoppedAtInheritedHistory, err
 }
 
 func isNonInteractiveSessionMeta(meta sessionMeta) bool {

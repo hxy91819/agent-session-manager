@@ -42,6 +42,8 @@ type Cache struct {
 	shards           map[int]map[string]Entry
 	loadedShards     map[int]bool
 	dirtyShards      map[int]bool
+	states           map[string][]byte
+	shardStates      map[int]map[string][]byte
 	renameFile       func(string, string) error
 }
 
@@ -54,16 +56,18 @@ type Entry struct {
 }
 
 type manifest struct {
-	Version    int              `json:"version"`
-	ShardCount int              `json:"shard_count"`
-	Generation string           `json:"generation"`
-	Inline     bool             `json:"inline,omitempty"`
-	Entries    map[string]Entry `json:"entries,omitempty"`
+	Version    int               `json:"version"`
+	ShardCount int               `json:"shard_count"`
+	Generation string            `json:"generation"`
+	Inline     bool              `json:"inline,omitempty"`
+	Entries    map[string]Entry  `json:"entries,omitempty"`
+	States     map[string][]byte `json:"states,omitempty"`
 }
 
 type shardFile struct {
-	Version int              `json:"version"`
-	Entries map[string]Entry `json:"entries"`
+	Version int               `json:"version"`
+	Entries map[string]Entry  `json:"entries"`
+	States  map[string][]byte `json:"states,omitempty"`
 }
 
 func DefaultPath(provider string) (string, error) {
@@ -111,6 +115,9 @@ func loadWithShardCount(path string, shardCount int) *Cache {
 			cache.inline = true
 			cache.shardCount = 1
 			cache.shards[0] = stored.Entries
+			if stored.States != nil {
+				cache.shardStates = map[int]map[string][]byte{0: stored.States}
+			}
 			if cache.shards[0] == nil {
 				cache.shards[0] = make(map[string]Entry)
 			}
@@ -133,7 +140,25 @@ func (c *Cache) Get(id FileIdentity) (session.Session, bool) {
 	return cloneSession(entry.Session), true
 }
 
+func (c *Cache) GetLatest(provider, path string) (FileIdentity, session.Session, []byte, bool) {
+	c.initialize("")
+	entry, ok := c.entry(Key(provider, path))
+	if !ok || entry.Provider != provider || entry.Path != path {
+		return FileIdentity{}, session.Session{}, nil, false
+	}
+	return FileIdentity{
+		Provider: provider,
+		Path:     path,
+		Size:     entry.Size,
+		ModTime:  time.Unix(0, entry.ModTimeUnixNano),
+	}, cloneSession(entry.Session), append([]byte(nil), c.state(Key(provider, path))...), true
+}
+
 func (c *Cache) Put(id FileIdentity, s session.Session) session.Session {
+	return c.PutWithState(id, s, nil)
+}
+
+func (c *Cache) PutWithState(id FileIdentity, s session.Session, state []byte) session.Session {
 	c.initialize("")
 	s.Title = session.NormalizeTitle(s.Title)
 	entry := Entry{
@@ -148,11 +173,13 @@ func (c *Cache) Put(id FileIdentity, s session.Session) session.Session {
 		shard := c.shardForKey(key)
 		c.loadShard(shard)
 		c.shards[shard][key] = entry
+		c.setShardState(shard, key, state)
 		c.dirtyShards[shard] = true
 		return s
 	}
 	c.loadLegacy()
 	c.Entries[key] = entry
+	c.setState(key, state)
 	c.dirty = true
 	return s
 }
@@ -165,6 +192,7 @@ func (c *Cache) Keep(keys map[string]struct{}) {
 			for key := range c.shards[shard] {
 				if _, ok := keys[key]; !ok {
 					delete(c.shards[shard], key)
+					delete(c.shardStates[shard], key)
 					c.dirtyShards[shard] = true
 				}
 			}
@@ -175,6 +203,7 @@ func (c *Cache) Keep(keys map[string]struct{}) {
 	for key := range c.Entries {
 		if _, ok := keys[key]; !ok {
 			delete(c.Entries, key)
+			delete(c.states, key)
 			c.dirty = true
 		}
 	}
@@ -234,6 +263,41 @@ func (c *Cache) entry(key string) (Entry, bool) {
 	return entry, ok
 }
 
+func (c *Cache) state(key string) []byte {
+	if c.useShards {
+		return c.shardStates[c.shardForKey(key)][key]
+	}
+	return c.states[key]
+}
+
+func (c *Cache) setState(key string, state []byte) {
+	if len(state) == 0 {
+		delete(c.states, key)
+		return
+	}
+	if c.states == nil {
+		c.states = make(map[string][]byte)
+	}
+	c.states[key] = append([]byte(nil), state...)
+}
+
+func (c *Cache) setShardState(shard int, key string, state []byte) {
+	if len(state) == 0 {
+		if c.shardStates == nil {
+			return
+		}
+		delete(c.shardStates[shard], key)
+		return
+	}
+	if c.shardStates == nil {
+		c.shardStates = make(map[int]map[string][]byte)
+	}
+	if c.shardStates[shard] == nil {
+		c.shardStates[shard] = make(map[string][]byte)
+	}
+	c.shardStates[shard][key] = append([]byte(nil), state...)
+}
+
 func (c *Cache) loadLegacy() {
 	if c.legacyLoaded {
 		if c.Entries == nil {
@@ -257,6 +321,7 @@ func (c *Cache) loadLegacy() {
 	if stored.Entries != nil {
 		c.Entries = stored.Entries
 	}
+	c.states = stored.States
 	c.migrationPending = true
 }
 
@@ -275,6 +340,12 @@ func (c *Cache) loadShard(shard int) {
 		return
 	}
 	c.shards[shard] = stored.Entries
+	if stored.States != nil {
+		if c.shardStates == nil {
+			c.shardStates = make(map[int]map[string][]byte)
+		}
+		c.shardStates[shard] = stored.States
+	}
 }
 
 func (c *Cache) saveDirtyShards() error {
@@ -285,6 +356,7 @@ func (c *Cache) saveDirtyShards() error {
 		if err := c.writeJSONAtomically(manifestPath(c.path), manifest{
 			Version: Version, ShardCount: 1, Generation: c.generation,
 			Inline: true, Entries: c.shards[0],
+			States: c.shardStates[0],
 		}); err != nil {
 			return err
 		}
@@ -297,7 +369,7 @@ func (c *Cache) saveDirtyShards() error {
 	}
 	sort.Ints(shards)
 	for _, shard := range shards {
-		if err := c.writeJSONAtomically(shardPath(c.path, c.generation, shard), shardFile{Version: Version, Entries: c.shards[shard]}); err != nil {
+		if err := c.writeJSONAtomically(shardPath(c.path, c.generation, shard), shardFile{Version: Version, Entries: c.shards[shard], States: c.shardStates[shard]}); err != nil {
 			return err
 		}
 		delete(c.dirtyShards, shard)
@@ -311,6 +383,7 @@ func (c *Cache) migrateLegacy() error {
 		if err := c.writeJSONAtomically(manifestPath(c.path), manifest{
 			Version: Version, ShardCount: 1, Generation: generation,
 			Inline: true, Entries: c.Entries,
+			States: c.states,
 		}); err != nil {
 			return err
 		}
@@ -320,6 +393,7 @@ func (c *Cache) migrateLegacy() error {
 		c.shardCount = 1
 		c.generation = generation
 		c.shards = map[int]map[string]Entry{0: c.Entries}
+		c.shardStates = map[int]map[string][]byte{0: c.states}
 		c.loadedShards = map[int]bool{0: true}
 		c.dirtyShards = make(map[int]bool)
 		c.dirty = false
@@ -334,18 +408,23 @@ func (c *Cache) migrateLegacy() error {
 		}
 	}
 	entriesByShard := make(map[int]map[string]Entry, c.shardCount)
+	statesByShard := make(map[int]map[string][]byte, c.shardCount)
 	for shard := 0; shard < c.shardCount; shard++ {
 		entriesByShard[shard] = make(map[string]Entry)
+		statesByShard[shard] = make(map[string][]byte)
 	}
 	for key, entry := range c.Entries {
 		shard := c.shardForKey(key)
 		entriesByShard[shard][key] = entry
+		if state := c.states[key]; len(state) > 0 {
+			statesByShard[shard][key] = state
+		}
 	}
 	for shard := 0; shard < c.shardCount; shard++ {
 		if len(entriesByShard[shard]) == 0 {
 			continue
 		}
-		if err := c.writeJSONAtomically(shardPath(c.path, generation, shard), shardFile{Version: Version, Entries: entriesByShard[shard]}); err != nil {
+		if err := c.writeJSONAtomically(shardPath(c.path, generation, shard), shardFile{Version: Version, Entries: entriesByShard[shard], States: statesByShard[shard]}); err != nil {
 			return err
 		}
 	}
@@ -356,6 +435,7 @@ func (c *Cache) migrateLegacy() error {
 	c.adaptiveShards = false
 	c.generation = generation
 	c.shards = entriesByShard
+	c.shardStates = statesByShard
 	c.loadedShards = make(map[int]bool, c.shardCount)
 	for shard := 0; shard < c.shardCount; shard++ {
 		c.loadedShards[shard] = true

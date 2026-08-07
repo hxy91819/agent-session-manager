@@ -55,6 +55,30 @@ func TestCacheHitsOnlyMatchingIdentity(t *testing.T) {
 	}
 }
 
+func TestCacheRoundTripsOpaqueStateForLatestPathEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.json")
+	modTime := time.Date(2026, 6, 15, 1, 0, 0, 123, time.UTC)
+	id := FileIdentity{Provider: "codex", Path: "/tmp/session.jsonl", Size: 42, ModTime: modTime}
+	cache := Cache{Version: Version, Entries: make(map[string]Entry)}
+	cache.PutWithState(id, session.Session{ID: "sid"}, []byte(`{"offset":42}`))
+	if err := cache.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	latestID, got, state, ok := Load(path).GetLatest(id.Provider, id.Path)
+	if !ok || got.ID != "sid" || latestID.Size != id.Size || !latestID.ModTime.Equal(modTime) {
+		t.Fatalf("latest entry = %#v %#v, %v", latestID, got, ok)
+	}
+	if string(state) != `{"offset":42}` {
+		t.Fatalf("state = %q", state)
+	}
+	state[0] = 'x'
+	_, _, state, ok = Load(path).GetLatest(id.Provider, id.Path)
+	if !ok || string(state) != `{"offset":42}` {
+		t.Fatalf("persisted state was mutated: %q", state)
+	}
+}
+
 func TestSkipLoadForEmptyDiscoveryOnlySkipsBoundedEmptyScans(t *testing.T) {
 	now := time.Now()
 	tests := []struct {

@@ -99,6 +99,49 @@ func TestCLICacheInvalidationAndDynamicInputs(t *testing.T) {
 	}
 }
 
+func TestCLICodexAppendRefreshesSessionAndReportEvidence(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	updatedRepo := t.TempDir()
+	path := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "06", "13", "append.jsonl")
+	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"codex-append","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first request"}]}}
+`)
+	writeFile(t, filepath.Join(env.ProviderHome["codex"], "session_index.jsonl"), `{"id":"codex-append","thread_name":"native append title"}`+"\n")
+
+	before := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	assertSessionTitle(t, before, "codex-append", "native append title")
+	appendTestFile(t, path, `{"timestamp":"2026-06-13T01:01:00Z","type":"turn_context","payload":{"cwd":`+jsonString(updatedRepo)+`,"model":"gpt-5"}}
+{"timestamp":"2026-06-13T01:01:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second request"}]}}
+`)
+
+	after := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	got := sessionByID(t, after, "codex-append")
+	if got.Title != "native append title" || got.CWD != updatedRepo || got.Metadata["model"] != "gpt-5" {
+		t.Fatalf("appended session = %#v", got)
+	}
+
+	out, err := env.Run(t, "report", "--start", "2026-06-13", "--end", "2026-06-14", "--preview-max-chars", "2000")
+	if err != nil {
+		t.Fatalf("report command: %v\n%s", err, out)
+	}
+	var report struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if len(report.Sessions) != 1 || report.Sessions[0].ID != "codex-append" || len(report.Sessions[0].Evidence) != 2 ||
+		report.Sessions[0].Evidence[0].Text != "first request" || report.Sessions[0].Evidence[1].Text != "second request" {
+		t.Fatalf("appended report evidence = %#v", report.Sessions)
+	}
+}
+
 func TestCLICachePreservesSinceLimitOrderingAndResumeSafety(t *testing.T) {
 	env := newASMTestEnv(t)
 	repo := t.TempDir()
@@ -338,6 +381,21 @@ func assertSessionIDs(t testing.TB, payload cliCachePayload, want ...string) {
 func setModTime(t testing.TB, path string, modTime time.Time) {
 	t.Helper()
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendTestFile(t testing.TB, path, content string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
