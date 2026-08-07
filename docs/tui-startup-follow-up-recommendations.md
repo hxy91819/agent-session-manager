@@ -76,6 +76,12 @@ focused base/after、worker sweep、race、正确性和 cross-agent 证据见性
 解码无关 assistant/tool payload，但仍必须获得正确的最新 cwd/model、parent boundary
 和 rollout fallback。
 
+产品边界决策（2026-08-07）：P2 只允许在 `DiscoverOptions.Preview` 未启用时使用
+metadata/turn-context 快路径，以优化 TUI 启动和普通 discovery。`asm report` 启用 preview
+时必须继续走现有完整 primary parse 和 user-preview evidence 路径；P2 不以加速周报为
+目标，也不得改变周报 evidence、parent/child 去重或项目归组。实现前先用公共 report
+E2E 锁定这些输出，并验证 base/after 的 evidence 与聚合哈希一致。
+
 最低覆盖包括最新 turn context、session index/history 优先级、rollout fallback、
 oversized/partial JSONL、truncate/replace、parent/child inherited history 和 report
 preview。需要同时报告实际读取 bytes、B/op、allocs/op 以及完整真实 A/B；不能通过减少
