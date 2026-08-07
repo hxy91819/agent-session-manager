@@ -15,7 +15,7 @@ import (
 // Version covers parser-derived session fields stored in the cache. Bump it
 // when a provider starts extracting new semantics from an otherwise unchanged
 // source file, otherwise old cache entries can hide the new metadata.
-const Version = 6
+const Version = 7
 
 const defaultShardCount = 32
 
