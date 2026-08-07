@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -55,7 +56,11 @@ func TestMain(m *testing.M) {
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	contractToolPath = filepath.Join(tempDir, "check-code-health")
+	toolName := "check-code-health"
+	if runtime.GOOS == "windows" {
+		toolName += ".exe"
+	}
+	contractToolPath = filepath.Join(tempDir, toolName)
 	cmd := exec.Command("go", "build", "-o", contractToolPath, ".")
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		fmt.Fprintf(os.Stderr, "build check-code-health: %v\n%s", buildErr, output)
