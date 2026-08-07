@@ -105,10 +105,10 @@ go test -run '^$' -bench . -benchmem \
 
 | 阶段 | after commit | CLI 结论 | internal 结论 | 决策 |
 |---|---|---|---|---|
-| E：Shared title policy | `1510a18` | oversized title 启动 `-86.32%`、cache `-96.77%`；原六场景最大变化 `+1.54%` | cache/index/UI 无 5% 回退；paired A/B 中 Codex changed-large 无显著变化、Claude `+5.81%` | 保留；Claude 项在 F/G 后复测 |
-| F：Cache 快速修复 | `dbc7bb8` | EmptyStoresHistoricalCache 相对 D `-41.87%`、相对 E `-42.35%`；历史 cache 增量开销约 `-98.6%` | 相对 E 无 5% 回退，allocations 稳定 | 保留，进入 G |
-| G：Cache 分片 | `bc63d8e` | WarmHistoryHeavy 相对 F `-42.55%`、相对 D `-42.33%`；其他 CLI wall time 无显著回退 | HistoryHeavyLoad `-99.92%`、SingleEntryUpdateSave `-87.52%`；index/UI 无回退 | 保留 64-shard 大型布局，进入 H |
-| H：Codex 增量解析 | `d07c0e5` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
+| E：Shared title policy | `0c7f283` | oversized title 启动 `-86.32%`、cache `-96.77%`；原六场景最大变化 `+1.54%` | cache/index/UI 无 5% 回退；paired A/B 中 Codex changed-large 无显著变化、Claude `+5.81%` | 保留；Claude 项在 F/G 后复测 |
+| F：Cache 快速修复 | `110bbb0` | EmptyStoresHistoricalCache 相对 D `-41.87%`、相对 E `-42.35%`；历史 cache 增量开销约 `-98.6%` | 相对 E 无 5% 回退，allocations 稳定 | 保留，进入 G |
+| G：Cache 分片 | `cabf966` | WarmHistoryHeavy 相对 F `-42.55%`、相对 D `-42.33%`；其他 CLI wall time 无显著回退 | HistoryHeavyLoad `-99.92%`、SingleEntryUpdateSave `-87.52%`；index/UI 无回退 | 保留 64-shard 大型布局，进入 H |
+| H：Codex 增量解析 | `eeeee26` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
 
 ## 阶段 E：Shared title policy
 
@@ -116,14 +116,14 @@ go test -run '^$' -bench . -benchmem \
 
 - 维护者确认最多 512 rune、同时最多 2048 byte，`…` 计入上限，被截断尾部不再
   搜索；普通 title 保持原样；
-- 生产实现提交：`42477c8`；避免缓存型 provider 重复归一化后的最终提交：
-  `1510a18`；benchmark 补强提交：`68c26ca`；
+- 生产实现提交：`a1f7fa8`；避免缓存型 provider 重复归一化后的最终提交：
+  `0c7f283`；benchmark 补强提交：`50a5c3a`；
 - `sessioncache.Version` 从 5 更新到 6，旧 cache 安全退化为 miss 并从 native
   store 重建，不删除用户 cache；report evidence 和 preview 没有经过 title 截断。
 
 公共行为证据：
 
-- base `3719b4e` 上执行
+- base `b27198c` 上执行
   `go test ./tests -run '^TestCLITitleNormalizationAcrossProviders$' -count=1`，
   9 个 provider 的长 title 均以 827–832 rune、约 2.8 KiB 原样返回，尾部 token
   仍可搜索，测试因产品断言失败；
@@ -152,7 +152,7 @@ Provider 影响分类：
 阶段 D 的 history-heavy fixture 只含短 title，无法量化真实 cache 中 43–624 KiB
 title 的放大。阶段 E 新增公开 CLI `WarmOversizedTitles`：120 个 Claude session，
 每个 native title 约 68.4 KiB。相同 benchmark 代码分别应用到生产 base
-`3719b4e`（临时 benchmark commit `f4bee01`）和最终实现，fixture correctness 在
+`b27198c`（临时 benchmark commit `f4bee01`）和最终实现，fixture correctness 在
 计时外验证 120 个 session。该场景是 D 基线遗漏后的补测，不回填或改写原始 D
 数字。
 
@@ -195,7 +195,7 @@ base/after test binary 交替执行 10 次：Codex 无显著差异，Claude 为 
 
 ## 阶段 F：Cache 快速修复
 
-实现提交 `dbc7bb8`。六个缓存型 provider 在 bounded discovery 没有选中任何
+实现提交 `110bbb0`。六个缓存型 provider 在 bounded discovery 没有选中任何
 native 文件时，直接返回空结果，不再读取历史 cache；unbounded discovery 仍加载
 cache 并执行 prune。无 dirty 时不写盘是阶段 D 已锁定的现有行为，title 写 cache
 前归一化已由阶段 E 完成，因此 F 没有重复实现这两项。
@@ -238,7 +238,7 @@ history-heavy、index 和 UI 均无 5% 回退，B/op 与 allocs/op 稳定。正�
 
 ## 阶段 G：Cache 分片
 
-最终生产提交 `bc63d8e`。`sessioncache` 按 identity/path hash 延迟加载所需 shard，
+最终生产提交 `cabf966`。`sessioncache` 按 identity/path hash 延迟加载所需 shard，
 只保存 dirty shard，并在 unbounded prune 时跨 shard 清理。单 shard 损坏只造成局部
 miss；legacy 单文件 cache 保持只读兼容，迁移失败时继续保留最后有效 cache，成功
 迁移则最后原子写入 manifest 启用新布局。Provider 仍只依赖 cache 接口，不知道
@@ -291,7 +291,7 @@ Codex；Claude 未达到跟进门槛，CodeBuddy/Cursor 也暂不扩大范围。
 
 ## 阶段 H：Codex append-only 增量解析
 
-最终生产提交 `d07c0e5`。仅对不小于 1 MiB 的 Codex rollout 保存 provider-owned
+最终生产提交 `eeeee26`。仅对不小于 1 MiB 的 Codex rollout 保存 provider-owned
 解析状态：完整 record offset，以及旧前缀首尾各 64 KiB 的 SHA-256 指纹。文件增长
 且两端指纹匹配时只解析 tail；truncate、edge-altering replace、prefix/boundary
 rewrite、partial JSONL 或 parent/child inherited-history 边界均回退 full parse。

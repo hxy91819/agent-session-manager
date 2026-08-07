@@ -822,7 +822,7 @@ session 携带 `time.Local`，JSON cache round-trip 后为 UTC；二者代表同
 - [x] focused tests、完整仓库检查和 10 样本 CLI/internal benchmark 完成；
 - [x] 修复阶段 D 未覆盖 oversized title 的 benchmark 缺口并记录 before/after。
 
-阶段 E 最终生产提交为 `1510a18`，benchmark 补强提交为 `68c26ca`。新增
+阶段 E 最终生产提交为 `0c7f283`，benchmark 补强提交为 `50a5c3a`。新增
 `WarmOversizedTitles` 补测显示 wall time `-86.32%`、cache bytes `-96.77%`；原六个
 CLI 场景最大变化为 `+1.54%`。详细 raw output、provider 分类、完整 internal 结果和
 Claude changed-large `+5.81%` paired A/B 观测见
@@ -837,7 +837,7 @@ Claude changed-large `+5.81%` paired A/B 观测见
 - [x] 无 dirty 不写盘沿用既有实现，title 写 cache 前归一化由阶段 E 保证；
 - [x] focused tests、完整仓库检查和 CLI/internal 10 样本对比完成。
 
-最终提交 `dbc7bb8`。`EmptyStoresHistoricalCache` 相对 D 为 `-41.87%`，相对 E
+最终提交 `110bbb0`。`EmptyStoresHistoricalCache` 相对 D 为 `-41.87%`，相对 E
 为 `-42.35%`；扣除 `EmptyStoresEmptyCache` 固定成本后，历史 cache 增量开销降低约
 `98.6%`。其他 CLI 场景相对 E 无显著变化，internal 无 5% 回退。完整 raw output
 和计算口径见 `docs/tui-startup-performance-baseline.md`。
@@ -850,7 +850,7 @@ Claude changed-large `+5.81%` paired A/B 观测见
   测试通过；
 - [x] 16/32/64 shard benchmark、CLI/internal 10 样本和完整仓库检查完成。
 
-最终提交 `bc63d8e`。固定 32 shard 因小 cache CLI 回退 `+6.01%` 至 `+15.10%`
+最终提交 `cabf966`。固定 32 shard 因小 cache CLI 回退 `+6.01%` 至 `+15.10%`
 被否决；自适应 32-shard 大型布局虽消除回退，但 `WarmHistoryHeavy` 仅 `-34.57%`，
 未达到 40% 目标。最终采用不超过 128 entry 内联 manifest、中型 16 shard、大型
 64 shard：`WarmHistoryHeavy` 相对 F `-42.55%`、相对 D `-42.33%`，其他 CLI
@@ -870,7 +870,7 @@ Cursor 没有对应结果证明需要同步优化；阶段 H 保持 Codex provid
 - [x] native title、turn context、preview/report evidence 的 provider 与 CLI 行为覆盖；
 - [x] focused tests、完整仓库检查和最终 CLI/internal 10 样本完成。
 
-最终提交 `d07c0e5`。CLI `ChangedLargeCodexSession` 从 63.194 ms 降至 6.467 ms
+最终提交 `eeeee26`。CLI `ChangedLargeCodexSession` 从 63.194 ms 降至 6.467 ms
 （`-89.77%`），Codex internal 从 38.159 ms 降至 0.899 ms（`-97.64%`），超过
 70% 目标；其余 CLI 最大变化 `+2.40%`，未参与 provider、index/UI 无 5% 回退。
 
