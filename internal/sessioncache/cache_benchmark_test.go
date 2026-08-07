@@ -1,6 +1,7 @@
 package sessioncache
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,8 +17,8 @@ func BenchmarkHistoryHeavyLoad(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		cache := Load(path)
-		if len(cache.Entries) != 2000 {
-			b.Fatalf("entries = %d", len(cache.Entries))
+		if !cache.useShards {
+			b.Fatal("sharded cache manifest was not loaded")
 		}
 	}
 }
@@ -52,32 +53,86 @@ func BenchmarkSingleEntryUpdateSave(b *testing.B) {
 
 func BenchmarkCorruptCacheFallback(b *testing.B) {
 	path := filepath.Join(b.TempDir(), "cache.json")
+	id := FileIdentity{Provider: "codex", Path: "/corrupt.jsonl", Size: 10, ModTime: time.Now()}
 	if err := os.WriteFile(path, []byte(strings.Repeat("{", 1024*1024)), 0o644); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		if cache := Load(path); len(cache.Entries) != 0 {
-			b.Fatal("corrupt cache was not empty")
+		if _, ok := Load(path).Get(id); ok {
+			b.Fatal("corrupt cache unexpectedly hit")
 		}
 	}
 }
 
 func BenchmarkLegacyCacheLoad(b *testing.B) {
-	// Before sharding, the current single-file format is the legacy migration input.
-	path, _ := makeBenchmarkCache(b, 2000)
+	path, ids := makeBenchmarkLegacyCache(b, 2000)
 	b.ReportAllocs()
 	for b.Loop() {
-		if cache := Load(path); len(cache.Entries) != 2000 {
+		if _, ok := Load(path).Get(ids[0]); !ok {
 			b.Fatal("legacy cache load failed")
 		}
 	}
 }
 
+func BenchmarkShardCounts(b *testing.B) {
+	for _, count := range []int{16, 32, 64} {
+		path, ids := makeBenchmarkCacheWithShardCount(b, 2000, count)
+		b.Run(fmt.Sprintf("%d/ActiveLoad", count), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				cache := Load(path)
+				for _, id := range ids[:10] {
+					if _, ok := cache.Get(id); !ok {
+						b.Fatal("active shard cache miss")
+					}
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("%d/SingleEntryUpdate", count), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				cache := Load(path)
+				cache.Put(ids[0], session.Session{ID: "updated"})
+				if err := cache.Save(path); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func makeBenchmarkCache(b *testing.B, count int) (string, []FileIdentity) {
+	return makeBenchmarkCacheWithShardCount(b, count, defaultShardCount)
+}
+
+func makeBenchmarkCacheWithShardCount(b *testing.B, count, shardCount int) (string, []FileIdentity) {
+	b.Helper()
+	path := filepath.Join(b.TempDir(), "cache.json")
+	cache := Cache{Version: Version, Entries: make(map[string]Entry, count), shardCount: shardCount}
+	ids := populateBenchmarkCache(&cache, count)
+	if err := cache.Save(path); err != nil {
+		b.Fatal(err)
+	}
+	return path, ids
+}
+
+func makeBenchmarkLegacyCache(b *testing.B, count int) (string, []FileIdentity) {
 	b.Helper()
 	path := filepath.Join(b.TempDir(), "cache.json")
 	cache := Cache{Version: Version, Entries: make(map[string]Entry, count)}
+	ids := populateBenchmarkCache(&cache, count)
+	data, err := json.Marshal(shardFile{Version: Version, Entries: cache.Entries})
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		b.Fatal(err)
+	}
+	return path, ids
+}
+
+func populateBenchmarkCache(cache *Cache, count int) []FileIdentity {
 	ids := make([]FileIdentity, 0, count)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < count; i++ {
@@ -96,8 +151,5 @@ func makeBenchmarkCache(b *testing.B, count int) (string, []FileIdentity) {
 		})
 		ids = append(ids, id)
 	}
-	if err := cache.Save(path); err != nil {
-		b.Fatal(err)
-	}
-	return path, ids
+	return ids
 }

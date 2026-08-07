@@ -60,6 +60,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			if s.Metadata["cwd_missing"] != "true" {
 				cwdChecker.Mark(&s)
 			}
+			s.Title = session.NormalizeTitle(s.Title)
 			sessions = append(sessions, s)
 		}
 	}

@@ -17,7 +17,7 @@ func BenchmarkCLIStartup(b *testing.B) {
 	b.Run("EmptyStoresEmptyCache", func(b *testing.B) {
 		env := newASMTestEnv(b)
 		verifyBinarySessions(b, env, binary, 0)
-		benchmarkStartupProbe(b, env, binary, nil)
+		benchmarkStartupProbe(b, env, binary, nil, nil)
 		reportStartupFixture(b, env, 0)
 	})
 
@@ -32,7 +32,7 @@ func BenchmarkCLIStartup(b *testing.B) {
 			b.Fatal(err)
 		}
 		verifyBinarySessions(b, env, binary, 0)
-		benchmarkStartupProbe(b, env, binary, nil)
+		benchmarkStartupProbe(b, env, binary, nil, nil)
 		reportStartupFixture(b, env, 500)
 	})
 
@@ -41,7 +41,7 @@ func BenchmarkCLIStartup(b *testing.B) {
 		populateCachedProviders(b, env, 20)
 		mustRunBinary(b, env, binary, "--resume", "__warm_cache__")
 		verifyBinarySessions(b, env, binary, 120)
-		benchmarkStartupProbe(b, env, binary, nil)
+		benchmarkStartupProbe(b, env, binary, nil, nil)
 		reportStartupFixture(b, env, 120)
 	})
 
@@ -50,15 +50,24 @@ func BenchmarkCLIStartup(b *testing.B) {
 		populateCodexHistory(b, env.ProviderHome["codex"], 2000, 10)
 		mustRunBinary(b, env, binary, "--since-days", "0", "--resume", "__warm_cache__")
 		verifyBinarySessions(b, env, binary, 10)
-		benchmarkStartupProbe(b, env, binary, nil)
+		benchmarkStartupProbe(b, env, binary, nil, nil)
 		reportStartupFixture(b, env, 2000)
+	})
+
+	b.Run("WarmOversizedTitles", func(b *testing.B) {
+		env := newASMTestEnv(b)
+		populateOversizedClaudeTitles(b, env.ProviderHome["claude"], 120)
+		mustRunBinary(b, env, binary, "--since-days", "0", "--resume", "__warm_cache__")
+		verifyBinarySessions(b, env, binary, 120)
+		benchmarkStartupProbe(b, env, binary, []string{"--since-days", "0"}, nil)
+		reportStartupFixture(b, env, 120)
 	})
 
 	b.Run("ColdPopulatedStores", func(b *testing.B) {
 		env := newASMTestEnv(b)
 		populateCachedProviders(b, env, 20)
 		verifyBinarySessions(b, env, binary, 120)
-		benchmarkStartupProbe(b, env, binary, func() {
+		benchmarkStartupProbe(b, env, binary, nil, func() {
 			if err := os.RemoveAll(filepath.Join(env.CacheHome, "asm")); err != nil {
 				b.Fatal(err)
 			}
@@ -76,7 +85,7 @@ func BenchmarkCLIStartup(b *testing.B) {
 		mustRunBinary(b, env, binary, "--resume", "__warm_cache__")
 		verifyBinarySessions(b, env, binary, 1)
 		iteration := 0
-		benchmarkStartupProbe(b, env, binary, func() {
+		benchmarkStartupProbe(b, env, binary, nil, func() {
 			iteration++
 			f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 			if err != nil {
@@ -137,7 +146,7 @@ func reportStartupFixture(b *testing.B, env asmTestEnv, sessions int) {
 	b.ReportMetric(float64(sessions), "fixture-sessions")
 }
 
-func benchmarkStartupProbe(b *testing.B, env asmTestEnv, binary string, beforeEach func()) {
+func benchmarkStartupProbe(b *testing.B, env asmTestEnv, binary string, extraArgs []string, beforeEach func()) {
 	b.Helper()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -146,10 +155,21 @@ func benchmarkStartupProbe(b *testing.B, env asmTestEnv, binary string, beforeEa
 			beforeEach()
 			b.StartTimer()
 		}
-		out, err := env.RunBinary(b, binary, "--resume", "__startup_probe__")
+		args := append(append([]string(nil), extraArgs...), "--resume", "__startup_probe__")
+		out, err := env.RunBinary(b, binary, args...)
 		if err == nil || !strings.Contains(out, "session not found") {
 			b.Fatalf("startup probe = %v\n%s", err, out)
 		}
+	}
+}
+
+func populateOversizedClaudeTitles(t testing.TB, home string, count int) {
+	t.Helper()
+	repo := t.TempDir()
+	title := "oversized title " + strings.Repeat("汉🙂", 10_000)
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("oversized-%04d", i)
+		writeClaudeSession(t, filepath.Join(home, "projects", "repo", id+".jsonl"), id, repo, title)
 	}
 }
 

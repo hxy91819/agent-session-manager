@@ -55,6 +55,9 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		return nil, err
 	}
+	if sessioncache.SkipLoadForEmptyDiscovery(opts, len(files)) {
+		return []session.Session{}, nil
+	}
 
 	cachePath := p.cachePath()
 	cache := sessioncache.Load(cachePath)
@@ -74,7 +77,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			if err != nil {
 				continue
 			}
-			cache.Put(id, s)
+			s = cache.Put(id, s)
 		}
 		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		s.ID = file.ChatID

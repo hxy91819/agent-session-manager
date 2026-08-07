@@ -2,10 +2,11 @@
 
 ## 0. 文档状态与执行入口
 
-- 状态：方案已形成，测试和生产优化尚未实施。
+- 状态：阶段 A-H 已完成，最终实现与性能证据见第 10 节和
+  `docs/tui-startup-performance-baseline.md`。
 - 最后按代码核对日期：2026-08-07。
-- 当前已知产物：只有本方案文档；文中建议的 test runner、测试、benchmark、
-  baseline report 和生产改动都还不存在。
+- 当前产物：persistent-cache E2E runner、行为与性能 benchmark、阶段 D baseline、
+  阶段 E-H 生产优化和逐阶段 before/after 记录均已提交。
 - 执行范围：阶段 A-D 是生产重构前置工作；阶段 E-H 分别作为独立生产变更，
   不合并成一个大 PR。
 
@@ -669,7 +670,7 @@ pre-commit run --all-files
 本方案本身不授权删除用户 cache 或真实 provider store。所有 migration、corruption
 和 destructive test 只能作用于测试创建的临时目录。
 
-## 10. 实施跟踪（A-D）
+## 10. 实施跟踪
 
 本节是阶段 A-D 的任务跟踪记录。状态只依据已提交代码和实际命令输出更新；
 阶段 A-D 不修改生产代码。
@@ -803,9 +804,82 @@ session 携带 `time.Local`，JSON cache round-trip 后为 UTC；二者代表同
 修复提交、第二轮 autoreview、最终 checks 与 merge commit 在完成后以 PR 页面
 和提交记录为准。
 
-后续从阶段 E 开始。实施前必须先确认 title 的 rune/byte 上限和截断尾部搜索
-语义；随后使用本节记录的 before 命令、fixture 和固定 benchstat 版本生成 after
-数据。阶段 F-H 不应在这些产品契约确认前抢跑。
+该交接点之后已完成阶段 E-H。title 契约、逐阶段 after 数据、被否决方案和最终
+决策均记录在后续小节及 `docs/tui-startup-performance-baseline.md`。
+
+阶段 D 交付物补充核对（2026-08-07）：PR #39 合并到 `origin/master` 后遗漏了计划
+要求的 `docs/tui-startup-performance-baseline.md`，但 benchmark suite、原始输出和
+本节摘要均存在。阶段 E 开始前已从这些可核对证据恢复持久化基线文档；该修复不
+改变 fixture、历史统计或生产代码。后续各生产阶段的 after 数据统一追加到该文档。
+
+### 10.2 阶段 E：Shared title policy
+
+- [x] 产品契约确认：最多 512 rune、最多 2048 byte、`…` 计入上限、截断尾部
+  不可搜索；普通 title 不变；
+- [x] 9 个 provider 的 native/dynamic title 路径统一归一化，六个 cache provider
+  写入 cache 前归一化，cache Version 更新为 6；
+- [x] base 公共 CLI 产品断言失败、修复后通过；report evidence 保持独立；
+- [x] focused tests、完整仓库检查和 10 样本 CLI/internal benchmark 完成；
+- [x] 修复阶段 D 未覆盖 oversized title 的 benchmark 缺口并记录 before/after。
+
+阶段 E 最终生产提交为 `0c7f283`，benchmark 补强提交为 `50a5c3a`。新增
+`WarmOversizedTitles` 补测显示 wall time `-86.32%`、cache bytes `-96.77%`；原六个
+CLI 场景最大变化为 `+1.54%`。详细 raw output、provider 分类、完整 internal 结果和
+Claude changed-large `+5.81%` paired A/B 观测见
+`docs/tui-startup-performance-baseline.md`。该 Claude 项在 F/G 后复测，不影响进入
+阶段 F，但不得在最终审计中遗漏。
+
+### 10.3 阶段 F：Cache 快速修复
+
+- [x] bounded discovery 没有 native 文件时跳过六个 provider 的历史 cache load；
+- [x] unbounded discovery 继续加载并 prune，bounded/unbounded 和 resume safety
+  公共行为不变；
+- [x] 无 dirty 不写盘沿用既有实现，title 写 cache 前归一化由阶段 E 保证；
+- [x] focused tests、完整仓库检查和 CLI/internal 10 样本对比完成。
+
+最终提交 `110bbb0`。`EmptyStoresHistoricalCache` 相对 D 为 `-41.87%`，相对 E
+为 `-42.35%`；扣除 `EmptyStoresEmptyCache` 固定成本后，历史 cache 增量开销降低约
+`98.6%`。其他 CLI 场景相对 E 无显著变化，internal 无 5% 回退。完整 raw output
+和计算口径见 `docs/tui-startup-performance-baseline.md`。
+
+### 10.4 阶段 G：Cache 分片
+
+- [x] lazy shard load、dirty shard save、跨 shard prune 和局部 corruption fallback；
+- [x] legacy 单文件只读兼容迁移，manifest 最后原子启用，失败保留最后有效 cache；
+- [x] cold/warm parity、dynamic inputs、bounded/unbounded、resume safety 和迁移容错
+  测试通过；
+- [x] 16/32/64 shard benchmark、CLI/internal 10 样本和完整仓库检查完成。
+
+最终提交 `cabf966`。固定 32 shard 因小 cache CLI 回退 `+6.01%` 至 `+15.10%`
+被否决；自适应 32-shard 大型布局虽消除回退，但 `WarmHistoryHeavy` 仅 `-34.57%`，
+未达到 40% 目标。最终采用不超过 128 entry 内联 manifest、中型 16 shard、大型
+64 shard：`WarmHistoryHeavy` 相对 F `-42.55%`、相对 D `-42.33%`，其他 CLI
+wall time 无显著回退；single-entry save 相对 D 降低 `-87.52%`。完整数据和容错
+证据见 `docs/tui-startup-performance-baseline.md`。
+
+Codex changed-large CLI 仍为 63.19 ms，internal 为 38.16 ms，与 D 无显著变化，
+因此满足阶段 H 的实施条件。Claude changed-large 相对 D 仅 `+2.02%`，CodeBuddy、
+Cursor 没有对应结果证明需要同步优化；阶段 H 保持 Codex provider-specific，不引入
+共享增量 parser 抽象。
+
+### 10.5 阶段 H：Codex append-only 增量解析
+
+- [x] ≥1 MiB rollout 保存 offset 和 64 KiB 首尾指纹，只解析已验证 append tail；
+- [x] truncate、replace、prefix mismatch、partial record 和 inherited-history 回退
+  full parse；
+- [x] native title、turn context、preview/report evidence 的 provider 与 CLI 行为覆盖；
+- [x] focused tests、完整仓库检查和最终 CLI/internal 10 样本完成。
+
+最终提交 `eeeee26`。CLI `ChangedLargeCodexSession` 从 63.194 ms 降至 6.467 ms
+（`-89.77%`），Codex internal 从 38.159 ms 降至 0.899 ms（`-97.64%`），超过
+70% 目标；其余 CLI 最大变化 `+2.40%`，未参与 provider、index/UI 无 5% 回退。
+
+完整前缀哈希方案因 internal 仅改善约 65% 被否决；所有小 rollout 都存状态的版本
+因 history-heavy `+5.20%` 和 cache bytes `+53.83%` 被否决。最终用 1 MiB 门槛和
+稀疏 side map 消除常规 cache 成本。Claude/CodeBuddy/Cursor 保留 provider-specific
+后续评估：Claude 当前 benchmark 未显示阶段 H 引入的回退，CodeBuddy/Cursor 需先有
+changed-large 数据；其余 provider 存储模型不匹配。完整数据见
+`docs/tui-startup-performance-baseline.md`。
 
 ## 10. 任务终止条件
 

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,19 @@ func TestFilterSearchesEveryPublicSessionField(t *testing.T) {
 		if len(got) != 1 {
 			t.Fatalf("query %q did not match public session fields", query)
 		}
+	}
+}
+
+func TestFilterSearchesOnlyNormalizedTitle(t *testing.T) {
+	const suffix = "discarded-tail-token"
+	title := session.NormalizeTitle(strings.Repeat("标题🙂", 300) + suffix)
+	sessions := []session.Session{{ID: "normalized", Title: title}}
+
+	if got := FilterAndSort(sessions, Query{Search: "标题"}); len(got) != 1 {
+		t.Fatalf("retained title prefix matches = %#v, want one", got)
+	}
+	if got := FilterAndSort(sessions, Query{Search: suffix}); len(got) != 0 {
+		t.Fatalf("discarded title suffix matches = %#v, want none", got)
 	}
 }
 

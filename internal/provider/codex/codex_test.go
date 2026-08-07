@@ -450,7 +450,11 @@ func TestDiscoverInvalidatesLegacyCacheForSubagent(t *testing.T) {
 		Entries: make(map[string]sessioncache.Entry),
 	}
 	legacyCache.Put(identity, session.Session{ID: "parent", CWD: repo})
-	if err := legacyCache.Save(cachePath); err != nil {
+	legacyData, err := json.Marshal(legacyCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, legacyData, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -798,6 +802,137 @@ func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
 	}
 }
 
+func TestDiscoverAppendedRolloutPreservesNativeTitleAndRefreshesEvidence(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	updatedRepo := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "06", "13", "session.jsonl")
+	writeIncrementalCodexSession(t, path, "sid", repo, "first user request")
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"id":"sid","thread_name":"native title"}`+"\n")
+	provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	opts := session.DiscoverOptions{Preview: session.PreviewOptions{UserMessagesPerEdge: 2}}
+
+	first, err := provider.Discover(opts)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first discovery = %#v, %v", first, err)
+	}
+	appendFile(t, path, `{"timestamp":"2026-06-13T01:01:00Z","type":"turn_context","payload":{"cwd":`+jsonString(updatedRepo)+`,"model":"gpt-5"}}`+"\n"+
+		`{"timestamp":"2026-06-13T01:01:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second user request"}]}}`+"\n")
+
+	got, err := provider.Discover(opts)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("appended discovery = %#v, %v", got, err)
+	}
+	if got[0].Title != "native title" || got[0].Metadata["title_source"] != "session_index" {
+		t.Fatalf("native title changed after append: %#v", got[0])
+	}
+	if got[0].CWD != updatedRepo || got[0].Metadata["model"] != "gpt-5" {
+		t.Fatalf("turn context was not refreshed: %#v", got[0])
+	}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != "first user request|second user request" {
+		t.Fatalf("previews = %#v", texts)
+	}
+}
+
+func TestDiscoverFallsBackWhenRolloutIsNotAppendOnly(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string, string)
+	}{
+		{
+			name: "truncate",
+			mutate: func(t *testing.T, path, cwd string) {
+				writeSession(t, path, "truncated", cwd)
+			},
+		},
+		{
+			name: "replace",
+			mutate: func(t *testing.T, path, cwd string) {
+				replacement := path + ".replacement"
+				writeIncrementalCodexSession(t, replacement, "replaced", cwd, strings.Repeat("replacement ", 20))
+				if err := os.Rename(replacement, path); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "prefix mismatch",
+			mutate: func(t *testing.T, path, cwd string) {
+				writeIncrementalCodexSession(t, path, "rewritten", cwd, strings.Repeat("rewritten ", 20))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			oldRepo := t.TempDir()
+			newRepo := t.TempDir()
+			path := filepath.Join(home, "sessions", "2026", "06", "13", "session.jsonl")
+			writeIncrementalCodexSession(t, path, "original", oldRepo, "original title")
+			provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+			if got, err := provider.Discover(session.DiscoverOptions{}); err != nil || len(got) != 1 {
+				t.Fatalf("initial discovery = %#v, %v", got, err)
+			}
+
+			tt.mutate(t, path, newRepo)
+			got, err := provider.Discover(session.DiscoverOptions{})
+			if err != nil || len(got) != 1 {
+				t.Fatalf("changed discovery = %#v, %v", got, err)
+			}
+			if got[0].ID == "original" || got[0].CWD != newRepo {
+				t.Fatalf("stale prefix state reused: %#v", got[0])
+			}
+		})
+	}
+}
+
+func TestDiscoverCompletesPartialJSONLRecordWithFullParse(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "06", "13", "session.jsonl")
+	writeIncrementalCodexSession(t, path, "sid", repo, "complete title")
+	appendFile(t, path, `{"timestamp":"2026-06-13T01:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"partial`)
+	provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+
+	first, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(first) != 1 || first[0].Title != "complete title" {
+		t.Fatalf("partial discovery = %#v, %v", first, err)
+	}
+	appendFile(t, path, ` record"}]}}`+"\n")
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(got) != 1 || got[0].Title != "partial record" {
+		t.Fatalf("completed discovery = %#v, %v", got, err)
+	}
+}
+
+func TestDiscoverAppendKeepsChildSeparateFromInheritedHistory(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "06", "13", "child.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`}}`+"\n"+
+		`{"timestamp":"2026-06-13T02:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"child request"}]}}`+"\n"+
+		largeAssistantRecord())
+	provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	if got, err := provider.Discover(session.DiscoverOptions{}); err != nil || len(got) != 1 || got[0].Title != "child request" {
+		t.Fatalf("initial child discovery = %#v, %v", got, err)
+	}
+
+	appendFile(t, path, `{"timestamp":"2026-06-13T02:01:00Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}`+"\n"+
+		`{"timestamp":"2026-06-13T02:01:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent request"}]}}`+"\n")
+	for attempt := 1; attempt <= 2; attempt++ {
+		if attempt == 2 {
+			appendFile(t, path, `{"timestamp":"2026-06-13T02:02:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"more inherited history"}]}}`+"\n")
+		}
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil || len(got) != 1 || got[0].ID != "child" || got[0].Title != "child request" {
+			t.Fatalf("inherited discovery %d = %#v, %v", attempt, got, err)
+		}
+	}
+}
+
 func TestDiscoverFiltersByFileModTimeNotDateDirectory(t *testing.T) {
 	home := t.TempDir()
 	oldDir := filepath.Join(home, "sessions", "2025", "01", "01")
@@ -892,6 +1027,17 @@ func writeCodexSessionWithTitle(t *testing.T, path, id, cwd, title string) {
 `)
 }
 
+func writeIncrementalCodexSession(t *testing.T, path, id, cwd, title string) {
+	t.Helper()
+	writeCodexSessionWithTitle(t, path, id, cwd, title)
+	appendFile(t, path, largeAssistantRecord())
+}
+
+func largeAssistantRecord() string {
+	return `{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` +
+		strings.Repeat("x", minimumIncrementalBytes) + `"}]}}` + "\n"
+}
+
 func jsonString(value string) string {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -911,6 +1057,21 @@ func previewTexts(previews []session.MessagePreview) []string {
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendFile(t *testing.T, path, content string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
