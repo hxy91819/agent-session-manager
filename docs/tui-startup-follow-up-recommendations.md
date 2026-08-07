@@ -69,7 +69,7 @@ cache Get/GetLatest、最终 Put/Save、newest-first 输出、重复 ID 去重�
 focused base/after、worker sweep、race、正确性和 cross-agent 证据见性能基线文档 P1 节。
 本项完成后停止，不在同一任务进入 P2。
 
-### 3. P2：Codex metadata/turn-context 快路径
+### 3. P2：Codex metadata/turn-context 快路径（已完成）
 
 只有 P1 后真实冷启动仍由 Codex 大文件解析主导时才进入。当前 293 个可见 Codex title
 中，289 个来自 `session_index` 或 `history`，只有 4 个依赖 rollout；可评估避免深度
@@ -86,6 +86,20 @@ E2E 锁定这些输出，并验证 base/after 的 evidence 与聚合哈希一致
 oversized/partial JSONL、truncate/replace、parent/child inherited history 和 report
 preview。需要同时报告实际读取 bytes、B/op、allocs/op 以及完整真实 A/B；不能通过减少
 report evidence、降低 title 上限或改变可见 session 集合换取性能。
+
+2026-08-07 已从 P1 合并后的 `origin/master@07243f0` 独立完成 P2：测试提交
+`f6c2f9d`，生产实现 `a433aab`。门槛诊断确认 Codex-only 冷启动中位数 5.490 秒，
+约占完整冷启动 99.2%，并实际读取约 1.49 GB rollout。仅 Preview 未启用时，parser
+根据 producer header 流式丢弃已明确为 assistant/tool 的 payload；header 不明确时保守
+完整解码。report 遇到 metadata-only cache 会重做完整 primary parse，并继续原有
+user-preview evidence 路径。
+
+符合 producer schema 的大小混合 benchmark wall time `-94.70%`、B/op `-96.54%`；
+真实冷启动中位数从 5.540 降至 3.951 秒（`-28.68%`），冷 p95 `-18.45%`，热态
+交替 30 对无显著变化。1210 sessions、90 projects、provider counts、0 error 和两类
+不可逆哈希一致；last-week report 的 311 条 evidence 哈希及聚合哈希完全一致。
+完整资源、raw path、cache/RSS 取舍和 cross-agent matrix 见性能基线文档 P2 节。
+本项保留并停止，不进入 P3。
 
 ### 4. P3：Codex dynamic title index 增量化
 
