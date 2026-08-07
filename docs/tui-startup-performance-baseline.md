@@ -110,7 +110,7 @@ go test -run '^$' -bench . -benchmem \
 | G：Cache 分片 | `cabf966` | WarmHistoryHeavy 相对 F `-42.55%`、相对 D `-42.33%`；其他 CLI wall time 无显著回退 | HistoryHeavyLoad `-99.92%`、SingleEntryUpdateSave `-87.52%`；index/UI 无回退 | 保留 64-shard 大型布局，进入 H |
 | H：Codex 增量解析 | `eeeee26` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
 | P2：Codex metadata 快路径 | `a433aab` | 真实冷启动 `-28.68%`；交替热测无显著变化 | 混合 rollout `-94.70%`、B/op `-96.54%`；实际输入 bytes 不变 | 保留；report 继续完整解析，P3 未开始 |
-| P3：Codex dynamic title index | `cffdfb3` | 真实热启动 `-42.72%`；冷启动 `+2.65%` | 混合 title index `-66.82%`、实际 source bytes `-93.75%` | 保留；范围停在 P3 |
+| P3：Codex dynamic title index | `8fb0ae7` | 真实热启动 `-43.17%`；冷启动 `+4.78%` | 混合 title index `-59.81%`、无变化热态 source bytes `-93.75%` | 保留；范围停在 P3 |
 
 ## 阶段 E：Shared title policy
 
@@ -872,7 +872,8 @@ benchmark 与 public contract，再设计 provider-owned fast path；没有确�
 ### 启动门槛与契约
 
 - P3 从 P2 合并提交 `4053965` 独立开始；交接文档提交为 `414716c`，公共行为与
-  benchmark 提交为 `af07933`，生产实现为 `cffdfb3`；没有复用 P2 after 作为 base；
+  benchmark 提交为 `af07933`，初始生产实现为 `cffdfb3`，最终安全与冷路径修正为
+  `c64725b`、`27280ce`、`8fb0ae7`；没有复用 P2 after 作为 base；
 - 未改生产代码前，公共 runner 在真实 store 上得到冷启动中位数/p95
   `3.960/4.043 s`、热启动 `81.21/94.50 ms`，1208 sessions、90 projects、0 error，
   冷热哈希一致；当时 `history.jsonl` 为 3,331,614 bytes/5536 行，
@@ -885,41 +886,48 @@ benchmark 与 public contract，再设计 provider-owned fast path；没有确�
   name wins。实现为每个 Codex home 的两个 side input 单独持久化 offset、mtime、完整
   title map、append-safe 标记和旧前缀首尾各 64 KiB SHA-256；只有旧边界得到验证且旧文件
   以完整换行 record 结束时才解析 tail；
-- truncate、同时间戳 atomic replace、prefix/boundary rewrite、partial/oversized record、
-  状态损坏或旧 version 均保守全量重建。状态文件使用临时文件加 rename 原子保存；写入
-  失败不覆盖上一个有效状态，当前 discovery 仍使用刚从 native index 得到的 title；
+- truncate、同时间戳 atomic replace、prefix/boundary/middle rewrite、partial/oversized
+  record、状态损坏或旧 version 均保守全量重建。无变化热态只校验身份与首尾边界；文件
+  增长时还须校验完整旧前缀 SHA-256，避免中部改写后追加复用旧 title。状态自身的 title
+  map、身份字段和指纹也由完整性 SHA-256 覆盖。状态文件使用临时文件加 rename 原子保存；
+  写入失败不覆盖上一个有效状态，当前 discovery 仍使用刚从 native index 得到的 title；
 - 没有修改 primary rollout cache、P2 metadata/full parse 边界、其他 provider、title
   normalization、report preview/evidence、cwd/model、parent/child、排序、limit 或 resume。
 
 公共行为证据使用持久 cache 连续运行真实 CLI：cold/warm JSON 相等；两个 index append、
 重复 ID、空/corrupt record、latest-wins、文件缺失和重建、跨文件优先级与 rollout fallback
 均保持；最后再执行 report，rollout evidence 仍存在。Provider tests 额外覆盖 truncate、
-保留 mtime 的 atomic replace、prefix/boundary rewrite、partial completion、oversized record、
-损坏/旧状态和原子 rename 失败。base 的公共输出本来正确，因此没有伪造产品级失败；
-性能缺口由上述独立 base 和 benchmark 证明。
+保留 mtime 的 atomic replace、prefix/boundary/middle rewrite、middle rewrite 后 append、
+partial completion、oversized record、损坏/旧状态、合法 JSON 中被篡改的 title map 和原子
+rename 失败。base 的公共输出本来正确，因此没有伪造产品级失败；性能缺口由上述独立
+base 和 benchmark 证明。
 
 ### Focused 性能与实际读取字节
 
 相同 benchmark 在 base/after 各 10 个样本、`benchtime=1s`：
 
-| 指标 | Base `af07933` | After `cffdfb3` | 变化 |
+| 指标 | Base `af07933` | After `8fb0ae7` | 变化 |
 |---|---:|---:|---:|
-| wall time | 27.747 ms | 9.207 ms | -66.82%（p=0.000） |
-| B/op | 5.420 MiB | 2.750 MiB | -49.26% |
-| allocs/op | 48.08k | 12.32k | -74.37% |
+| wall time | 27.747 ms | 11.152 ms | -59.81%（p=0.000） |
+| B/op | 5.420 MiB | 3.474 MiB | -35.90% |
+| allocs/op | 48.08k | 16.97k | -64.71% |
 | fixture index input | 2.551 MiB | 2.551 MiB | 无变化 |
 
 在最终真实快照热 cache 上，无内容、按 path 过滤的 syscall trace 得到：base 从两个
 title index 读取 3,414,037 bytes/34 次 `read`；after 只读取 history 首尾边界和完整的小型
 session index，共 213,495 bytes/3 次 `pread64`，source bytes 降低 `93.75%`。after 仍需
 读取约 151 KiB 的 provider-owned 状态，因此 wall/B/op 收益小于 source bytes 收益；没有
-通过减少输入记录或 report evidence 换取性能。
+通过减少输入记录或 report evidence 换取性能。该 trace 是 index 无变化的常见热态；若
+文件增长，最终实现会额外读取并哈希完整旧前缀，以排除“中部改写后 append”的陈旧复用。
+
+新增的对称 cold-cache benchmark 每轮删除 primary 与 dynamic cache；base/final 中位数为
+`27.974→39.045 ms`（`+39.58%`）。绝对增加约 11 ms 来自生成、校验并原子保存安全状态，
+因此最终保留判断以同机公共 runner 的 10 次真实冷启动 `<5%` 门槛为准。
 
 focused raw output：
 
 - `/tmp/asm-tui-startup-p3-20260807/dynamic-base.txt`；
-- `/tmp/asm-tui-startup-p3-20260807/dynamic-after-final.txt`；
-- `/tmp/asm-tui-startup-p3-20260807/dynamic-final-benchstat.txt`；
+- `/tmp/asm-tui-startup-p3-20260807/dynamic-post-autoreview-final.txt`；
 - `/tmp/asm-tui-startup-p3-20260807/read-trace/`。
 
 ### 独立真实 A/B、cache/RSS 与正确性
@@ -932,25 +940,26 @@ title index 独立复制；另将 9 个距 30 天边界不足 1 天的快照文�
 28 天前，避免评测期间自然过期。内容未修改，源 store 和用户 asm cache 未触及。
 
 环境为 Go 1.26.5、Linux `6.6.92-34.1.tl4.x86_64`、AMD EPYC 7K62、32 CPU；base
-`414716c` 与 after `cffdfb3` 均用 `-buildvcs=false` 构建。公共 runner 使用默认最近
+`414716c` 与 after `8fb0ae7` 均用 `-buildvcs=false` 构建。公共 runner 使用默认最近
 30 天和 missing-session resume 探针；冷各 10 次，热预热 2 次后各 20 次：
 
 | 场景 | 版本 | min | median | mean | p95 | max |
 |---|---|---:|---:|---:|---:|---:|
-| 冷启动 | Base | 3.914 s | 3.941 s | 3.948 s | 3.985 s | 3.985 s |
-| 冷启动 | After | 4.018 s | 4.046 s | 4.048 s | 4.092 s | 4.092 s |
-| 热启动 | Base | 75.83 ms | 77.24 ms | 78.13 ms | 80.20 ms | 91.92 ms |
-| 热启动 | After | 43.33 ms | 44.24 ms | 44.53 ms | 46.40 ms | 47.40 ms |
+| 冷启动 | Base | 3.911 s | 3.950 s | 3.955 s | 4.007 s | 4.007 s |
+| 冷启动 | After | 4.073 s | 4.139 s | 4.131 s | 4.186 s | 4.186 s |
+| 热启动 | Base | 76.58 ms | 78.39 ms | 79.12 ms | 83.41 ms | 89.12 ms |
+| 热启动 | After | 43.16 ms | 44.55 ms | 44.43 ms | 45.68 ms | 45.76 ms |
 
-固定 benchstat：冷启动 `+2.65%`（p=0.000，n=10），热启动 `-42.72%`
-（p=0.000，n=20）。额外 30 对交替热测为 `-41.73%`；10 对交替冷测为 `+3.15%`，
-与公共 runner 同方向。cache 从 1,368,407 增至 1,519,895 bytes（`+11.07%`），即用
-约 151 KiB 状态换取稳定的热路径收益。
+固定 benchstat：冷启动 `+4.78%`（p=0.000，n=10），热启动 `-43.17%`
+（p=0.000，n=20）。review 修复前的 10 对交替冷测曾达到 `+7.16%`，超过保留门槛；
+移除重复 JSON 校验、只规范化 latest-wins 最终值并把状态保存移回 rollout 冷解析前，
+最终同时间段公共 A/B 回到 `<5%`。cache 从 1,368,412 增至 1,520,352 bytes
+（`+11.10%`），即用约 151 KiB 状态换取稳定的热路径收益。
 
-final binary 的 RSS：冷态各 5 个样本，base/after 中位数 `55,324/55,828 KiB`、最大值
-`61,812/62,576 KiB`；热态各 10 个样本，中位数 `21,244/20,742 KiB`、最大值
-`21,556/21,728 KiB`。状态未引入显著峰值内存风险；冷启动小幅回退低于 5%，而热启动
-收益超过 40%，因此保留该取舍。
+final binary 的 RSS 各 10 个样本：冷态 base/after 中位数 `56,164/61,588 KiB`、最大值
+`58,304/70,660 KiB`；热态中位数 `21,356/20,478 KiB`、最大值 `22,168/21,492 KiB`。
+冷态峰值增加但仍处于 P1 已验收的约 71 MiB 上界，热态没有增长；结合冷启动回退低于
+5%、热启动收益超过 40%，保留该取舍。
 
 base/after 的 cold/warm 各自一致，跨版本也逐项一致：1196 sessions、90 projects、
 0 provider error；provider 数量为 Codex 740、Claude 184、CodeBuddy 68、ZCode 68、
@@ -962,20 +971,18 @@ Kiro 58、Cursor 55、Kimi 23，opencode/OpenClaw 为 0。不可逆哈希为：
   `d97097d832f4db9125a819a74a80f03ae0544ee12d361d0c1c5acb5b024bdb4d`。
 
 `asm report --period last-week` 在独立 base/after cache 上均为 125 sessions、26 projects、
-311 条 evidence、0 provider error；evidence SHA-256 均为
-`c408438a52478073a3b1d544284fb393c34b5e4b3539bc6de851f2959847b19c`，去除
-evidence/previews 后的完整聚合 SHA-256 均为
+311 条 evidence、0 provider error；canonical `{provider,id,at,source,text}` evidence rows
+SHA-256 均为 `09acc7c49b81d92640d6dc4fa504aa2504ab72983f56fd15cdccdbdd2b2e0405`，
+去除 evidence/previews 后的完整聚合 SHA-256 均为
 `b372f1843aff3de39185635e24b2b20e4e4e0666ac5136e6f2f6ecce8c224fc4`。
 
 正式 raw output：
 
-- `/tmp/asm-tui-startup-p3-20260807/real-final-base/`；
-- `/tmp/asm-tui-startup-p3-20260807/real-final-after/`；
-- `/tmp/asm-tui-startup-p3-20260807/final-cold-benchstat.txt`；
-- `/tmp/asm-tui-startup-p3-20260807/final-warm-benchstat.txt`；
-- `/tmp/asm-tui-startup-p3-20260807/final-report-base-hashes.json`；
-- `/tmp/asm-tui-startup-p3-20260807/final-report-after-hashes.json`；
-- `/tmp/asm-tui-startup-p3-20260807/final-rss/`。
+- `/tmp/asm-tui-startup-p3-20260807/real-final-base-rerun/`；
+- `/tmp/asm-tui-startup-p3-20260807/real-post-autoreview-final/`；
+- `/tmp/asm-tui-startup-p3-20260807/post-autoreview-report-base-hashes.json`；
+- `/tmp/asm-tui-startup-p3-20260807/post-autoreview-report-after-hashes.json`；
+- `/tmp/asm-tui-startup-p3-20260807/post-autoreview-rss.json`。
 
 ### Cross-agent 审查与最终决策
 
@@ -1005,6 +1012,12 @@ A/B 证据；已完成。变更没有引入 shared parser/cache abstraction，�
 **Maintainer follow-up**：本项没有确认 sibling bug，不创建跟进 PR。若未来 Kimi compact
 index 或 Kiro/opencode dynamic fallback 在真实热路径成为主导，应先增加各自 producer-schema
 benchmark 和 public contract，再设计 provider-owned 优化；不得直接复用 Codex 状态格式。
+
+**Autoreview**：本请求按上限执行两次。首轮报告同尺寸中部改写可能漏检、合法 JSON 状态
+中的 title map 可被篡改，`c64725b` 增加 Linux dev/inode/ctime、非 Linux 完整内容校验和
+状态完整性 SHA-256。第二轮继续发现“中部改写后 append”会绕过边界指纹；失败回归测试
+先得到陈旧 `old-title`，`8fb0ae7` 改为增长时校验完整旧前缀后通过。该取舍不影响无变化
+热路径，最终真实冷启动仍满足 `<5%` 门槛。
 
 最终 `go test -race ./...`、focused provider/CLI、provider performance contract、lint、
 全量测试、build 和 pre-commit 全部通过。P3 决定保留，并按范围要求停止，不进入其他
