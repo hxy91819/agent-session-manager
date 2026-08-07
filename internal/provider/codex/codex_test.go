@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -486,6 +487,99 @@ func TestDiscoverKeepsSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	if texts := previewTexts(parent.Previews); strings.Join(texts, "|") != "parent prompt" {
 		t.Fatalf("parent previews = %#v, want parent prompt", texts)
 	}
+}
+
+func TestDiscoverCacheMissWorkersProduceEquivalentResults(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	updatedRepo := t.TempDir()
+	root := filepath.Join(home, "sessions", "2026", "08", "07")
+	base := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	var incrementalPath string
+	for i := range 12 {
+		path := filepath.Join(root, fmt.Sprintf("session-%02d.jsonl", i))
+		if i == 0 {
+			incrementalPath = path
+			writeIncrementalCodexSession(t, path, fmt.Sprintf("session-%02d", i), repo, "initial request")
+		} else {
+			writeCodexSessionWithTitle(t, path, fmt.Sprintf("session-%02d", i), repo, fmt.Sprintf("request %02d", i))
+		}
+		if err := os.Chtimes(path, base.Add(time.Duration(10+i)*time.Minute), base.Add(time.Duration(10+i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	duplicate := filepath.Join(root, "duplicate-old.jsonl")
+	writeCodexSessionWithTitle(t, duplicate, "session-01", repo, "older duplicate")
+	if err := os.Chtimes(duplicate, base.Add(time.Minute), base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	invalid := filepath.Join(root, "invalid.jsonl")
+	writeFile(t, invalid, "not-json\n")
+	if err := os.Chtimes(invalid, base.Add(25*time.Minute), base.Add(25*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(root, "child.jsonl")
+	writeFile(t, child, `{"timestamp":"2026-08-07T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-08-07T02:00:00Z","cwd":`+jsonString(repo)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
+{"timestamp":"2026-08-07T02:00:01Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-08-07T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-08-07T02:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent request"}]}}
+`)
+	if err := os.Chtimes(child, base.Add(30*time.Minute), base.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"id":"session-03","thread_name":"native title"}`+"\n")
+
+	opts := session.DiscoverOptions{Preview: session.PreviewOptions{UserMessagesPerEdge: 2}}
+	serial := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "serial.json"), parseWorkers: 1}
+	parallel := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "parallel.json"), parseWorkers: 8}
+
+	serialCold, err := serial.Discover(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelCold, err := parallel.Discover(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialCold, parallelCold)
+
+	serialWarm, err := serial.Discover(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelWarm, err := parallel.Discover(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialCold, serialWarm)
+	sessiontest.RequireEqual(t, parallelCold, parallelWarm)
+
+	appendFile(t, incrementalPath, `{"timestamp":"2026-08-07T03:00:00Z","type":"turn_context","payload":{"cwd":`+jsonString(updatedRepo)+`,"model":"gpt-5.6"}}`+"\n"+
+		`{"timestamp":"2026-08-07T03:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"appended request"}]}}`+"\n")
+	serialIncremental, err := serial.Discover(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelIncremental, err := parallel.Discover(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialIncremental, parallelIncremental)
+	if got := serialIncremental[0]; got.ID != "session-00" || got.CWD != updatedRepo || got.Metadata["model"] != "gpt-5.6" {
+		t.Fatalf("incremental session = %#v", got)
+	}
+
+	limitedOpts := session.DiscoverOptions{LimitFiles: 7}
+	limitedSerial := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "limited-serial.json"), parseWorkers: 1}
+	limitedParallel := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "limited-parallel.json"), parseWorkers: 8}
+	serialLimited, err := limitedSerial.Discover(limitedOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelLimited, err := limitedParallel.Discover(limitedOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialLimited, parallelLimited)
 }
 
 func TestDiscoverCachesAndInvalidatesObjectSourceSession(t *testing.T) {

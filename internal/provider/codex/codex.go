@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/cwdstatus"
@@ -31,12 +32,15 @@ const (
 	oversizedTextEdgeBytes   = 4 * 1024
 	incrementalHashEdgeBytes = 64 * 1024
 	minimumIncrementalBytes  = 1024 * 1024
+	defaultParseWorkers      = 8
 )
 
 type Provider struct {
 	Home      string
 	CachePath string
 	Profile   string
+
+	parseWorkers int
 }
 
 func New(home string) Provider {
@@ -75,8 +79,9 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		histories[home] = nonNilTitleMap(readHistoryTitles(filepath.Join(home, "history.jsonl")))
 		threadNames[home] = nonNilTitleMap(readSessionIndexTitles(filepath.Join(home, "session_index.jsonl")))
 	}
-	sessions := make([]session.Session, 0, len(files))
-	for _, file := range files {
+	parsed := make([]parsedFile, len(files))
+	misses := make([]cacheMiss, 0, len(files))
+	for i, file := range files {
 		id := sessioncache.FileIdentity{
 			Provider: Name,
 			Path:     file.Path,
@@ -84,19 +89,25 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			ModTime:  file.ModTime,
 		}
 		s, ok := cache.Get(id)
-		if !ok {
-			var state []byte
-			if previousID, previous, previousState, found := cache.GetLatest(Name, file.Path); found {
-				s, state, ok = parseSessionFileIncremental(file.Path, id, previousID, previous, previousState)
-			}
-			var err error
-			if !ok {
-				s, state, err = parseSessionFileWithState(file.Path, id.Size)
-			}
-			if err != nil || s.ID == "" || s.CWD == "" {
-				continue
-			}
-			s = cache.PutWithState(id, s, state)
+		if ok {
+			parsed[i] = parsedFile{id: id, session: s, available: true}
+			continue
+		}
+		miss := cacheMiss{index: i, file: file, id: id}
+		miss.previousID, miss.previous, miss.previousState, miss.hasPrevious = cache.GetLatest(Name, file.Path)
+		misses = append(misses, miss)
+	}
+	parseCacheMisses(misses, p.workerCount(), parsed)
+
+	sessions := make([]session.Session, 0, len(files))
+	for i, file := range files {
+		result := parsed[i]
+		if !result.available {
+			continue
+		}
+		s := result.session
+		if result.cacheMiss {
+			s = cache.PutWithState(result.id, s, result.state)
 		}
 		if s.ID == "" || s.CWD == "" {
 			continue
@@ -151,6 +162,78 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 	_ = cache.Save(cachePath)
 	return sessions, nil
+}
+
+type cacheMiss struct {
+	index         int
+	file          fileInfo
+	id            sessioncache.FileIdentity
+	previousID    sessioncache.FileIdentity
+	previous      session.Session
+	previousState []byte
+	hasPrevious   bool
+}
+
+type parsedFile struct {
+	id        sessioncache.FileIdentity
+	session   session.Session
+	state     []byte
+	available bool
+	cacheMiss bool
+}
+
+func (p Provider) workerCount() int {
+	if p.parseWorkers > 0 {
+		return p.parseWorkers
+	}
+	return defaultParseWorkers
+}
+
+func parseCacheMisses(misses []cacheMiss, workers int, parsed []parsedFile) {
+	if len(misses) == 0 {
+		return
+	}
+	workers = max(1, min(workers, len(misses)))
+	jobs := make(chan int)
+	var wait sync.WaitGroup
+	wait.Add(workers)
+	for range workers {
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				miss := misses[index]
+				s, state, ok := session.Session{}, []byte(nil), false
+				if miss.hasPrevious {
+					s, state, ok = parseSessionFileIncremental(
+						miss.file.Path,
+						miss.id,
+						miss.previousID,
+						miss.previous,
+						miss.previousState,
+					)
+				}
+				var err error
+				if !ok {
+					s, state, err = parseSessionFileWithState(miss.file.Path, miss.id.Size)
+				}
+				if err != nil || s.ID == "" || s.CWD == "" {
+					continue
+				}
+				parsed[miss.index] = parsedFile{
+					id:        miss.id,
+					session:   s,
+					state:     state,
+					available: true,
+					cacheMiss: true,
+				}
+			}
+		}()
+	}
+	for index := range misses {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
 }
 
 func (p Provider) homes() ([]string, error) {

@@ -608,3 +608,112 @@ source 目标后，两边均为 752 个 session，非目标 session 哈希同为
 cache version 是共享的，因此 Codex、Claude、Kiro、opencode、CodeBuddy、Cursor 会发生
 一次性 cold rebuild；它们的 focused cold/warm、invalidation 和公共 CLI 测试均通过。
 P0 决定保留。P1 不在本项中实施，必须在 P0 合并后的主线上重新采集独立 base/after。
+
+## P1：Codex cache miss 有界并行解析
+
+### 契约与实现
+
+- P1 base 为最新 `origin/master@b6b2a23`，测试/benchmark 提交为 `99e1ab4`，生产实现
+  提交为 `3e1e154`；本节没有复用 P0 after；
+- 公共行为本来正确，因此 base 上新增的 CLI 合同通过，不把编译失败或人为断言当成产品
+  failure。实现前先提交该公共合同和混合 rollout benchmark，再写串行/并行等价测试；
+- 默认最多 8 个 worker。主 goroutine 继续按 newest-first 文件顺序串行执行 cache
+  `Get`/`GetLatest`，worker 只解析彼此独立的 primary file；结果按原文件 index 汇总后，
+  再串行执行 cache `Put`/`Keep`/`Save`、重复 ID 去重、dynamic title、cwd 和 preview；
+- 等价测试覆盖 1/8 worker cold、warm、cache parity、解析失败、重复 ID、parent/child
+  inherited-history boundary、native dynamic title、增量 state、newest-first 和 limit；
+- 公共 CLI fixture 使用超过默认 worker 数量的 producer-compatible 对象 source rollout，
+  锁定 cold/warm JSON、session ordering、project grouping、provider error、missing-cwd 和
+  resume safety；
+- cache 格式和 version 没有变化，其他 provider 不承担 worker 或持久化兼容成本。
+
+### Focused benchmark、worker sweep 与内存
+
+`BenchmarkDiscoverColdCacheMixedRollouts` 使用 24 个 64 KiB、256 KiB、1 MiB、4 MiB
+混合 rollout，包含对象 source、parent metadata、turn context 和 assistant payload；每档
+10 个样本、`benchtime=1x`。相同 benchmark 在 P1 base 和默认 8-worker after 上结果为：
+
+| 指标 | Base `99e1ab4` | After `3e1e154` | 变化 |
+|---|---:|---:|---:|
+| wall time | 577.5 ms ±2% | 103.6 ms ±14% | -82.07%（p=0.000） |
+| B/op | 230.1 MiB | 230.1 MiB | +0.01% |
+| allocs/op | 3.651k | 3.688k | +1.00% |
+
+同一 after 的 worker sweep：
+
+| Worker | sec/op | 相对 1 worker | B/op | allocs/op | 峰值 RSS |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 551.6 ms ±7% | 基线 | 230.1 MiB | 3.658k | 26.8 MiB |
+| 2 | 291.9 ms ±4% | -47.08% | 230.1 MiB | 3.692k | 29.9 MiB |
+| 4 | 168.5 ms ±6% | -69.45% | 230.1 MiB | 3.690k | 50.6 MiB |
+| 8 | 97.30 ms ±6% | -82.36% | 230.1 MiB | 3.690k | 77.7 MiB |
+| 16 | 87.75 ms ±19% | -84.09% | 230.1 MiB | 3.702k | 112.0 MiB |
+
+8 到 16 worker 只再改善约 9.8%，峰值 RSS 却增加约 44.2%，且 16-worker 分布更不稳定，
+因此保留 8。B/op 是完成同一解析工作的累计分配量，worker 数不会减少它；真实冷启动
+单样本峰值 RSS 从 base 49.9 MiB 增至 after 71.1 MiB（+21.2 MiB），绝对值可接受，
+并与下节 p95 收益一并作为保留依据。
+
+raw output：
+
+- `/tmp/asm-tui-startup-p1-20260807/mixed-base.txt`、`mixed-after.txt` 和
+  `mixed-benchstat.txt`；
+- `/tmp/asm-tui-startup-p1-20260807/worker-sweep-final.txt`、
+  `worker-sweep-summary.txt`、`worker-rss.txt`；
+- `/tmp/asm-tui-startup-p1-20260807/real-rss.txt`。
+
+### 独立真实冷/热 A/B
+
+环境为 Go 1.26.5、Linux `6.6.92-34.1.tl4.x86_64`、AMD EPYC 7K62、32 CPU；base
+`b6b2a23` 和 after `3e1e154` 均用 `-buildvcs=false` 构建。公共 runner 使用默认最近
+30 天和 missing-session resume 探针；每个版本冷启动 10 次，热态预热 2 次后采集
+20 次，并使用隔离临时 `XDG_CACHE_HOME`。这是 P1 独立 base/after：
+
+| 场景 | 版本 | min | median | mean | p95 | max |
+|---|---|---:|---:|---:|---:|---:|
+| 冷启动 | Base | 23.004 s | 23.246 s | 23.296 s | 23.620 s | 23.620 s |
+| 冷启动 | After | 5.383 s | 5.476 s | 5.499 s | 5.684 s | 5.684 s |
+| 热启动 | Base | 0.079 s | 0.080 s | 0.090 s | 0.157 s | 0.163 s |
+| 热启动 | After | 0.080 s | 0.082 s | 0.086 s | 0.086 s | 0.166 s |
+
+固定 `benchstat@v0.0.0-20260709024250-82a0b07e230d`：冷启动 `-76.44%`
+（p=0.000，n=10）；热启动无显著变化（p=0.121，n=20）。冷 cache 中位数从
+1,291,054 bytes 到 1,291,414 bytes，热 cache 均为 1,291,414 bytes；实现没有 cache
+schema 或持久化体积变化。
+
+base/after 的 cold/warm 各自一致，且跨版本也逐项一致：1207 个 session、89 个 project、
+0 个 provider error；provider 数量为 Codex 749、Claude 184、CodeBuddy 70、ZCode 68、
+Kiro 58、Cursor 55、Kimi 23，opencode/OpenClaw 为 0。不可逆哈希为：
+
+- session `{provider,id}` SHA-256：
+  `8f09c5ad967d545ef89156ae0ad172409d770c901c3fb5e05c49c74713010adf`；
+- project `{cwd,count}` SHA-256：
+  `e2292fdce6324d469339beac4865c70256d8cfaf2e70985881e83ff30f4e8753`。
+
+真实 raw output：
+
+- `/tmp/asm-tui-startup-p1-20260807/real-base/`；
+- `/tmp/asm-tui-startup-p1-20260807/real-after/`；
+- `/tmp/asm-tui-startup-p1-20260807/real-benchstat.txt`。
+
+### Cross-agent 影响分类
+
+| Provider | Primary store 与共享机制 | 触发可达性与结论 |
+|---|---|---|
+| Codex | cache miss 解析 per-session rollout JSONL | affected；真实冷启动解析约 1.96 GB，本项修复 |
+| Claude | cache miss 解析 per-session project JSONL | 机制可达，但格式/preview 规则独立，当前真实成本远低于 Codex；不扩 P1 |
+| CodeBuddy | cache miss 解析 project JSONL | 机制可达，但真实冷成本约百毫秒量级；无实施门槛证据 |
+| Cursor | cache miss 解析 agent transcript JSONL | 机制可达，但 cwd/preview 规则独立且真实冷成本约百毫秒量级；不共享 worker |
+| Kiro | cache miss 解析小型 metadata JSON | 大型 rollout 触发不可达；动态 Prompt 仍串行重读 |
+| opencode | cache miss 解析小型 session JSON | 大型 rollout 触发不可达；project/message 是动态 side input |
+| Kimi | compact index + per-session state，无 sessioncache | 不受影响 |
+| OpenClaw | compact `sessions.json` index，无 per-session transcript parse | 不受影响 |
+| ZCode | SQLite indexed queries | 不受影响 |
+
+当前变更的 contributor scope 只需 Codex 正确性、确定性和资源证据，已完成；没有为其他
+provider 建立不安全的共享抽象。维护者 follow-up 继续沿用现有门槛：只有某个 JSONL
+provider 在真实关键路径成为主导且补齐 changed-large benchmark 后，才为其独立设计并行
+解析。本项不进入 P2 metadata/turn-context 快路径。
+
+全仓 `go test -race ./...` 通过；focused provider/CLI、完整仓库门禁和 autoreview 结果
+随本项最终提交一并验收。P1 决定保留，P2 未开始。
