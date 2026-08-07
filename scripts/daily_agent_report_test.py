@@ -47,15 +47,15 @@ class ReportValidatorTests(unittest.TestCase):
             textwrap.dedent(
                 """\
                 ## 工作概览
-                1. [高投入] 核心项目：持续推进主要交付；下一步：完成验证
-                2. [中投入] 协作事项：明确后续安排；下一步：跟进结论
-                3. [低投入] 临时支持：完成简短确认；下一步：暂无
+                1. [高投入] [core] 核心项目：持续推进主要交付；下一步：完成验证
+                2. [中投入] [core] [shared] 协作事项：明确后续安排；下一步：跟进结论
+                3. [低投入] [support] 临时支持：完成简短确认；下一步：暂无
 
                 ## 后续跟进
-                - 继续推进核心项目
+                - [core] 继续推进核心项目
 
                 ## 风险与阻塞
-                - 暂无明确阻塞
+                - [全局] 暂无明确阻塞
                 """
             )
         )
@@ -77,6 +77,36 @@ class ReportValidatorTests(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
 
+    def test_rejects_overview_item_without_explicit_next_step(self) -> None:
+        result = self.validate(
+            "## 工作概览\n"
+            "1. [高投入] [core] 核心项目：已完成发布验证\n\n"
+            "## 后续跟进\n- [core] 暂无\n\n"
+            "## 风险与阻塞\n- [全局] 暂无明确阻塞\n"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_rejects_overlong_overview_item(self) -> None:
+        result = self.validate(
+            "## 工作概览\n"
+            f"1. [高投入] [core] 核心项目：{'具体结果。' * 40}；下一步：继续验证\n\n"
+            "## 后续跟进\n- [core] 继续验证\n\n"
+            "## 风险与阻塞\n- [全局] 暂无明确阻塞\n"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_rejects_items_without_project_tags(self) -> None:
+        result = self.validate(
+            "## 工作概览\n"
+            "1. [高投入] 核心项目：已完成发布验证；下一步：暂无\n\n"
+            "## 后续跟进\n- 继续验证\n\n"
+            "## 风险与阻塞\n- 暂无明确阻塞\n"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+
 
 class DailyReportScriptTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -94,6 +124,7 @@ class DailyReportScriptTests(unittest.TestCase):
             """\
             #!/usr/bin/env python3
             import json
+            import os
             import sys
 
             if "--period" in sys.argv:
@@ -110,6 +141,11 @@ class DailyReportScriptTests(unittest.TestCase):
             evidence_at = "2026-07-31T10:00:00+08:00" if custom_start else (
                 "2026-07-15T10:00:00+08:00" if weekly else "2026-07-23T10:00:00+08:00"
             )
+            evidence_text = os.environ.get("FAKE_ASM_EVIDENCE") or (
+                "已清理 IPv6 合并限速与锐驰 COS 免费套餐包两项已结束的灰度控制；"
+                "集成构建与新增测试通过；IPv6 变配套件因计费询价能力不可用而未完成；"
+                "覆盖率工具本地实验确认暂不适合接入灰度准入流程"
+            )
             session = {
                 "id": "session-1",
                 "provider": "codex",
@@ -118,20 +154,39 @@ class DailyReportScriptTests(unittest.TestCase):
                 "updated_at": evidence_at,
                 "path": "/private/provider/path",
                 "evidence": [{
-                    "text": "清理 IPv6 合并限速与锐驰 COS 免费套餐包两项已结束的灰度控制",
+                    "text": evidence_text,
                     "at": evidence_at,
                 }],
                 "evidence_count": 1,
             }
+            sessions = [session]
+            if os.environ.get("FAKE_ASM_SECOND_PROJECT") == "1":
+                sessions.append({
+                    **session,
+                    "id": "session-2",
+                    "cwd": "/workspace/shared-lib",
+                    "evidence": [{
+                        "text": "shared-lib 联合完成跨项目验证",
+                        "at": evidence_at,
+                    }],
+                })
+            projects = [
+                {"cwd": item["cwd"], "count": 1, "updated": evidence_at}
+                for item in sessions
+            ]
             print(json.dumps({
                 "period": period,
                 "start": start,
                 "end": end,
                 "timezone": "Asia/Shanghai",
                 "evidence_rule": "fixture",
-                "totals": {"sessions": 1, "projects": 1, "providers": {"codex": 1}},
-                "projects": [{"cwd": session["cwd"], "count": 1, "updated": evidence_at}],
-                "sessions": [session],
+                "totals": {
+                    "sessions": len(sessions),
+                    "projects": len(projects),
+                    "providers": {"codex": len(sessions)},
+                },
+                "projects": projects,
+                "sessions": sessions,
             }, ensure_ascii=False))
             """,
         )
@@ -191,13 +246,13 @@ class DailyReportScriptTests(unittest.TestCase):
                 os.environ.get("FAKE_CODEBUDDY_INVALID_FIRST") == "1" and count == 1
             )
             if invalid:
-                print("## 工作概览\\n1. 项目：缺少投入等级\\n\\n"
-                      "## 后续跟进\\n- 暂无\\n\\n"
-                      "## 风险与阻塞\\n- 暂无明确阻塞")
+                print("## 工作概览\\n1. [project] 项目：缺少投入等级\\n\\n"
+                      "## 后续跟进\\n- [project] 暂无\\n\\n"
+                      "## 风险与阻塞\\n- [全局] 暂无明确阻塞")
             else:
-                print("## 工作概览\\n1. [高投入] 项目：推进主要交付；下一步：完成验证\\n\\n"
-                      "## 后续跟进\\n- 继续推进\\n\\n"
-                      "## 风险与阻塞\\n- 暂无明确阻塞")
+                print("## 工作概览\\n1. [高投入] [project] 项目：推进主要交付；下一步：完成验证\\n\\n"
+                      "## 后续跟进\\n- [project] 继续推进\\n\\n"
+                      "## 风险与阻塞\\n- [全局] 暂无明确阻塞")
             """,
         )
         self._write_executable(
@@ -246,9 +301,9 @@ class DailyReportScriptTests(unittest.TestCase):
             Path(response_path).write_text(json.dumps({
                 "choices": [{"message": {"content": (
                     "## 工作概览\\n"
-                    "1. [中投入] Ollama 试验：完成生成验证；下一步：持续推送\\n\\n"
-                    "## 后续跟进\\n- 持续推送\\n\\n"
-                    "## 风险与阻塞\\n- 暂无明确阻塞"
+                    "1. [中投入] [project] Ollama 试验：完成生成验证；下一步：持续推送\\n\\n"
+                    "## 后续跟进\\n- [project] 持续推送\\n\\n"
+                    "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
                 )}}]
             }, ensure_ascii=False), encoding="utf-8")
             print("200")
@@ -267,9 +322,9 @@ class DailyReportScriptTests(unittest.TestCase):
             args = parser.parse_args()
             prompt = Path(args.prompt).read_text(encoding="utf-8")
             Path(os.environ["FAKE_CUSTOM_PROMPT"]).write_text(prompt, encoding="utf-8")
-            print("## 工作概览\\n1. [中投入] 自定义生成：完成替换验证；下一步：接入正式模型\\n\\n"
-                  "## 后续跟进\\n- 暂无\\n\\n"
-                  "## 风险与阻塞\\n- 暂无明确阻塞")
+            print("## 工作概览\\n1. [中投入] [project] 自定义生成：完成替换验证；下一步：接入正式模型\\n\\n"
+                  "## 后续跟进\\n- [project] 暂无\\n\\n"
+                  "## 风险与阻塞\\n- [全局] 暂无明确阻塞")
             """,
         )
         self._write_executable(
@@ -295,9 +350,92 @@ class DailyReportScriptTests(unittest.TestCase):
                 progress = "完成核心服务冗余代码清理"
             print(
                 "## 工作概览\\n"
-                f"1. [高投入] Lighthouse：{progress}；下一步：完成回归验证\\n\\n"
-                "## 后续跟进\\n- 完成回归验证\\n\\n"
-                "## 风险与阻塞\\n- 暂无明确阻塞"
+                f"1. [高投入] [project] Lighthouse：{progress}；下一步：完成回归验证\\n\\n"
+                "## 后续跟进\\n- [project] 完成回归验证\\n\\n"
+                "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
+            )
+            """,
+        )
+        self._write_executable(
+            "fake-readability-generator",
+            """\
+            #!/usr/bin/env python3
+            import argparse
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--prompt", required=True)
+            args = parser.parse_args()
+            prompt = Path(args.prompt).read_text(encoding="utf-8")
+            writes_facts_first = "先写事实，再写概括" in prompt
+            rejects_process_nouns = "梳理、推进、沉淀、适配、验收、收敛" in prompt
+            requires_verdict = "通过、失败、未完成或待确认" in prompt
+            allows_short_sentences = "两到三个短句" in prompt
+            if all((writes_facts_first, rejects_process_nouns, requires_verdict, allows_short_sentences)):
+                progress = (
+                    "已清理 IPv6 合并限速与锐驰 COS 免费套餐包的灰度控制，集成构建和新增测试均通过。"
+                    "IPv6 变配套件因计费询价不可用而未完成。"
+                    "覆盖率工具经本地实验后暂不接入灰度准入流程"
+                )
+            else:
+                progress = (
+                    "完成多变更集成交付，主闭环通过，并推进阻塞定位与覆盖率工具实验，"
+                    "已形成可用性结论"
+                )
+            print(
+                "## 工作概览\\n"
+                f"1. [高投入] [project] Lighthouse：{progress}；下一步：恢复询价后补跑变配套件\\n\\n"
+                "## 后续跟进\\n- [project] 恢复询价后补跑 IPv6 变配套件\\n\\n"
+                "## 风险与阻塞\\n- [project] 计费询价不可用，IPv6 变配验证尚未完成"
+            )
+            """,
+        )
+        self._write_executable(
+            "fake-request-evidence-generator",
+            """\
+            #!/usr/bin/env python3
+            import argparse
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--prompt", required=True)
+            args = parser.parse_args()
+            prompt = Path(args.prompt).read_text(encoding="utf-8")
+            audits_completion_verbs = "逐条检查“已、完成、通过、修复、发布”" in prompt
+            distinguishes_requests = "命令式请求或计划" in prompt
+            if audits_completion_verbs and distinguishes_requests:
+                progress = "开始配置本地聊天记录检索与每日更新，能否查到当天记录仍待确认"
+            else:
+                progress = "已完成本地聊天记录检索配置与每日更新，并验证成功"
+            print(
+                "## 工作概览\\n"
+                f"1. [中投入] [project] 聊天记录检索：{progress}；下一步：确认检索结果\\n\\n"
+                "## 后续跟进\\n- [project] 确认检索结果\\n\\n"
+                "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
+            )
+            """,
+        )
+        self._write_executable(
+            "fake-project-tag-generator",
+            """\
+            #!/usr/bin/env python3
+            import argparse
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--prompt", required=True)
+            args = parser.parse_args()
+            prompt = Path(args.prompt).read_text(encoding="utf-8")
+            supports_tags = "每个顶层条目都必须带一个或多个项目来源标签" in prompt
+            supports_multiple = "每个来源项目各写一个标签" in prompt
+            tags = "[project] [shared-lib] " if supports_tags and supports_multiple else ""
+            print(
+                "## 工作概览\\n"
+                f"1. [高投入] {tags}联合交付：完成跨项目验证；下一步：暂无\\n\\n"
+                "## 后续跟进\\n"
+                f"- {tags}确认联合交付结果\\n\\n"
+                "## 风险与阻塞\\n"
+                f"- {tags}暂无明确阻塞"
             )
             """,
         )
@@ -316,16 +454,16 @@ class DailyReportScriptTests(unittest.TestCase):
             if legacy_coverage_warning:
                 report = (
                     "## 工作概览\\n"
-                    "1. [中投入] 工作事项：继续推进；下一步：补充确认\\n\\n"
-                    "## 后续跟进\\n- 补充确认会议结论\\n\\n"
-                    "## 风险与阻塞\\n- 会议覆盖不完整"
+                    "1. [中投入] [project] 工作事项：继续推进；下一步：补充确认\\n\\n"
+                    "## 后续跟进\\n- [project] 补充确认会议结论\\n\\n"
+                    "## 风险与阻塞\\n- [全局] 会议覆盖不完整"
                 )
             else:
                 report = (
                     "## 工作概览\\n"
-                    "1. [中投入] 项目协作会：围绕项目协作进行宽泛沟通（据会议名称推测）；下一步：结合实际讨论补充确认\\n\\n"
-                    "## 后续跟进\\n- 如需会议结论，补充确认具体讨论内容\\n\\n"
-                    "## 风险与阻塞\\n- 暂无明确阻塞"
+                    "1. [中投入] [会议] 项目协作会：围绕项目协作进行宽泛沟通（据会议名称推测）；下一步：结合实际讨论补充确认\\n\\n"
+                    "## 后续跟进\\n- [会议] 如需会议结论，补充确认具体讨论内容\\n\\n"
+                    "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
                 )
             print(report)
             """,
@@ -484,7 +622,7 @@ class DailyReportScriptTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         delivered = (self.root / "delivery-today.md").read_text(encoding="utf-8")
-        self.assertIn("[中投入] 自定义生成", delivered)
+        self.assertIn("[中投入] [project] 自定义生成", delivered)
         custom_prompt = (self.root / "custom-prompt-today.txt").read_text(encoding="utf-8")
         self.assertIn("UNTRUSTED REPORT EVIDENCE", custom_prompt)
 
@@ -500,7 +638,10 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report_path = local_report_dir / "daily-2026-07-23.md"
         self.assertTrue(report_path.is_file())
-        self.assertIn("[高投入] 项目：推进主要交付", report_path.read_text(encoding="utf-8"))
+        self.assertIn(
+            "[高投入] [project] 项目：推进主要交付",
+            report_path.read_text(encoding="utf-8"),
+        )
         self.assertIn("Local report written", result.stdout)
 
         second = self.run_report(
@@ -561,6 +702,45 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertIn("IPv6 合并限速", result.stdout)
         self.assertIn("锐驰 COS 免费套餐包", result.stdout)
         self.assertNotIn("核心服务冗余代码清理", result.stdout)
+
+    def test_report_states_concrete_results_without_abstract_status_packing(self) -> None:
+        result, _ = self.run_report(
+            "today",
+            generator_script=self.bin_dir / "fake-readability-generator",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("集成构建和新增测试均通过", result.stdout)
+        self.assertIn("计费询价不可用而未完成", result.stdout)
+        self.assertIn("暂不接入灰度准入流程", result.stdout)
+        self.assertNotIn("主闭环", result.stdout)
+        self.assertNotIn("形成可用性结论", result.stdout)
+
+    def test_report_does_not_upgrade_request_evidence_to_completed_work(self) -> None:
+        result, _ = self.run_report(
+            "today",
+            generator_script=self.bin_dir / "fake-request-evidence-generator",
+            extra_env={
+                "FAKE_ASM_EVIDENCE": "帮我配置本机聊天记录检索与每日更新，再试下能不能查到今天的记录",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("开始配置", result.stdout)
+        self.assertIn("仍待确认", result.stdout)
+        self.assertNotIn("已完成本地聊天记录检索配置", result.stdout)
+
+    def test_report_tags_every_item_with_all_source_projects(self) -> None:
+        result, _ = self.run_report(
+            "today",
+            generator_script=self.bin_dir / "fake-project-tag-generator",
+            extra_env={"FAKE_ASM_SECOND_PROJECT": "1"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1. [高投入] [project] [shared-lib] 联合交付", result.stdout)
+        self.assertIn("- [project] [shared-lib] 确认联合交付结果", result.stdout)
+        self.assertIn("- [project] [shared-lib] 暂无明确阻塞", result.stdout)
 
     def test_failed_meeting_context_uses_subject_fallback_without_coverage_risk(self) -> None:
         for status in ("partial", "unavailable"):
@@ -773,9 +953,9 @@ class DailyReportScriptTests(unittest.TestCase):
         report = self.root / "telegram-report.md"
         report.write_text(
             "## 工作概览\n"
-            "1. [高投入] 项目：完成 `验证`；下一步：继续推进\n\n"
+            "1. [高投入] [project] 项目：完成 `验证`；下一步：继续推进\n\n"
             "## 风险与阻塞\n"
-            "- 暂无\n",
+            "- [全局] 暂无\n",
             encoding="utf-8",
         )
         args_path = self.root / "curl-args.json"
@@ -815,7 +995,7 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertIn("<b>&lt;晨会日报&gt;</b>", text_arg)
         self.assertIn("<b>工作概览</b>", text_arg)
         self.assertIn("<code>验证</code>", text_arg)
-        self.assertIn("• 暂无", text_arg)
+        self.assertIn("• [全局] 暂无", text_arg)
 
 
 class TencentMeetingCollectorTests(unittest.TestCase):
