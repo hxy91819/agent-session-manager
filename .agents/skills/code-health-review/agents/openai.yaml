@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Health Review"
+  short_description: "Analyze PR code-health regressions and next steps"
+  default_prompt: "Use $code-health-review to analyze the current PR code-health evidence and recommend next actions."

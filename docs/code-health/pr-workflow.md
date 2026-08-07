@@ -3,6 +3,16 @@
 阶段 C 的目标是校准规则，不是提前阻断开发。至少收集 10 个已合并 PR 后，才决定
 是否进入阶段 D 硬门禁。
 
+最简单的使用方式是在仓库会话中调用：
+
+```text
+$code-health-review 分析当前 PR 的代码健康报告并给出建议
+```
+
+该 skill 会解析 CI artifact 或重新运行明确的 base/head 比较，区分本 PR 退化与
+存量债务，并给出 `fix before merge`、`consider` 或 `accept during Stage C` 建议；
+默认只分析，不修改代码或阈值。
+
 ## PR 打开或更新后
 
 CI 会出现绿色的 `Code health report` check。进入该 check 的 Summary，可以直接看
@@ -12,8 +22,10 @@ CI 会出现绿色的 `Code health report` check。进入该 check 的 Summary�
 - `code-health.json`：完整、稳定的 base/head 测量结果；
 - `code-health-run.json`：PR、revision、耗时和计数元数据。
 
-CI 明确比较 PR 的 base SHA 和 head SHA。报告中的 `would-fail` 不会让 check 失败；
-只有 revision 不可达、源码无法解析或分析器运行失败才会失败。
+CI 明确比较 PR 的 base SHA 和 GitHub 实际测试的合并 SHA，并在元数据中另存 PR
+head SHA。这样落后于 base 的分支不会把无关上游变化误判为本 PR 退化。报告中的
+`would-fail` 不会让 check 失败；只有 revision 不可达、源码无法解析或分析器运行
+失败才会失败。
 
 ## 维护者只需要做的判断
 

@@ -30,26 +30,29 @@ jobs:
         shell: bash
         env:
           BASE_REVISION: ${{ github.event.pull_request.base.sha }}
-          HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          # Compare the current base with GitHub's tested merge result so a stale PR branch
+          # does not turn unrelated upstream changes into apparent regressions.
+          ANALYZED_REVISION: ${{ github.sha }}
+          PR_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
 
           # Stage C findings remain report-only; operational failures still fail CI.
-          if [[ -z "${BASE_REVISION}" || -z "${HEAD_REVISION}" || -z "${PR_NUMBER}" ]]; then
-            echo "Missing pull request base, head, or number." >&2
+          if [[ -z "${BASE_REVISION}" || -z "${ANALYZED_REVISION}" || -z "${PR_HEAD_REVISION}" || -z "${PR_NUMBER}" ]]; then
+            echo "Missing pull request base, analyzed revision, head, or number." >&2
             exit 2
           fi
 
           started_seconds=${SECONDS}
           go run ./tools/check-code-health \
             --base "${BASE_REVISION}" \
-            --head "${HEAD_REVISION}" \
+            --head "${ANALYZED_REVISION}" \
             --format json > code-health.json
           go run ./tools/check-code-health \
             --base "${BASE_REVISION}" \
-            --head "${HEAD_REVISION}" \
+            --head "${ANALYZED_REVISION}" \
             --format text > code-health.txt
           elapsed_seconds=$((SECONDS - started_seconds))
 
@@ -62,7 +65,8 @@ jobs:
             --arg schema_version "asm.code-health-ci-run/v1" \
             --argjson pr_number "${PR_NUMBER}" \
             --arg base_revision "${BASE_REVISION}" \
-            --arg head_revision "${HEAD_REVISION}" \
+            --arg pr_head_revision "${PR_HEAD_REVISION}" \
+            --arg analyzed_revision "${ANALYZED_REVISION}" \
             --arg workflow_run_id "${WORKFLOW_RUN_ID}" \
             --argjson elapsed_seconds "${elapsed_seconds}" \
             --argjson would_fail "${would_fail}" \
@@ -73,7 +77,8 @@ jobs:
               schema_version: $schema_version,
               pr_number: $pr_number,
               base_revision: $base_revision,
-              head_revision: $head_revision,
+              pr_head_revision: $pr_head_revision,
+              analyzed_revision: $analyzed_revision,
               workflow_run_id: $workflow_run_id,
               elapsed_seconds: $elapsed_seconds,
               would_fail: $would_fail,

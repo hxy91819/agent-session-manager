@@ -8,7 +8,8 @@
     "schema_version",
     "pr_number",
     "base_revision",
-    "head_revision",
+    "pr_head_revision",
+    "analyzed_revision",
     "first_report",
     "final_report",
     "agent_fixed",
@@ -30,7 +31,10 @@
     "base_revision": {
       "$ref": "#/$defs/revision"
     },
-    "head_revision": {
+    "pr_head_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "analyzed_revision": {
       "$ref": "#/$defs/revision"
     },
     "merged_revision": {

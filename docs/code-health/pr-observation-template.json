@@ -2,7 +2,8 @@
   "schema_version": "asm.code-health-pr-observation/v1",
   "pr_number": 1,
   "base_revision": "0000000000000000000000000000000000000000",
-  "head_revision": "0000000000000000000000000000000000000000",
+  "pr_head_revision": "0000000000000000000000000000000000000000",
+  "analyzed_revision": "0000000000000000000000000000000000000000",
   "merged_revision": null,
   "first_report": {
     "would_fail": false,
