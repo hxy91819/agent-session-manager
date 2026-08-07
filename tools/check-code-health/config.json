@@ -1,0 +1,68 @@
+{
+  "schema_version": "asm.code-health/v1",
+  "history_schema_version": "asm.code-health-history/v1",
+  "series": "2026-08-stage-b-v1",
+  "mode": "report",
+  "scope": {
+    "roots": ["cmd", "internal", "tools"],
+    "excluded_directories": ["vendor", "testdata"],
+    "generated_code_marker": "Code generated .* DO NOT EDIT."
+  },
+  "analyzers": {
+    "engine": "asm-code-health/v1",
+    "cognitive_complexity": "github.com/uudashr/gocognit@v1.2.1",
+    "cyclomatic_complexity": "github.com/fzipp/gocyclo@v0.6.0",
+    "clone_detection": "github.com/mibk/dupl@v1.1.0"
+  },
+  "metrics": {
+    "file_lines": {
+      "definition": "physical lines in a non-generated Go source file",
+      "report_threshold": 400,
+      "hard_threshold": 600
+    },
+    "function_lines": {
+      "definition": "physical lines from func declaration start through body end, inclusive",
+      "report_threshold": 50,
+      "hard_threshold": 80
+    },
+    "function_statements": {
+      "definition": "AST statement nodes excluding block and empty statements",
+      "report_threshold": 30,
+      "hard_threshold": 50
+    },
+    "cognitive_complexity": {
+      "definition": "gocognit cognitive complexity for a function declaration",
+      "report_threshold": 15,
+      "hard_threshold": 20
+    },
+    "cyclomatic_complexity": {
+      "definition": "gocyclo cyclomatic complexity for a function declaration",
+      "report_threshold": 10,
+      "hard_threshold": 15
+    },
+    "clone_tokens": {
+      "definition": "dupl normalized syntax-token clone groups, fingerprinted without source positions",
+      "report_threshold": 50,
+      "hard_threshold": 80
+    },
+    "micro_function_statements": {
+      "definition": "function with no more than this many non-block AST statements",
+      "observation_threshold": 5
+    },
+    "functions_per_kloc": {
+      "definition": "function declarations per 1000 physical source lines"
+    },
+    "package_file_count": {
+      "definition": "non-generated Go source files in one package"
+    },
+    "changed_production_files": {
+      "definition": "production Go paths added, copied, modified, or renamed from a commit's first parent"
+    },
+    "added_helper_calls": {
+      "definition": "call expressions whose identifier or selector name matches a function added from base to head"
+    },
+    "added_functions": {
+      "definition": "function symbols present in head and absent from base after package and receiver matching"
+    }
+  }
+}
