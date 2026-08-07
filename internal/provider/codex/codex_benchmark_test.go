@@ -145,10 +145,23 @@ func BenchmarkDiscoverHotCache(b *testing.B) {
 }
 
 func BenchmarkDiscoverColdCacheMixedRollouts(b *testing.B) {
+	benchmarkDiscoverColdCacheMixedRollouts(b, 0)
+}
+
+func BenchmarkDiscoverColdCacheMixedRolloutsWorkers(b *testing.B) {
+	for _, workers := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("workers-%02d", workers), func(b *testing.B) {
+			benchmarkDiscoverColdCacheMixedRollouts(b, workers)
+		})
+	}
+}
+
+func benchmarkDiscoverColdCacheMixedRollouts(b *testing.B, workers int) {
 	home, cachePath := makeMixedBenchmarkCodexStore(b)
-	provider := Provider{Home: home, CachePath: cachePath}
+	provider := Provider{Home: home, CachePath: cachePath, parseWorkers: workers}
 	opts := session.DiscoverOptions{}
 
+	b.ReportMetric(float64(provider.workerCount()), "workers")
 	b.ReportAllocs()
 	for b.Loop() {
 		if err := os.RemoveAll(filepath.Dir(cachePath)); err != nil {
