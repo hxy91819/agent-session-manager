@@ -2,10 +2,11 @@
 
 ## 0. 文档状态与执行入口
 
-- 状态：方案已形成，测试和生产优化尚未实施。
+- 状态：阶段 A-H 已完成，最终实现与性能证据见第 10 节和
+  `docs/tui-startup-performance-baseline.md`。
 - 最后按代码核对日期：2026-08-07。
-- 当前已知产物：只有本方案文档；文中建议的 test runner、测试、benchmark、
-  baseline report 和生产改动都还不存在。
+- 当前产物：persistent-cache E2E runner、行为与性能 benchmark、阶段 D baseline、
+  阶段 E-H 生产优化和逐阶段 before/after 记录均已提交。
 - 执行范围：阶段 A-D 是生产重构前置工作；阶段 E-H 分别作为独立生产变更，
   不合并成一个大 PR。
 
@@ -669,7 +670,7 @@ pre-commit run --all-files
 本方案本身不授权删除用户 cache 或真实 provider store。所有 migration、corruption
 和 destructive test 只能作用于测试创建的临时目录。
 
-## 10. 实施跟踪（A-D）
+## 10. 实施跟踪
 
 本节是阶段 A-D 的任务跟踪记录。状态只依据已提交代码和实际命令输出更新；
 阶段 A-D 不修改生产代码。
@@ -803,9 +804,8 @@ session 携带 `time.Local`，JSON cache round-trip 后为 UTC；二者代表同
 修复提交、第二轮 autoreview、最终 checks 与 merge commit 在完成后以 PR 页面
 和提交记录为准。
 
-后续从阶段 E 开始。实施前必须先确认 title 的 rune/byte 上限和截断尾部搜索
-语义；随后使用本节记录的 before 命令、fixture 和固定 benchstat 版本生成 after
-数据。阶段 F-H 不应在这些产品契约确认前抢跑。
+该交接点之后已完成阶段 E-H。title 契约、逐阶段 after 数据、被否决方案和最终
+决策均记录在后续小节及 `docs/tui-startup-performance-baseline.md`。
 
 阶段 D 交付物补充核对（2026-08-07）：PR #39 合并到 `origin/master` 后遗漏了计划
 要求的 `docs/tui-startup-performance-baseline.md`，但 benchmark suite、原始输出和
