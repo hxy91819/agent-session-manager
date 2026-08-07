@@ -109,6 +109,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 
 		cwdChecker.Mark(&s)
+		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {

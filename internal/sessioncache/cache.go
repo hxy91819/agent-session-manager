@@ -12,7 +12,7 @@ import (
 // Version covers parser-derived session fields stored in the cache. Bump it
 // when a provider starts extracting new semantics from an otherwise unchanged
 // source file, otherwise old cache entries can hide the new metadata.
-const Version = 5
+const Version = 6
 
 type FileIdentity struct {
 	Provider string
@@ -76,6 +76,7 @@ func (c *Cache) Put(id FileIdentity, s session.Session) {
 	if c.Entries == nil {
 		c.Entries = make(map[string]Entry)
 	}
+	s.Title = session.NormalizeTitle(s.Title)
 	c.Entries[Key(id.Provider, id.Path)] = Entry{
 		Provider:        id.Provider,
 		Path:            id.Path,

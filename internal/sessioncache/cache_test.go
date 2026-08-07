@@ -127,7 +127,7 @@ func TestSaveReplacesOldContentAndRoundTripsLargeUnicodeEntry(t *testing.T) {
 		t.Fatal("save left bytes from the old cache content")
 	}
 	got, ok := Load(path).Get(id)
-	if !ok || got.Title != large || got.Metadata["large"] != large {
+	if !ok || got.Title != session.NormalizeTitle(large) || got.Metadata["large"] != large {
 		t.Fatalf("round trip = %#v, hit=%v", got, ok)
 	}
 }

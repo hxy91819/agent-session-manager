@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type cliCachePayload struct {
@@ -160,6 +161,97 @@ func TestCLIReportKeepsEvidenceIndependentFromNormalizedTitle(t *testing.T) {
 	if len(payload.Sessions[0].Evidence) != 1 || payload.Sessions[0].Evidence[0].Text != longMessage {
 		t.Fatalf("title changed report evidence: %#v", payload.Sessions[0].Evidence)
 	}
+}
+
+func TestCLITitleNormalizationAcrossProviders(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	providers := []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode"}
+	const suffix = "tail-search-token"
+
+	writeTitleNormalizationFixtures(t, env, repo, suffix)
+	payload := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if len(payload.Sessions) != len(providers)*2 {
+		t.Fatalf("sessions = %d, want %d: %#v", len(payload.Sessions), len(providers)*2, payload.Sessions)
+	}
+
+	for _, provider := range providers {
+		normal := sessionByID(t, payload, provider+"-normal")
+		long := sessionByID(t, payload, provider+"-long")
+		wantNormal := "普通 title " + provider
+		if normal.Title != wantNormal {
+			t.Errorf("%s normal title = %q, want %q", provider, normal.Title, wantNormal)
+		}
+		if !utf8.ValidString(long.Title) {
+			t.Errorf("%s long title is not valid UTF-8", provider)
+		}
+		if got := utf8.RuneCountInString(long.Title); got > 512 {
+			t.Errorf("%s long title runes = %d, want <= 512", provider, got)
+		}
+		if got := len(long.Title); got > 2048 {
+			t.Errorf("%s long title bytes = %d, want <= 2048", provider, got)
+		}
+		if !strings.HasSuffix(long.Title, "…") {
+			t.Errorf("%s long title = %q, want truncation ellipsis", provider, long.Title)
+		}
+		if strings.Contains(long.Title, suffix) {
+			t.Errorf("%s long title still contains truncated suffix", provider)
+		}
+		if normal.Metadata["title_source"] != long.Metadata["title_source"] {
+			t.Errorf("%s title_source changed: normal=%q long=%q", provider, normal.Metadata["title_source"], long.Metadata["title_source"])
+		}
+	}
+
+	truncatedSuffix := runJSONWithEnv(t, env, "--since-days", "0", "--json", "--query", suffix)
+	if len(truncatedSuffix.Sessions) != 0 {
+		t.Fatalf("truncated suffix remains searchable: %#v", truncatedSuffix.Sessions)
+	}
+}
+
+func writeTitleNormalizationFixtures(t testing.TB, env asmTestEnv, repo string, suffix string) {
+	t.Helper()
+	title := func(provider string, long bool) string {
+		if !long {
+			return "普通 title " + provider
+		}
+		return "阶段E " + provider + " " + strings.Repeat("汉🙂", 400) + " " + suffix
+	}
+
+	codexRoot := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "06", "13")
+	writeSession(t, filepath.Join(codexRoot, "normal.jsonl"), "codex-normal", repo)
+	writeSession(t, filepath.Join(codexRoot, "long.jsonl"), "codex-long", repo)
+	writeFile(t, filepath.Join(env.ProviderHome["codex"], "session_index.jsonl"),
+		`{"id":"codex-normal","thread_name":`+jsonString(title("codex", false))+`}`+"\n"+
+			`{"id":"codex-long","thread_name":`+jsonString(title("codex", true))+`}`+"\n")
+
+	for _, long := range []bool{false, true} {
+		kind := "normal"
+		if long {
+			kind = "long"
+		}
+		writeClaudeSession(t, filepath.Join(env.ProviderHome["claude"], "projects", "repo", kind+".jsonl"), "claude-"+kind, repo, title("claude", long))
+		writeKiroSession(t, env.ProviderHome["kiro"], "kiro-"+kind, repo, title("kiro", long))
+		writeOpencodeSession(t, env.ProviderHome["opencode"], "project-"+kind, "opencode-"+kind, repo, title("opencode", long))
+		writeCodeBuddySession(t, env.ProviderHome["codebuddy"], "codebuddy-"+kind, repo, title("codebuddy", long))
+		writeCursorSession(t, env.ProviderHome["cursor"], "cursor-"+kind, repo, title("cursor", long))
+	}
+
+	kimiNormalDir := filepath.Join(env.ProviderHome["kimi"], "sessions", "normal")
+	kimiLongDir := filepath.Join(env.ProviderHome["kimi"], "sessions", "long")
+	writeFile(t, filepath.Join(env.ProviderHome["kimi"], "session_index.jsonl"),
+		`{"sessionId":"kimi-normal","sessionDir":`+jsonString(kimiNormalDir)+`,"workDir":`+jsonString(repo)+`}`+"\n"+
+			`{"sessionId":"kimi-long","sessionDir":`+jsonString(kimiLongDir)+`,"workDir":`+jsonString(repo)+`}`+"\n")
+	writeFile(t, filepath.Join(kimiNormalDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","title":`+jsonString(title("kimi", false))+`}`)
+	writeFile(t, filepath.Join(kimiLongDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","title":`+jsonString(title("kimi", true))+`}`)
+
+	writeFile(t, filepath.Join(env.ProviderHome["openclaw"], "agents", "main", "sessions", "sessions.json"),
+		`{"openclaw-normal":{"sessionId":"native-normal","updatedAt":1781312460000,"spawnedCwd":`+jsonString(repo)+`,"displayName":`+jsonString(title("openclaw", false))+`},`+
+			`"openclaw-long":{"sessionId":"native-long","updatedAt":1781312400000,"spawnedCwd":`+jsonString(repo)+`,"displayName":`+jsonString(title("openclaw", true))+`}}`)
+
+	writeZCodeSessions(t, env.ProviderHome["zcode"], []zcodeSessionFixture{
+		{ID: "zcode-normal", CWD: repo, Title: title("zcode", false), CreatedAt: 1781322000000, UpdatedAt: 1781322060000},
+		{ID: "zcode-long", CWD: repo, Title: title("zcode", true), CreatedAt: 1781321900000, UpdatedAt: 1781321960000},
+	})
 }
 
 func writeCachedProviderFixtures(t testing.TB, env asmTestEnv, repo string) {

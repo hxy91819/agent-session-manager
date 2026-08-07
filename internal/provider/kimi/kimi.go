@@ -103,6 +103,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.Previews = statePreviews(state, file.ModTime, opts.Preview)
 		}
 		cwdChecker.Mark(&s)
+		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	return sessions, nil
