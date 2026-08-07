@@ -1,0 +1,6959 @@
+{
+  "schema_version": "asm.code-health-history/v1",
+  "series": "2026-08-stage-b-v1",
+  "config": {
+    "schema_version": "asm.code-health/v1",
+    "history_schema_version": "asm.code-health-history/v1",
+    "series": "2026-08-stage-b-v1",
+    "mode": "report",
+    "scope": {
+      "roots": [
+        "cmd",
+        "internal",
+        "tools"
+      ],
+      "excluded_directories": [
+        "vendor",
+        "testdata"
+      ],
+      "generated_code_marker": "Code generated .* DO NOT EDIT."
+    },
+    "analyzers": {
+      "clone_detection": "github.com/mibk/dupl@v1.1.0",
+      "cognitive_complexity": "github.com/uudashr/gocognit@v1.2.1",
+      "cyclomatic_complexity": "github.com/fzipp/gocyclo@v0.6.0",
+      "engine": "asm-code-health/v1"
+    },
+    "metrics": {
+      "added_functions": {
+        "definition": "function symbols present in head and absent from base after package and receiver matching"
+      },
+      "added_helper_calls": {
+        "definition": "call expressions whose identifier or selector name matches a function added from base to head"
+      },
+      "changed_production_files": {
+        "definition": "production Go paths added, copied, modified, or renamed from a commit's first parent"
+      },
+      "clone_tokens": {
+        "definition": "dupl normalized syntax-token clone groups, fingerprinted without source positions",
+        "report_threshold": 50,
+        "hard_threshold": 80
+      },
+      "cognitive_complexity": {
+        "definition": "gocognit cognitive complexity for a function declaration",
+        "report_threshold": 15,
+        "hard_threshold": 20
+      },
+      "cyclomatic_complexity": {
+        "definition": "gocyclo cyclomatic complexity for a function declaration",
+        "report_threshold": 10,
+        "hard_threshold": 15
+      },
+      "file_lines": {
+        "definition": "physical lines in a non-generated Go source file",
+        "report_threshold": 400,
+        "hard_threshold": 600
+      },
+      "function_lines": {
+        "definition": "physical lines from func declaration start through body end, inclusive",
+        "report_threshold": 50,
+        "hard_threshold": 80
+      },
+      "function_statements": {
+        "definition": "AST statement nodes excluding block and empty statements",
+        "report_threshold": 30,
+        "hard_threshold": 50
+      },
+      "functions_per_kloc": {
+        "definition": "function declarations per 1000 physical source lines"
+      },
+      "micro_function_statements": {
+        "definition": "function with no more than this many non-block AST statements",
+        "observation_threshold": 5
+      },
+      "package_file_count": {
+        "definition": "non-generated Go source files in one package"
+      }
+    }
+  },
+  "selection": {
+    "requested": 40,
+    "included": 40,
+    "revision": "6c139c696984b28c63ec5afd3ab2dbaa53e9096d",
+    "first_parent": true,
+    "production_roots": [
+      "cmd",
+      "internal",
+      "tools"
+    ],
+    "production_go_only": true
+  },
+  "commits": [
+    {
+      "revision": "9e0b22394551589fb4902b1167e2e910dd13cd46",
+      "parent": "12ebd4502d18492c84693414889c6f97c6bcb1f5",
+      "subject": "Constrain TUI panel rendering",
+      "changed_production_files": 1,
+      "added_functions": 2,
+      "added_helper_calls": 3,
+      "production": {
+        "file_count": 5,
+        "line_count": 1121,
+        "function_count": 50,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 578,
+            "p95": 578,
+            "max": 578,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 36,
+            "p95": 52,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 24,
+            "p95": 42,
+            "max": 97,
+            "over_report": 5,
+            "over_hard": 1
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 17,
+            "max": 39,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 31,
+            "over_report": 5,
+            "over_hard": 2
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 44.603033006244424,
+          "micro_function_ratio": 0.46,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 579,
+        "function_count": 29,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 57,
+            "p90": 268,
+            "p95": 268,
+            "max": 268,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 16,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 17,
+            "p95": 18,
+            "max": 23,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 6,
+            "p95": 6,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 6,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 51,
+            "p90": 58,
+            "p95": 58,
+            "max": 58,
+            "over_report": 2,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 50.086355785837654,
+          "micro_function_ratio": 0.3103448275862069,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "bc8ab6190227afdddd5a238f1b379cf6e576b9c6",
+      "parent": "9dcd2258c49695db4918a930cafc0d108be420a6",
+      "subject": "Handle narrow TUI viewports",
+      "changed_production_files": 1,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 5,
+        "line_count": 1137,
+        "function_count": 50,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 594,
+            "p95": 594,
+            "max": 594,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 36,
+            "p95": 52,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 24,
+            "p95": 42,
+            "max": 97,
+            "over_report": 5,
+            "over_hard": 1
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 17,
+            "max": 39,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 31,
+            "over_report": 5,
+            "over_hard": 2
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 43.97537379067722,
+          "micro_function_ratio": 0.46,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 607,
+        "function_count": 30,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 57,
+            "p90": 296,
+            "p95": 296,
+            "max": 296,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 16,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 16,
+            "p95": 18,
+            "max": 23,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 5,
+            "p95": 6,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 6,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 51,
+            "p90": 58,
+            "p95": 58,
+            "max": 58,
+            "over_report": 2,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 49.42339373970346,
+          "micro_function_ratio": 0.3,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "594f83cd65f3f18b11a77801118715ea8545c302",
+      "parent": "bc8ab6190227afdddd5a238f1b379cf6e576b9c6",
+      "subject": "Fix load-more and short viewport behavior",
+      "changed_production_files": 1,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 5,
+        "line_count": 1136,
+        "function_count": 50,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 593,
+            "p95": 593,
+            "max": 593,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 36,
+            "p95": 52,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 24,
+            "p95": 42,
+            "max": 97,
+            "over_report": 5,
+            "over_hard": 1
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 17,
+            "max": 39,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 5,
+            "over_hard": 3
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 44.014084507042256,
+          "micro_function_ratio": 0.48,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 654,
+        "function_count": 32,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 57,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 16,
+            "p95": 18,
+            "max": 23,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 5,
+            "p95": 6,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 6,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 51,
+            "p90": 58,
+            "p95": 58,
+            "max": 58,
+            "over_report": 2,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.92966360856269,
+          "micro_function_ratio": 0.28125,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "4b1d526056e53ee437ce6a89102d96303e069ef0",
+      "parent": "594f83cd65f3f18b11a77801118715ea8545c302",
+      "subject": "Use file mtime for session activity filtering",
+      "changed_production_files": 1,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 5,
+        "line_count": 1113,
+        "function_count": 48,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 593,
+            "p95": 593,
+            "max": 593,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 47,
+            "p95": 52,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 36,
+            "p95": 42,
+            "max": 97,
+            "over_report": 5,
+            "over_hard": 1
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 4,
+            "over_hard": 3
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 43.1266846361186,
+          "micro_function_ratio": 0.4791666666666667,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 649,
+        "function_count": 31,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 57,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 17,
+            "p95": 23,
+            "max": 25,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 7,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 8,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 51,
+            "p90": 58,
+            "p95": 58,
+            "max": 58,
+            "over_report": 2,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.76579352850539,
+          "micro_function_ratio": 0.2903225806451613,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "d91a1a2350662a0ebd6ad41ba203ac9121accc56",
+      "parent": "4b1d526056e53ee437ce6a89102d96303e069ef0",
+      "subject": "Harden print-exec and tiny viewport rendering",
+      "changed_production_files": 2,
+      "added_functions": 1,
+      "added_helper_calls": 2,
+      "production": {
+        "file_count": 5,
+        "line_count": 1124,
+        "function_count": 49,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 596,
+            "p95": 596,
+            "max": 596,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 47,
+            "p95": 51,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 36,
+            "p95": 41,
+            "max": 97,
+            "over_report": 5,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 4,
+            "over_hard": 3
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 43.594306049822066,
+          "micro_function_ratio": 0.4897959183673469,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 718,
+        "function_count": 34,
+        "clone_group_count": 3,
+        "distributions": {
+          "file_lines": {
+            "p50": 70,
+            "p90": 365,
+            "p95": 365,
+            "max": 365,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 17,
+            "p95": 23,
+            "max": 25,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 7,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 8,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.353760445682454,
+          "micro_function_ratio": 0.2647058823529412,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "22b7f397d7b257bbf675283252898b55107b7a53",
+      "parent": "fbfff548dea3c3af5c94338cbf45e7825aec10bb",
+      "subject": "Rename module for GitHub repository",
+      "changed_production_files": 4,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 5,
+        "line_count": 1124,
+        "function_count": 49,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 596,
+            "p95": 596,
+            "max": 596,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 47,
+            "p95": 51,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 36,
+            "p95": 41,
+            "max": 97,
+            "over_report": 5,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 4,
+            "over_hard": 3
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 43.594306049822066,
+          "micro_function_ratio": 0.4897959183673469,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 718,
+        "function_count": 34,
+        "clone_group_count": 3,
+        "distributions": {
+          "file_lines": {
+            "p50": 70,
+            "p90": 365,
+            "p95": 365,
+            "max": 365,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 17,
+            "p95": 23,
+            "max": 25,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 7,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 8,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.353760445682454,
+          "micro_function_ratio": 0.2647058823529412,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "dfe8f2d139a18e4588a0e38eb0f21ab65dbfdfb4",
+      "parent": "22b7f397d7b257bbf675283252898b55107b7a53",
+      "subject": "Track CLI entrypoint after clone verification",
+      "changed_production_files": 1,
+      "added_functions": 3,
+      "added_helper_calls": 2,
+      "production": {
+        "file_count": 6,
+        "line_count": 1229,
+        "function_count": 52,
+        "clone_group_count": 0,
+        "distributions": {
+          "file_lines": {
+            "p50": 95,
+            "p90": 596,
+            "p95": 596,
+            "max": 596,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 47,
+            "p95": 62,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 32,
+            "p95": 41,
+            "max": 97,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 17,
+            "max": 39,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 4,
+            "over_hard": 3
+          },
+          "clone_tokens": {
+            "p50": 0,
+            "p90": 0,
+            "p95": 0,
+            "max": 0,
+            "over_report": 0,
+            "over_hard": 0
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 42.310821806346624,
+          "micro_function_ratio": 0.5,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 4,
+        "line_count": 718,
+        "function_count": 34,
+        "clone_group_count": 3,
+        "distributions": {
+          "file_lines": {
+            "p50": 70,
+            "p90": 365,
+            "p95": 365,
+            "max": 365,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 30,
+            "p95": 33,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 17,
+            "p95": 23,
+            "max": 25,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 7,
+            "max": 7,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 8,
+            "max": 8,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 3,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.353760445682454,
+          "micro_function_ratio": 0.2647058823529412,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "df66e69463c668a0cb8d21bd4752d7a9e532ad6f",
+      "parent": "dfe8f2d139a18e4588a0e38eb0f21ab65dbfdfb4",
+      "subject": "Add Claude Code session provider",
+      "changed_production_files": 3,
+      "added_functions": 20,
+      "added_helper_calls": 34,
+      "production": {
+        "file_count": 7,
+        "line_count": 1622,
+        "function_count": 71,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 185,
+            "p90": 606,
+            "p95": 606,
+            "max": 606,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 39,
+            "p95": 59,
+            "max": 112,
+            "over_report": 5,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 27,
+            "p95": 43,
+            "max": 97,
+            "over_report": 7,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 5,
+            "over_hard": 3
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 7,
+            "over_hard": 4
+          },
+          "clone_tokens": {
+            "p50": 64,
+            "p90": 194,
+            "p95": 194,
+            "max": 194,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 43.7731196054254,
+          "micro_function_ratio": 0.49295774647887325,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 5,
+        "line_count": 921,
+        "function_count": 44,
+        "clone_group_count": 4,
+        "distributions": {
+          "file_lines": {
+            "p50": 148,
+            "p90": 400,
+            "p95": 400,
+            "max": 400,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 37,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 18,
+            "p95": 23,
+            "max": 28,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 6,
+            "p95": 7,
+            "max": 9,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 6,
+            "p95": 8,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.77415852334419,
+          "micro_function_ratio": 0.2727272727272727,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "2afb7c3c4ebea03747514deceb59d385bfb1f0b1",
+      "parent": "df66e69463c668a0cb8d21bd4752d7a9e532ad6f",
+      "subject": "Add Kimi Code session provider",
+      "changed_production_files": 3,
+      "added_functions": 14,
+      "added_helper_calls": 30,
+      "production": {
+        "file_count": 8,
+        "line_count": 1886,
+        "function_count": 85,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 189,
+            "p90": 634,
+            "p95": 634,
+            "max": 634,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 40,
+            "p95": 59,
+            "max": 112,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 31,
+            "p95": 39,
+            "max": 97,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 6,
+            "over_hard": 4
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 8,
+            "over_hard": 5
+          },
+          "clone_tokens": {
+            "p50": 64,
+            "p90": 194,
+            "p95": 194,
+            "max": 194,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.06892895015907,
+          "micro_function_ratio": 0.5058823529411764,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 6,
+        "line_count": 1129,
+        "function_count": 53,
+        "clone_group_count": 4,
+        "distributions": {
+          "file_lines": {
+            "p50": 148,
+            "p90": 445,
+            "p95": 445,
+            "max": 445,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 40,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 24,
+            "max": 28,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 8,
+            "max": 9,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 9,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.944198405668736,
+          "micro_function_ratio": 0.2641509433962264,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "717a2a23b04b1d8f7d33c4dec6b0921c55694264",
+      "parent": "2afb7c3c4ebea03747514deceb59d385bfb1f0b1",
+      "subject": "Show flat session search results",
+      "changed_production_files": 1,
+      "added_functions": 3,
+      "added_helper_calls": 6,
+      "production": {
+        "file_count": 8,
+        "line_count": 1917,
+        "function_count": 88,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 189,
+            "p90": 665,
+            "p95": 665,
+            "max": 665,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 40,
+            "p95": 59,
+            "max": 112,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 31,
+            "p95": 39,
+            "max": 97,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 6,
+            "over_hard": 4
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 11,
+            "p95": 16,
+            "max": 32,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "clone_tokens": {
+            "p50": 64,
+            "p90": 194,
+            "p95": 194,
+            "max": 194,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.90505998956703,
+          "micro_function_ratio": 0.5113636363636364,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 6,
+        "line_count": 1159,
+        "function_count": 54,
+        "clone_group_count": 4,
+        "distributions": {
+          "file_lines": {
+            "p50": 148,
+            "p90": 475,
+            "p95": 475,
+            "max": 475,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 40,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 24,
+            "max": 28,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 8,
+            "max": 9,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 9,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.59188955996549,
+          "micro_function_ratio": 0.25925925925925924,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "6919c8dcd8f19cf63cf5d6b9e157bb7a56c87b19",
+      "parent": "717a2a23b04b1d8f7d33c4dec6b0921c55694264",
+      "subject": "Show resume startup notice",
+      "changed_production_files": 1,
+      "added_functions": 2,
+      "added_helper_calls": 3,
+      "production": {
+        "file_count": 8,
+        "line_count": 1929,
+        "function_count": 90,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 201,
+            "p90": 665,
+            "p95": 665,
+            "max": 665,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 39,
+            "p95": 59,
+            "max": 112,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 27,
+            "p95": 39,
+            "max": 97,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 6,
+            "over_hard": 4
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "clone_tokens": {
+            "p50": 64,
+            "p90": 194,
+            "p95": 194,
+            "max": 194,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.65629860031104,
+          "micro_function_ratio": 0.5222222222222223,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 7,
+        "line_count": 1181,
+        "function_count": 55,
+        "clone_group_count": 4,
+        "distributions": {
+          "file_lines": {
+            "p50": 148,
+            "p90": 475,
+            "p95": 475,
+            "max": 475,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 40,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 24,
+            "max": 28,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 8,
+            "max": 9,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 9,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.570702794242166,
+          "micro_function_ratio": 0.2727272727272727,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "681b555000bc2934261edec74c68218a6e6e4370",
+      "parent": "e61e0ede77519e4b1ccc8f7ea445182407bf4c2a",
+      "subject": "Refresh search results when switching projects",
+      "changed_production_files": 1,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 8,
+        "line_count": 1931,
+        "function_count": 90,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 201,
+            "p90": 667,
+            "p95": 667,
+            "max": 667,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 39,
+            "p95": 59,
+            "max": 112,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 27,
+            "p95": 39,
+            "max": 97,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 6,
+            "over_hard": 4
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "clone_tokens": {
+            "p50": 64,
+            "p90": 194,
+            "p95": 194,
+            "max": 194,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.60797514241326,
+          "micro_function_ratio": 0.5111111111111111,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 7,
+        "line_count": 1216,
+        "function_count": 56,
+        "clone_group_count": 4,
+        "distributions": {
+          "file_lines": {
+            "p50": 148,
+            "p90": 510,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 40,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 24,
+            "max": 28,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 8,
+            "max": 9,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 9,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.05263157894737,
+          "micro_function_ratio": 0.26785714285714285,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "8de77f941e4f32407573fc98c7d8d6286f86c9e3",
+      "parent": "681b555000bc2934261edec74c68218a6e6e4370",
+      "subject": "Parallelize provider discovery",
+      "changed_production_files": 1,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 8,
+        "line_count": 1952,
+        "function_count": 90,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 222,
+            "p90": 667,
+            "p95": 667,
+            "max": 667,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 39,
+            "p95": 59,
+            "max": 112,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 27,
+            "p95": 39,
+            "max": 97,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 17,
+            "max": 39,
+            "over_report": 6,
+            "over_hard": 4
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "clone_tokens": {
+            "p50": 64,
+            "p90": 194,
+            "p95": 194,
+            "max": 194,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.10655737704918,
+          "micro_function_ratio": 0.5111111111111111,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/session": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 7,
+        "line_count": 1324,
+        "function_count": 64,
+        "clone_group_count": 4,
+        "distributions": {
+          "file_lines": {
+            "p50": 148,
+            "p90": 510,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 20,
+            "p95": 24,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 8,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 9,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 58,
+            "p90": 112,
+            "p95": 112,
+            "max": 112,
+            "over_report": 4,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.338368580060425,
+          "micro_function_ratio": 0.328125,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "76ad0d5b5fc5918ceee3cee1e0bca160f42c44aa",
+      "parent": "8de77f941e4f32407573fc98c7d8d6286f86c9e3",
+      "subject": "Cache session discovery results",
+      "changed_production_files": 5,
+      "added_functions": 15,
+      "added_helper_calls": 33,
+      "production": {
+        "file_count": 10,
+        "line_count": 2201,
+        "function_count": 102,
+        "clone_group_count": 1,
+        "distributions": {
+          "file_lines": {
+            "p50": 139,
+            "p90": 382,
+            "p95": 667,
+            "max": 667,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 37,
+            "p95": 62,
+            "max": 112,
+            "over_report": 8,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 5,
+            "p90": 25,
+            "p95": 43,
+            "max": 97,
+            "over_report": 10,
+            "over_hard": 3
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 22,
+            "max": 39,
+            "over_report": 7,
+            "over_hard": 6
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 9,
+            "over_hard": 7
+          },
+          "clone_tokens": {
+            "p50": 200,
+            "p90": 200,
+            "p95": 200,
+            "max": 200,
+            "over_report": 1,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.34257155838255,
+          "micro_function_ratio": 0.5196078431372549,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 12,
+        "line_count": 1740,
+        "function_count": 82,
+        "clone_group_count": 6,
+        "distributions": {
+          "file_lines": {
+            "p50": 82,
+            "p90": 276,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 36,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 21,
+            "p95": 23,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 10,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 65,
+            "p90": 201,
+            "p95": 201,
+            "max": 201,
+            "over_report": 6,
+            "over_hard": 2
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.12643678160919,
+          "micro_function_ratio": 0.2682926829268293,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/kimi": 1,
+          "internal/sessioncache": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "d70cdb5a79c533923f4c8850ebe39475693b2eae",
+      "parent": "76ad0d5b5fc5918ceee3cee1e0bca160f42c44aa",
+      "subject": "Add opencode provider",
+      "changed_production_files": 4,
+      "added_functions": 21,
+      "added_helper_calls": 46,
+      "production": {
+        "file_count": 12,
+        "line_count": 2664,
+        "function_count": 123,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 139,
+            "p90": 382,
+            "p95": 667,
+            "max": 667,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 36,
+            "p95": 63,
+            "max": 112,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 43,
+            "max": 97,
+            "over_report": 11,
+            "over_hard": 3
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 22,
+            "max": 39,
+            "over_report": 8,
+            "over_hard": 7
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 10,
+            "over_hard": 8
+          },
+          "clone_tokens": {
+            "p50": 56,
+            "p90": 200,
+            "p95": 200,
+            "max": 200,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.171171171171174,
+          "micro_function_ratio": 0.4959349593495935,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 14,
+        "line_count": 2075,
+        "function_count": 98,
+        "clone_group_count": 6,
+        "distributions": {
+          "file_lines": {
+            "p50": 82,
+            "p90": 276,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 37,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 23,
+            "p95": 24,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 11,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 65,
+            "p90": 201,
+            "p95": 201,
+            "max": 201,
+            "over_report": 6,
+            "over_hard": 2
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.2289156626506,
+          "micro_function_ratio": 0.25510204081632654,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/session-manager": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 2,
+          "internal/sessioncache": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "9cb4ae980faf30eef3cfa5195f5a1773b976ecf4",
+      "parent": "d70cdb5a79c533923f4c8850ebe39475693b2eae",
+      "subject": "Rename CLI entrypoint to asm",
+      "changed_production_files": 2,
+      "added_functions": 9,
+      "added_helper_calls": 11,
+      "production": {
+        "file_count": 12,
+        "line_count": 2664,
+        "function_count": 123,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 139,
+            "p90": 382,
+            "p95": 667,
+            "max": 667,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 36,
+            "p95": 63,
+            "max": 112,
+            "over_report": 9,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 43,
+            "max": 97,
+            "over_report": 11,
+            "over_hard": 3
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 22,
+            "max": 39,
+            "over_report": 8,
+            "over_hard": 7
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 10,
+            "over_hard": 8
+          },
+          "clone_tokens": {
+            "p50": 56,
+            "p90": 200,
+            "p95": 200,
+            "max": 200,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.171171171171174,
+          "micro_function_ratio": 0.4959349593495935,
+          "largest_package_file_count": 1
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 14,
+        "line_count": 2075,
+        "function_count": 98,
+        "clone_group_count": 6,
+        "distributions": {
+          "file_lines": {
+            "p50": 82,
+            "p90": 276,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 37,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 23,
+            "p95": 24,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 11,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 65,
+            "p90": 201,
+            "p95": 201,
+            "max": 201,
+            "over_report": 6,
+            "over_hard": 2
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.2289156626506,
+          "micro_function_ratio": 0.25510204081632654,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 2,
+          "internal/sessioncache": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "f10dfe1a5e99dae088270410914848976e2fa077",
+      "parent": "a925272c19526141ca679231a210840b668e0126",
+      "subject": "Add agent work report CLI",
+      "changed_production_files": 8,
+      "added_functions": 23,
+      "added_helper_calls": 38,
+      "production": {
+        "file_count": 14,
+        "line_count": 3223,
+        "function_count": 146,
+        "clone_group_count": 2,
+        "distributions": {
+          "file_lines": {
+            "p50": 111,
+            "p90": 421,
+            "p95": 667,
+            "max": 667,
+            "over_report": 4,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 33,
+            "p95": 59,
+            "max": 112,
+            "over_report": 10,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 42,
+            "max": 97,
+            "over_report": 12,
+            "over_hard": 4
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 18,
+            "max": 39,
+            "over_report": 10,
+            "over_hard": 7
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 11,
+            "over_hard": 9
+          },
+          "clone_tokens": {
+            "p50": 56,
+            "p90": 200,
+            "p95": 200,
+            "max": 200,
+            "over_report": 2,
+            "over_hard": 1
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.2994104871238,
+          "micro_function_ratio": 0.4794520547945205,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 16,
+        "line_count": 2458,
+        "function_count": 119,
+        "clone_group_count": 7,
+        "distributions": {
+          "file_lines": {
+            "p50": 82,
+            "p90": 315,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 33,
+            "p95": 37,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 22,
+            "p95": 24,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 11,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 201,
+            "p95": 201,
+            "max": 201,
+            "over_report": 7,
+            "over_hard": 3
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.413344182262,
+          "micro_function_ratio": 0.29411764705882354,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "05a0eefc854aaef44503bcb9849f1556b6677958",
+      "parent": "cc9101801e470aa11c9660bf5faa787b02015f67",
+      "subject": "Add release-based skill installer",
+      "changed_production_files": 3,
+      "added_functions": 44,
+      "added_helper_calls": 63,
+      "production": {
+        "file_count": 16,
+        "line_count": 4212,
+        "function_count": 190,
+        "clone_group_count": 3,
+        "distributions": {
+          "file_lines": {
+            "p50": 111,
+            "p90": 667,
+            "p95": 707,
+            "max": 707,
+            "over_report": 5,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 37,
+            "p95": 54,
+            "max": 112,
+            "over_report": 12,
+            "over_hard": 2
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 38,
+            "max": 97,
+            "over_report": 16,
+            "over_hard": 4
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 20,
+            "max": 39,
+            "over_report": 14,
+            "over_hard": 9
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 32,
+            "over_report": 19,
+            "over_hard": 11
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 200,
+            "p95": 200,
+            "max": 200,
+            "over_report": 3,
+            "over_hard": 2
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.10921177587844,
+          "micro_function_ratio": 0.4421052631578947,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 18,
+        "line_count": 2826,
+        "function_count": 136,
+        "clone_group_count": 8,
+        "distributions": {
+          "file_lines": {
+            "p50": 82,
+            "p90": 315,
+            "p95": 510,
+            "max": 510,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 35,
+            "p95": 37,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 11,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 65,
+            "p90": 201,
+            "p95": 201,
+            "max": 201,
+            "over_report": 8,
+            "over_hard": 3
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.124557678697805,
+          "micro_function_ratio": 0.3235294117647059,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "f55a99b817f9da370071c17de524707ecb3542ff",
+      "parent": "05a0eefc854aaef44503bcb9849f1556b6677958",
+      "subject": "Merge pull request #1 from hxy91819/feature/new",
+      "changed_production_files": 7,
+      "added_functions": 11,
+      "added_helper_calls": 19,
+      "production": {
+        "file_count": 16,
+        "line_count": 4389,
+        "function_count": 201,
+        "clone_group_count": 3,
+        "distributions": {
+          "file_lines": {
+            "p50": 111,
+            "p90": 730,
+            "p95": 792,
+            "max": 792,
+            "over_report": 5,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 52,
+            "max": 138,
+            "over_report": 12,
+            "over_hard": 3
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 25,
+            "p95": 36,
+            "max": 109,
+            "over_report": 16,
+            "over_hard": 5
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 19,
+            "max": 55,
+            "over_report": 15,
+            "over_hard": 10
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 36,
+            "over_report": 19,
+            "over_hard": 12
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 200,
+            "p95": 200,
+            "max": 200,
+            "over_report": 3,
+            "over_hard": 2
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.79630895420369,
+          "micro_function_ratio": 0.4577114427860697,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 18,
+        "line_count": 3058,
+        "function_count": 149,
+        "clone_group_count": 8,
+        "distributions": {
+          "file_lines": {
+            "p50": 82,
+            "p90": 326,
+            "p95": 644,
+            "max": 644,
+            "over_report": 1,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 35,
+            "p95": 36,
+            "max": 46,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 20,
+            "p95": 23,
+            "max": 29,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 8,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 9,
+            "max": 11,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 65,
+            "p90": 201,
+            "p95": 201,
+            "max": 201,
+            "over_report": 8,
+            "over_hard": 4
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.724656638325705,
+          "micro_function_ratio": 0.33557046979865773,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/opencode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "786c67cc6a2d13f1fa1881c9d18219608b86f030",
+      "parent": "4e61f31acea8e01c606d2d8c5eb0e86a1f3b345e",
+      "subject": "Merge pull request #3 from hxy91819/codex/add-agent-providers",
+      "changed_production_files": 9,
+      "added_functions": 63,
+      "added_helper_calls": 300,
+      "production": {
+        "file_count": 19,
+        "line_count": 5684,
+        "function_count": 264,
+        "clone_group_count": 7,
+        "distributions": {
+          "file_lines": {
+            "p50": 247,
+            "p90": 769,
+            "p95": 811,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 54,
+            "max": 140,
+            "over_report": 16,
+            "over_hard": 3
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 25,
+            "p95": 37,
+            "max": 110,
+            "over_report": 22,
+            "over_hard": 5
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 22,
+            "max": 56,
+            "over_report": 21,
+            "over_hard": 14
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 25,
+            "over_hard": 13
+          },
+          "clone_tokens": {
+            "p50": 110,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 7,
+            "over_hard": 5
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.44616467276566,
+          "micro_function_ratio": 0.45454545454545453,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 24,
+        "line_count": 4169,
+        "function_count": 209,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 83,
+            "p90": 369,
+            "p95": 458,
+            "max": 719,
+            "over_report": 2,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 16,
+            "p90": 33,
+            "p95": 37,
+            "max": 51,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 23,
+            "max": 40,
+            "over_report": 3,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 13,
+            "over_report": 5,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 50.13192612137203,
+          "micro_function_ratio": 0.3397129186602871,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "4b905ad127f30b8bd97bd2f820f58e28b460018c",
+      "parent": "786c67cc6a2d13f1fa1881c9d18219608b86f030",
+      "subject": "Merge pull request #5 from hxy91819/add-zcode-provider",
+      "changed_production_files": 8,
+      "added_functions": 15,
+      "added_helper_calls": 77,
+      "production": {
+        "file_count": 20,
+        "line_count": 6085,
+        "function_count": 279,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 247,
+            "p90": 607,
+            "p95": 779,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 38,
+            "p95": 59,
+            "max": 140,
+            "over_report": 18,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 38,
+            "max": 110,
+            "over_report": 24,
+            "over_hard": 6
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 23,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 5
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.85045193097781,
+          "micro_function_ratio": 0.4444444444444444,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 4702,
+        "function_count": 229,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 83,
+            "p90": 458,
+            "p95": 464,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 35,
+            "p95": 40,
+            "max": 51,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 21,
+            "p95": 23,
+            "max": 40,
+            "over_report": 3,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 13,
+            "over_report": 6,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.70267971076138,
+          "micro_function_ratio": 0.32751091703056767,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "e3f547f2de29b5f8ac0112c3346099f2606ad699",
+      "parent": "4b905ad127f30b8bd97bd2f820f58e28b460018c",
+      "subject": "Fix Cursor cwd decoding on Windows",
+      "changed_production_files": 1,
+      "added_functions": 1,
+      "added_helper_calls": 1,
+      "production": {
+        "file_count": 20,
+        "line_count": 6089,
+        "function_count": 280,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 247,
+            "p90": 607,
+            "p95": 779,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 54,
+            "max": 140,
+            "over_report": 18,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 37,
+            "max": 110,
+            "over_report": 24,
+            "over_hard": 6
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 22,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 5
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.98456232550501,
+          "micro_function_ratio": 0.44642857142857145,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 4709,
+        "function_count": 230,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 83,
+            "p90": 458,
+            "p95": 464,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 35,
+            "p95": 40,
+            "max": 51,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 23,
+            "max": 40,
+            "over_report": 3,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 13,
+            "over_report": 6,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.84264174984073,
+          "micro_function_ratio": 0.33043478260869563,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "f336ba29c9c1c486fc304b591ca8d5c4c35e010c",
+      "parent": "e3f547f2de29b5f8ac0112c3346099f2606ad699",
+      "subject": "Add rolling seven day reports",
+      "changed_production_files": 2,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 20,
+        "line_count": 6092,
+        "function_count": 280,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 247,
+            "p90": 607,
+            "p95": 779,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 54,
+            "max": 140,
+            "over_report": 18,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 37,
+            "max": 110,
+            "over_report": 24,
+            "over_hard": 6
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 22,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 5
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.961917268548916,
+          "micro_function_ratio": 0.44642857142857145,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 4721,
+        "function_count": 231,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 458,
+            "p95": 464,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 35,
+            "p95": 40,
+            "max": 51,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 23,
+            "max": 40,
+            "over_report": 3,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 11,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 13,
+            "over_report": 6,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.93031137470875,
+          "micro_function_ratio": 0.329004329004329,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "a293af81b11a8328a526a46a9643e7dc7f7e7eff",
+      "parent": "f336ba29c9c1c486fc304b591ca8d5c4c35e010c",
+      "subject": "增加支持codex切换profile",
+      "changed_production_files": 4,
+      "added_functions": 5,
+      "added_helper_calls": 6,
+      "production": {
+        "file_count": 20,
+        "line_count": 6193,
+        "function_count": 285,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 247,
+            "p90": 607,
+            "p95": 797,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 54,
+            "max": 140,
+            "over_report": 18,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 37,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 6
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 22,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.01969966090748,
+          "micro_function_ratio": 0.4456140350877193,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 4795,
+        "function_count": 236,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 480,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 16,
+            "p90": 35,
+            "p95": 40,
+            "max": 51,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 20,
+            "p95": 23,
+            "max": 40,
+            "over_report": 3,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 13,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 7,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 49.21793534932221,
+          "micro_function_ratio": 0.3347457627118644,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "df52141518c59b7053429486122b344a4039d2c2",
+      "parent": "a293af81b11a8328a526a46a9643e7dc7f7e7eff",
+      "subject": "Merge pull request #6 from hxy91819/codex/fix-report-preview-boundaries",
+      "changed_production_files": 7,
+      "added_functions": 4,
+      "added_helper_calls": 6,
+      "production": {
+        "file_count": 20,
+        "line_count": 6308,
+        "function_count": 289,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 253,
+            "p90": 607,
+            "p95": 800,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 54,
+            "max": 140,
+            "over_report": 18,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 37,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 7
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 22,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.814838300570706,
+          "micro_function_ratio": 0.44982698961937717,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 4975,
+        "function_count": 242,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 480,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_lines": {
+            "p50": 16,
+            "p90": 35,
+            "p95": 40,
+            "max": 51,
+            "over_report": 1,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 20,
+            "p95": 23,
+            "max": 40,
+            "over_report": 3,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 13,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 9,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 48.64321608040201,
+          "micro_function_ratio": 0.32644628099173556,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "0f8c719a4a73ea615f58e7bc5af5b232c69813e7",
+      "parent": "cb74f60f87a538f29399b8875d1824c315201f4d",
+      "subject": "Fix Codex subagent session identity (#9)",
+      "changed_production_files": 4,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 20,
+        "line_count": 6324,
+        "function_count": 289,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 607,
+            "p95": 800,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 56,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 38,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 7
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 22,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.69892473118279,
+          "micro_function_ratio": 0.44982698961937717,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 5140,
+        "function_count": 246,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 614,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 59,
+            "over_report": 2,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.85992217898833,
+          "micro_function_ratio": 0.32113821138211385,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "a9031f57f6a364527c232f29a25585526be21114",
+      "parent": "abbb094ad896c9661d8807eecb3d82adb2617dce",
+      "subject": "Preserve Codex subagent turn context (#11)",
+      "changed_production_files": 2,
+      "added_functions": 0,
+      "added_helper_calls": 0,
+      "production": {
+        "file_count": 20,
+        "line_count": 6333,
+        "function_count": 289,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 607,
+            "p95": 800,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 59,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 4
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 26,
+            "p95": 38,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 7
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 22,
+            "max": 56,
+            "over_report": 23,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.6339807358282,
+          "micro_function_ratio": 0.44982698961937717,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 5150,
+        "function_count": 246,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 624,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 59,
+            "over_report": 2,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.76699029126213,
+          "micro_function_ratio": 0.32113821138211385,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "b3aca3b3e02255f626814b634550da558b278954",
+      "parent": "a9031f57f6a364527c232f29a25585526be21114",
+      "subject": "Merge pull request #13 from momothemage/feature/handle-large-codex-jsonl",
+      "changed_production_files": 1,
+      "added_functions": 3,
+      "added_helper_calls": 6,
+      "production": {
+        "file_count": 20,
+        "line_count": 6393,
+        "function_count": 292,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 607,
+            "p95": 800,
+            "max": 811,
+            "over_report": 7,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 59,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 5
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 25,
+            "p95": 38,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 7
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 22,
+            "max": 56,
+            "over_report": 24,
+            "over_hard": 15
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 15,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 14
+          },
+          "clone_tokens": {
+            "p50": 82,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.67495698420147,
+          "micro_function_ratio": 0.4486301369863014,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 26,
+        "line_count": 5237,
+        "function_count": 250,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 711,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 59,
+            "over_report": 2,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.73725415314111,
+          "micro_function_ratio": 0.316,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "8912a56b8577e2204c6dbc77370e0bc2cc574bca",
+      "parent": "b3aca3b3e02255f626814b634550da558b278954",
+      "subject": "Merge pull request #17 from hxy91819/feature/fix-oversized-jsonl-providers",
+      "changed_production_files": 5,
+      "added_functions": 5,
+      "added_helper_calls": 45,
+      "production": {
+        "file_count": 21,
+        "line_count": 6430,
+        "function_count": 295,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 607,
+            "p95": 800,
+            "max": 811,
+            "over_report": 8,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 56,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 5
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 25,
+            "p95": 38,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 7
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 24,
+            "max": 56,
+            "over_report": 24,
+            "over_hard": 16
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 16
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.878693623639194,
+          "micro_function_ratio": 0.4542372881355932,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5344,
+        "function_count": 253,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 662,
+            "max": 719,
+            "over_report": 3,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 59,
+            "over_report": 2,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.34281437125748,
+          "micro_function_ratio": 0.31225296442687744,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "6597e13a95084c42a6daa89ead3011745444aa2e",
+      "parent": "1b65c52c2fe0786d75327ae0458bebd34dfca4d6",
+      "subject": "Merge pull request #14 from hxy91819/feature/exclude-non-interactive-sessions",
+      "changed_production_files": 4,
+      "added_functions": 4,
+      "added_helper_calls": 5,
+      "production": {
+        "file_count": 21,
+        "line_count": 6486,
+        "function_count": 299,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 607,
+            "p95": 811,
+            "max": 821,
+            "over_report": 8,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 36,
+            "p95": 60,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 5
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 25,
+            "p95": 38,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 7
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 24,
+            "max": 57,
+            "over_report": 24,
+            "over_hard": 16
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 16
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.09929078014184,
+          "micro_function_ratio": 0.45819397993311034,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5430,
+        "function_count": 258,
+        "clone_group_count": 15,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 679,
+            "max": 719,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 59,
+            "over_report": 2,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 15,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.51381215469613,
+          "micro_function_ratio": 0.3062015503875969,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "034d4f3dda5050044a2d436016b59fa7f06d0b85",
+      "parent": "4c14761866345122a10bb05ee1c1ec3a9ce1ae75",
+      "subject": "Merge pull request #23 from hxy91819/feature/reconcile-local-workspace",
+      "changed_production_files": 4,
+      "added_functions": 3,
+      "added_helper_calls": 3,
+      "production": {
+        "file_count": 21,
+        "line_count": 6541,
+        "function_count": 302,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 607,
+            "p95": 807,
+            "max": 821,
+            "over_report": 8,
+            "over_hard": 3
+          },
+          "function_lines": {
+            "p50": 10,
+            "p90": 35,
+            "p95": 54,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 37,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 8
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 21,
+            "max": 57,
+            "over_report": 24,
+            "over_hard": 16
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 17
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 5
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.17031035009937,
+          "micro_function_ratio": 0.46357615894039733,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5593,
+        "function_count": 267,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 679,
+            "max": 728,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 59,
+            "over_report": 2,
+            "over_hard": 0
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.73824423386376,
+          "micro_function_ratio": 0.30337078651685395,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "8e18b28e66dd07c908cb8dffecdbae7de023d74f",
+      "parent": "c091bab167058019a4713a9ff7dee13c0d6f7e72",
+      "subject": "Merge pull request #22 from momothemage/feature/filter-codex-injected-context",
+      "changed_production_files": 2,
+      "added_functions": 3,
+      "added_helper_calls": 4,
+      "production": {
+        "file_count": 21,
+        "line_count": 6613,
+        "function_count": 304,
+        "clone_group_count": 9,
+        "distributions": {
+          "file_lines": {
+            "p50": 255,
+            "p90": 627,
+            "p95": 807,
+            "max": 821,
+            "over_report": 8,
+            "over_hard": 4
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 35,
+            "p95": 54,
+            "max": 140,
+            "over_report": 19,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 37,
+            "max": 110,
+            "over_report": 25,
+            "over_hard": 8
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 14,
+            "p95": 21,
+            "max": 57,
+            "over_report": 24,
+            "over_hard": 16
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 27,
+            "over_hard": 17
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 343,
+            "p95": 343,
+            "max": 343,
+            "over_report": 9,
+            "over_hard": 5
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.97005897474671,
+          "micro_function_ratio": 0.4605263157894737,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5709,
+        "function_count": 268,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 85,
+            "p90": 464,
+            "p95": 728,
+            "max": 795,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 115,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.94342266596602,
+          "micro_function_ratio": 0.30223880597014924,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "10fb656c6b9e1dce50f867e565274742820fe54b",
+      "parent": "8e18b28e66dd07c908cb8dffecdbae7de023d74f",
+      "subject": "Merge pull request #25 from hxy91819/feature/report-zcode-subagent-filter",
+      "changed_production_files": 8,
+      "added_functions": 32,
+      "added_helper_calls": 71,
+      "production": {
+        "file_count": 21,
+        "line_count": 7431,
+        "function_count": 335,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 278,
+            "p90": 732,
+            "p95": 807,
+            "max": 821,
+            "over_report": 8,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 37,
+            "p95": 52,
+            "max": 140,
+            "over_report": 20,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 36,
+            "max": 110,
+            "over_report": 26,
+            "over_hard": 9
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 13,
+            "p95": 21,
+            "max": 57,
+            "over_report": 24,
+            "over_hard": 17
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 28,
+            "over_hard": 17
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.08141569102409,
+          "micro_function_ratio": 0.4298507462686567,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5907,
+        "function_count": 277,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 89,
+            "p90": 515,
+            "p95": 728,
+            "max": 841,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 43,
+            "max": 115,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.893516167259186,
+          "micro_function_ratio": 0.30685920577617326,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "19b736aaed5e7040b20d5dfa2fd828406c8939bc",
+      "parent": "2e69621c580b0d210e3c90d1b888d1159b03bee6",
+      "subject": "Merge pull request #26 from momothemage/feature/provider-error-isolation",
+      "changed_production_files": 4,
+      "added_functions": 3,
+      "added_helper_calls": 6,
+      "production": {
+        "file_count": 21,
+        "line_count": 7497,
+        "function_count": 338,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 279,
+            "p90": 732,
+            "p95": 825,
+            "max": 858,
+            "over_report": 8,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 37,
+            "p95": 52,
+            "max": 141,
+            "over_report": 20,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 23,
+            "p95": 36,
+            "max": 111,
+            "over_report": 26,
+            "over_hard": 9
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 21,
+            "max": 57,
+            "over_report": 24,
+            "over_hard": 17
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 16,
+            "max": 38,
+            "over_report": 28,
+            "over_hard": 17
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.08470054688542,
+          "micro_function_ratio": 0.4349112426035503,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5941,
+        "function_count": 278,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 89,
+            "p90": 515,
+            "p95": 767,
+            "max": 841,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 115,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.793469112943946,
+          "micro_function_ratio": 0.3057553956834532,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "dd1e6ab1d8b45a181b955087fc96e6e9e52648bd",
+      "parent": "19b736aaed5e7040b20d5dfa2fd828406c8939bc",
+      "subject": "Merge pull request #28 from momothemage/feature/report-limit-completeness",
+      "changed_production_files": 2,
+      "added_functions": 3,
+      "added_helper_calls": 4,
+      "production": {
+        "file_count": 21,
+        "line_count": 7560,
+        "function_count": 341,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 341,
+            "p90": 732,
+            "p95": 825,
+            "max": 859,
+            "over_report": 8,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 52,
+            "max": 141,
+            "over_report": 20,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 22,
+            "p95": 36,
+            "max": 111,
+            "over_report": 26,
+            "over_hard": 9
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 19,
+            "max": 57,
+            "over_report": 24,
+            "over_hard": 17
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 38,
+            "over_report": 28,
+            "over_hard": 17
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.10582010582011,
+          "micro_function_ratio": 0.4310850439882698,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 27,
+        "line_count": 5979,
+        "function_count": 279,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 89,
+            "p90": 515,
+            "p95": 767,
+            "max": 841,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 115,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 21,
+            "p95": 24,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 11,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.66332162568992,
+          "micro_function_ratio": 0.3046594982078853,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "d0039cb3eaa5826c3b265e7e2944c8c42ee3524c",
+      "parent": "48854c1abba70179f8d3d99b7a13713d2c71fbbe",
+      "subject": "Merge pull request #37 from hxy91819/feature/kiro-cli",
+      "changed_production_files": 2,
+      "added_functions": 21,
+      "added_helper_calls": 114,
+      "production": {
+        "file_count": 22,
+        "line_count": 8017,
+        "function_count": 362,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 341,
+            "p90": 732,
+            "p95": 825,
+            "max": 867,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 12,
+            "p90": 36,
+            "p95": 52,
+            "max": 141,
+            "over_report": 21,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 22,
+            "p95": 36,
+            "max": 111,
+            "over_report": 27,
+            "over_hard": 10
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 19,
+            "max": 57,
+            "over_report": 25,
+            "over_hard": 18
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 38,
+            "over_report": 30,
+            "over_hard": 18
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.15404764874641,
+          "micro_function_ratio": 0.425414364640884,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 29,
+        "line_count": 6283,
+        "function_count": 296,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 89,
+            "p90": 515,
+            "p95": 767,
+            "max": 841,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 115,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 8,
+            "p90": 20,
+            "p95": 23,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 12,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 47.1112525863441,
+          "micro_function_ratio": 0.30743243243243246,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 2,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "53dd1e71eed9865d024b9525410cb899c9493b55",
+      "parent": "d0039cb3eaa5826c3b265e7e2944c8c42ee3524c",
+      "subject": "Merge pull request #38 from hxy91819/feat/tui-new-session-agent-picker",
+      "changed_production_files": 2,
+      "added_functions": 11,
+      "added_helper_calls": 18,
+      "production": {
+        "file_count": 22,
+        "line_count": 8248,
+        "function_count": 373,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 341,
+            "p90": 732,
+            "p95": 884,
+            "max": 1039,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 52,
+            "max": 176,
+            "over_report": 21,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 22,
+            "p95": 36,
+            "max": 137,
+            "over_report": 27,
+            "over_hard": 10
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 13,
+            "p95": 19,
+            "max": 74,
+            "over_report": 26,
+            "over_hard": 18
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 49,
+            "over_report": 31,
+            "over_hard": 18
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.22308438409311,
+          "micro_function_ratio": 0.4262734584450402,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 29,
+        "line_count": 6519,
+        "function_count": 305,
+        "clone_group_count": 16,
+        "distributions": {
+          "file_lines": {
+            "p50": 89,
+            "p90": 515,
+            "p95": 841,
+            "max": 955,
+            "over_report": 4,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 42,
+            "max": 115,
+            "over_report": 3,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 20,
+            "p95": 23,
+            "max": 40,
+            "over_report": 4,
+            "over_hard": 0
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 7,
+            "p95": 9,
+            "max": 14,
+            "over_report": 0,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 10,
+            "max": 15,
+            "over_report": 12,
+            "over_hard": 0
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 198,
+            "p95": 201,
+            "max": 201,
+            "over_report": 16,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 46.78631691977297,
+          "micro_function_ratio": 0.3016393442622951,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 2,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "6e7060f27a4fc9bbbfb008492d9c81d3bbc7a09d",
+      "parent": "53dd1e71eed9865d024b9525410cb899c9493b55",
+      "subject": "test: establish TUI startup optimization baselines (#39)",
+      "changed_production_files": 1,
+      "added_functions": 5,
+      "added_helper_calls": 9,
+      "production": {
+        "file_count": 23,
+        "line_count": 8298,
+        "function_count": 378,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 341,
+            "p90": 732,
+            "p95": 884,
+            "max": 1039,
+            "over_report": 9,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 52,
+            "max": 176,
+            "over_report": 21,
+            "over_hard": 6
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 22,
+            "p95": 36,
+            "max": 137,
+            "over_report": 27,
+            "over_hard": 10
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 19,
+            "max": 74,
+            "over_report": 26,
+            "over_hard": 18
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 49,
+            "over_report": 31,
+            "over_hard": 18
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.5531453362256,
+          "micro_function_ratio": 0.42857142857142855,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 1,
+          "internal/sessiontest": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 33,
+        "line_count": 7525,
+        "function_count": 341,
+        "clone_group_count": 18,
+        "distributions": {
+          "file_lines": {
+            "p50": 113,
+            "p90": 513,
+            "p95": 916,
+            "max": 955,
+            "over_report": 6,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 43,
+            "max": 115,
+            "over_report": 9,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 22,
+            "p95": 28,
+            "max": 58,
+            "over_report": 13,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 11,
+            "max": 20,
+            "over_report": 5,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 11,
+            "max": 25,
+            "over_report": 19,
+            "over_hard": 6
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 177,
+            "p95": 201,
+            "max": 201,
+            "over_report": 18,
+            "over_hard": 7
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.3156146179402,
+          "micro_function_ratio": 0.2961876832844575,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 2,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 2,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 1,
+          "internal/sessioncache": 2,
+          "internal/sessiontest": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 2
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "8cc4af8761957b4bf86d78d61cd2afc94aea0e8f",
+      "parent": "6e7060f27a4fc9bbbfb008492d9c81d3bbc7a09d",
+      "subject": "Merge pull request #40 from hxy91819/agent/tui-startup-eh",
+      "changed_production_files": 11,
+      "added_functions": 27,
+      "added_helper_calls": 74,
+      "production": {
+        "file_count": 24,
+        "line_count": 8857,
+        "function_count": 403,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 341,
+            "p90": 866,
+            "p95": 884,
+            "max": 1039,
+            "over_report": 10,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 11,
+            "p90": 36,
+            "p95": 51,
+            "max": 176,
+            "over_report": 22,
+            "over_hard": 8
+          },
+          "function_statements": {
+            "p50": 6,
+            "p90": 22,
+            "p95": 35,
+            "max": 137,
+            "over_report": 28,
+            "over_hard": 12
+          },
+          "cognitive_complexity": {
+            "p50": 2,
+            "p90": 13,
+            "p95": 19,
+            "max": 74,
+            "over_report": 27,
+            "over_hard": 18
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 49,
+            "over_report": 34,
+            "over_hard": 19
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.50073388280456,
+          "micro_function_ratio": 0.4292803970223325,
+          "largest_package_file_count": 3
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 3,
+          "internal/sessioncache": 1,
+          "internal/sessiontest": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 34,
+        "line_count": 8118,
+        "function_count": 368,
+        "clone_group_count": 18,
+        "distributions": {
+          "file_lines": {
+            "p50": 122,
+            "p90": 513,
+            "p95": 955,
+            "max": 1077,
+            "over_report": 7,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 44,
+            "max": 115,
+            "over_report": 11,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 22,
+            "p95": 28,
+            "max": 58,
+            "over_report": 15,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 11,
+            "max": 20,
+            "over_report": 6,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 9,
+            "p95": 11,
+            "max": 25,
+            "over_report": 21,
+            "over_hard": 6
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 177,
+            "p95": 201,
+            "max": 201,
+            "over_report": 18,
+            "over_hard": 7
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.33136240453314,
+          "micro_function_ratio": 0.2826086956521739,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 2,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 2,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 2,
+          "internal/sessiontest": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 2
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    },
+    {
+      "revision": "6c139c696984b28c63ec5afd3ab2dbaa53e9096d",
+      "parent": "cafed535636de6ede75604af5dc1602c2e322b7a",
+      "subject": "feat: add diff-aware code health measurement",
+      "changed_production_files": 6,
+      "added_functions": 64,
+      "added_helper_calls": 117,
+      "production": {
+        "file_count": 30,
+        "line_count": 10354,
+        "function_count": 467,
+        "clone_group_count": 10,
+        "distributions": {
+          "file_lines": {
+            "p50": 270,
+            "p90": 698,
+            "p95": 884,
+            "max": 1039,
+            "over_report": 11,
+            "over_hard": 5
+          },
+          "function_lines": {
+            "p50": 12,
+            "p90": 36,
+            "p95": 50,
+            "max": 176,
+            "over_report": 23,
+            "over_hard": 8
+          },
+          "function_statements": {
+            "p50": 7,
+            "p90": 23,
+            "p95": 34,
+            "max": 137,
+            "over_report": 29,
+            "over_hard": 12
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 13,
+            "p95": 18,
+            "max": 74,
+            "over_report": 28,
+            "over_hard": 18
+          },
+          "cyclomatic_complexity": {
+            "p50": 3,
+            "p90": 10,
+            "p95": 14,
+            "max": 49,
+            "over_report": 38,
+            "over_hard": 19
+          },
+          "clone_tokens": {
+            "p50": 80,
+            "p90": 200,
+            "p95": 343,
+            "max": 343,
+            "over_report": 10,
+            "over_hard": 6
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.103341703689395,
+          "micro_function_ratio": 0.4089935760171306,
+          "largest_package_file_count": 6
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 1,
+          "internal/index": 1,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 1,
+          "internal/provider/codebuddy": 1,
+          "internal/provider/codex": 1,
+          "internal/provider/cursor": 1,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 1,
+          "internal/provider/openclaw": 1,
+          "internal/provider/opencode": 1,
+          "internal/provider/zcode": 1,
+          "internal/report": 1,
+          "internal/session": 3,
+          "internal/sessioncache": 1,
+          "internal/sessiontest": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 1,
+          "tools/check-code-health": 6,
+          "tools/check-provider-performance": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      },
+      "tests": {
+        "file_count": 35,
+        "line_count": 8569,
+        "function_count": 388,
+        "clone_group_count": 18,
+        "distributions": {
+          "file_lines": {
+            "p50": 127,
+            "p90": 513,
+            "p95": 955,
+            "max": 1077,
+            "over_report": 8,
+            "over_hard": 2
+          },
+          "function_lines": {
+            "p50": 17,
+            "p90": 36,
+            "p95": 44,
+            "max": 115,
+            "over_report": 13,
+            "over_hard": 1
+          },
+          "function_statements": {
+            "p50": 9,
+            "p90": 22,
+            "p95": 28,
+            "max": 58,
+            "over_report": 15,
+            "over_hard": 2
+          },
+          "cognitive_complexity": {
+            "p50": 3,
+            "p90": 8,
+            "p95": 11,
+            "max": 20,
+            "over_report": 6,
+            "over_hard": 0
+          },
+          "cyclomatic_complexity": {
+            "p50": 4,
+            "p90": 8,
+            "p95": 11,
+            "max": 25,
+            "over_report": 22,
+            "over_hard": 6
+          },
+          "clone_tokens": {
+            "p50": 66,
+            "p90": 177,
+            "p95": 201,
+            "max": 201,
+            "over_report": 18,
+            "over_hard": 7
+          }
+        },
+        "observations": {
+          "functions_per_kloc": 45.27949585715953,
+          "micro_function_ratio": 0.27319587628865977,
+          "largest_package_file_count": 2
+        },
+        "package_files": {
+          "cmd/asm": 1,
+          "internal/cwdstatus": 2,
+          "internal/index": 2,
+          "internal/jsonlrecords": 1,
+          "internal/launcher": 1,
+          "internal/provider/claude": 2,
+          "internal/provider/codebuddy": 2,
+          "internal/provider/codex": 2,
+          "internal/provider/cursor": 2,
+          "internal/provider/kimi": 1,
+          "internal/provider/kiro": 2,
+          "internal/provider/openclaw": 2,
+          "internal/provider/opencode": 2,
+          "internal/provider/zcode": 2,
+          "internal/report": 1,
+          "internal/session": 2,
+          "internal/sessioncache": 2,
+          "internal/sessiontest": 1,
+          "internal/skillinstall": 2,
+          "internal/ui": 2,
+          "tools/check-code-health": 1
+        },
+        "files": null,
+        "functions": null,
+        "clone_groups": null
+      }
+    }
+  ],
+  "growth_counts": {
+    "production_clone_groups": 7,
+    "production_cognitive_complexity_max": 4,
+    "production_cognitive_complexity_p95": 5,
+    "production_cyclomatic_complexity_max": 4,
+    "production_cyclomatic_complexity_p95": 4,
+    "production_file_lines_max": 14,
+    "production_file_lines_p95": 14,
+    "production_function_lines_max": 4,
+    "production_function_lines_p95": 8,
+    "production_function_statements_max": 4,
+    "production_function_statements_p95": 5,
+    "production_functions_per_kloc": 20,
+    "production_largest_package_files": 3,
+    "production_micro_function_ratio": 17,
+    "test_clone_groups": 8,
+    "test_cognitive_complexity_max": 5,
+    "test_cognitive_complexity_p95": 5,
+    "test_cyclomatic_complexity_max": 5,
+    "test_cyclomatic_complexity_p95": 5,
+    "test_file_lines_max": 14,
+    "test_file_lines_p95": 19,
+    "test_function_lines_max": 5,
+    "test_function_lines_p95": 8,
+    "test_function_statements_max": 5,
+    "test_function_statements_p95": 5,
+    "test_functions_per_kloc": 13,
+    "test_largest_package_files": 1,
+    "test_micro_function_ratio": 12
+  },
+  "trend": {
+    "added_functions": {
+      "p50": 3,
+      "p90": 27,
+      "p95": 44,
+      "max": 64,
+      "over_report": 0,
+      "over_hard": 0
+    },
+    "added_helper_calls": {
+      "p50": 6,
+      "p90": 74,
+      "p95": 114,
+      "max": 300,
+      "over_report": 0,
+      "over_hard": 0
+    },
+    "changed_production_files": {
+      "p50": 2,
+      "p90": 8,
+      "p95": 8,
+      "max": 11,
+      "over_report": 0,
+      "over_hard": 0
+    },
+    "production_clone_tokens": {
+      "p50": 82,
+      "p90": 200,
+      "p95": 343,
+      "max": 343,
+      "over_report": 222,
+      "over_hard": 134
+    },
+    "production_cognitive_complexity": {
+      "p50": 2,
+      "p90": 13,
+      "p95": 20,
+      "max": 74,
+      "over_report": 630,
+      "over_hard": 422
+    },
+    "production_cyclomatic_complexity": {
+      "p50": 3,
+      "p90": 10,
+      "p95": 16,
+      "max": 49,
+      "over_report": 757,
+      "over_hard": 437
+    },
+    "production_file_lines": {
+      "p50": 251,
+      "p90": 667,
+      "p95": 811,
+      "max": 1039,
+      "over_report": 197,
+      "over_hard": 96
+    },
+    "production_function_lines": {
+      "p50": 11,
+      "p90": 37,
+      "p95": 54,
+      "max": 176,
+      "over_report": 524,
+      "over_hard": 148
+    },
+    "production_function_statements": {
+      "p50": 6,
+      "p90": 25,
+      "p95": 37,
+      "max": 137,
+      "over_report": 699,
+      "over_hard": 212
+    },
+    "production_package_file_count": {
+      "p50": 1,
+      "p90": 1,
+      "p95": 2,
+      "max": 6,
+      "over_report": 0,
+      "over_hard": 0
+    },
+    "test_clone_tokens": {
+      "p50": 66,
+      "p90": 198,
+      "p95": 201,
+      "max": 201,
+      "over_report": 413,
+      "over_hard": 154
+    },
+    "test_cognitive_complexity": {
+      "p50": 3,
+      "p90": 7,
+      "p95": 9,
+      "max": 20,
+      "over_report": 17,
+      "over_hard": 0
+    },
+    "test_cyclomatic_complexity": {
+      "p50": 4,
+      "p90": 8,
+      "p95": 10,
+      "max": 25,
+      "over_report": 240,
+      "over_hard": 18
+    },
+    "test_file_lines": {
+      "p50": 89,
+      "p90": 458,
+      "p95": 614,
+      "max": 1077,
+      "over_report": 93,
+      "over_hard": 37
+    },
+    "test_function_lines": {
+      "p50": 17,
+      "p90": 35,
+      "p95": 40,
+      "max": 115,
+      "over_report": 69,
+      "over_hard": 9
+    },
+    "test_function_statements": {
+      "p50": 9,
+      "p90": 21,
+      "p95": 24,
+      "max": 58,
+      "over_report": 109,
+      "over_hard": 6
+    },
+    "test_package_file_count": {
+      "p50": 1,
+      "p90": 2,
+      "p95": 2,
+      "max": 2,
+      "over_report": 0,
+      "over_hard": 0
+    }
+  },
+  "observation_trend": {
+    "added_helper_calls_per_function": {
+      "p50": 1.7272727272727273,
+      "p90": 4.761904761904762,
+      "p95": 5.428571428571429,
+      "max": 9
+    },
+    "production_functions_per_kloc": {
+      "p50": 45.6339807358282,
+      "p90": 46.171171171171174,
+      "p95": 46.44616467276566,
+      "max": 46.65629860031104
+    },
+    "production_micro_function_ratio": {
+      "p50": 0.4577114427860697,
+      "p90": 0.5111111111111111,
+      "p95": 0.5113636363636364,
+      "max": 0.5222222222222223
+    },
+    "test_functions_per_kloc": {
+      "p50": 47.353760445682454,
+      "p90": 48.93031137470875,
+      "p95": 49.42339373970346,
+      "max": 50.13192612137203
+    },
+    "test_micro_function_ratio": {
+      "p50": 0.30223880597014924,
+      "p90": 0.329004329004329,
+      "p95": 0.3347457627118644,
+      "max": 0.3397129186602871
+    }
+  }
+}

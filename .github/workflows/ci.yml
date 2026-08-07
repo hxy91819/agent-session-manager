@@ -10,6 +10,131 @@ permissions:
   contents: read
 
 jobs:
+  code-health:
+    name: Code health report
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Measure base and head
+        shell: bash
+        env:
+          BASE_REVISION: ${{ github.event.pull_request.base.sha }}
+          # Compare the current base with GitHub's tested merge result so a stale PR branch
+          # does not turn unrelated upstream changes into apparent regressions.
+          ANALYZED_REVISION: ${{ github.sha }}
+          PR_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Stage C findings remain report-only; operational failures still fail CI.
+          if [[ -z "${BASE_REVISION}" || -z "${ANALYZED_REVISION}" || -z "${PR_HEAD_REVISION}" || -z "${PR_NUMBER}" ]]; then
+            echo "Missing pull request base, analyzed revision, head, or number." >&2
+            exit 2
+          fi
+
+          started_seconds=${SECONDS}
+          go run ./tools/check-code-health \
+            --base "${BASE_REVISION}" \
+            --head "${ANALYZED_REVISION}" \
+            --format json > code-health.json
+          go run ./tools/check-code-health \
+            --base "${BASE_REVISION}" \
+            --head "${ANALYZED_REVISION}" \
+            --format text > code-health.txt
+          elapsed_seconds=$((SECONDS - started_seconds))
+
+          would_fail=$(jq -r '.verdict.would_fail' code-health.json)
+          violation_count=$(jq '.comparison.violations | length' code-health.json)
+          observation_count=$(jq '.comparison.observations | length' code-health.json)
+          new_clone_groups=$(jq '.comparison.new_clone_groups' code-health.json)
+
+          jq -n \
+            --arg schema_version "asm.code-health-ci-run/v1" \
+            --argjson pr_number "${PR_NUMBER}" \
+            --arg base_revision "${BASE_REVISION}" \
+            --arg pr_head_revision "${PR_HEAD_REVISION}" \
+            --arg analyzed_revision "${ANALYZED_REVISION}" \
+            --arg workflow_run_id "${WORKFLOW_RUN_ID}" \
+            --argjson elapsed_seconds "${elapsed_seconds}" \
+            --argjson would_fail "${would_fail}" \
+            --argjson violation_count "${violation_count}" \
+            --argjson observation_count "${observation_count}" \
+            --argjson new_clone_groups "${new_clone_groups}" \
+            '{
+              schema_version: $schema_version,
+              pr_number: $pr_number,
+              base_revision: $base_revision,
+              pr_head_revision: $pr_head_revision,
+              analyzed_revision: $analyzed_revision,
+              workflow_run_id: $workflow_run_id,
+              elapsed_seconds: $elapsed_seconds,
+              would_fail: $would_fail,
+              violation_count: $violation_count,
+              observation_count: $observation_count,
+              new_clone_groups: $new_clone_groups
+            }' > code-health-run.json
+
+          {
+            echo "## Agent code health"
+            echo
+            echo "> Stage C report only: findings do not block merging; analyzer failures do."
+            echo
+            echo '```text'
+            cat code-health.txt
+            echo '```'
+            echo
+            echo "Measurement time: ${elapsed_seconds}s"
+            echo
+            if [[ "${would_fail}" == "true" ]]; then
+              echo "**Action:** inspect the listed regressions. Ask the Agent to fix genuine issues; record false positives instead of suppressing them."
+            else
+              echo "**Action:** no code-health follow-up is required for this PR."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload code-health evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: code-health-pr-${{ github.event.pull_request.number }}
+          path: |
+            code-health.json
+            code-health.txt
+            code-health-run.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+
   vulnerability:
     name: Vulnerability scan
     runs-on: ubuntu-latest
