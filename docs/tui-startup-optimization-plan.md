@@ -771,6 +771,24 @@ CLI fixture 规模与生成后 cache 大小：
 
 以上命令全部通过；完成审计时工作树无未提交改动，阶段 A-D 未修改生产代码。
 
+### 10.1 发布与后续接手
+
+- 发布分支：`agent/tui-startup-abcd`；
+- PR：[#39](https://github.com/hxy91819/agent-session-manager/pull/39)；
+- PR 首个提交：`66bff0190d8c69d9b90dc0e4cb9f3324e2082ef8`；
+- autoreview：
+  `/data/code/openclaw/openclaw/.agents/skills/autoreview/scripts/autoreview
+  --mode branch --base origin/master`；TruffleHog clean，完整 bundle 单 pass，
+  `no accepted/actionable findings reported`；
+- 发布前隐私检查：tracked diff 未包含 secret 或本机日志；gitleaks 的 7 个命中
+  全部位于被 `.gitignore` 排除的本机 `.env` 和 `.local/`，未进入 PR；发布提交
+  使用 GitHub noreply 邮箱；
+- PR 检查和最终 merge commit 以 PR 页面为准，避免在合并前写入推测状态。
+
+后续从阶段 E 开始。实施前必须先确认 title 的 rune/byte 上限和截断尾部搜索
+语义；随后使用本节记录的 before 命令、fixture 和固定 benchstat 版本生成 after
+数据。阶段 F-H 不应在这些产品契约确认前抢跑。
+
 ## 10. 任务终止条件
 
 以下任一情况出现时停止当前生产阶段，不带着不确定性继续扩大修改：
