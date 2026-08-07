@@ -312,12 +312,12 @@ type rawRecord struct {
 }
 
 type sessionMeta struct {
-	ID             string `json:"id"`
-	ParentThreadID string `json:"parent_thread_id"`
-	Timestamp      string `json:"timestamp"`
-	CWD            string `json:"cwd"`
-	Source         string `json:"source"`
-	Originator     string `json:"originator"`
+	ID             string          `json:"id"`
+	ParentThreadID string          `json:"parent_thread_id"`
+	Timestamp      string          `json:"timestamp"`
+	CWD            string          `json:"cwd"`
+	Source         json.RawMessage `json:"source"`
+	Originator     string          `json:"originator"`
 }
 
 type turnContext struct {
@@ -495,10 +495,11 @@ func parseSessionInto(r io.Reader, out session.Session) (session.Session, bool, 
 				haveSessionMeta = true
 				out.ID = meta.ID
 				out.CWD = meta.CWD
-				if meta.Source != "" {
-					out.Metadata["entrypoint"] = strings.TrimSpace(meta.Source)
+				entrypoint := sourceEntrypoint(meta.Source)
+				if entrypoint != "" {
+					out.Metadata["entrypoint"] = entrypoint
 				}
-				if isNonInteractiveSessionMeta(meta) {
+				if isNonInteractiveSessionMeta(meta, entrypoint) {
 					out.Metadata["interaction_mode"] = "non_interactive"
 				}
 				if t := parseTime(meta.Timestamp); !t.IsZero() {
@@ -535,11 +536,25 @@ func parseSessionInto(r io.Reader, out session.Session) (session.Session, bool, 
 	return out, stoppedAtInheritedHistory, err
 }
 
-func isNonInteractiveSessionMeta(meta sessionMeta) bool {
+func sourceEntrypoint(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var tagged map[string]json.RawMessage
+	if json.Unmarshal(raw, &tagged) == nil {
+		if _, ok := tagged["subagent"]; ok {
+			return "subagent"
+		}
+	}
+	return ""
+}
+
+func isNonInteractiveSessionMeta(meta sessionMeta, entrypoint string) bool {
 	// Codex exec persists normal rollout JSONL, so source/originator are the
 	// stable fields that distinguish script-style runs from interactive TUI or
 	// desktop sessions without depending on prompt text.
-	return meta.Source == "exec" || meta.Originator == "codex_exec"
+	return entrypoint == "exec" || meta.Originator == "codex_exec"
 }
 
 func titleFromMessageContent(content []messageContent) string {

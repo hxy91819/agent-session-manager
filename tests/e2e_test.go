@@ -99,8 +99,8 @@ func TestCLIKeepsCodexSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 `)
 	// Codex subagent rollouts start with child-owned records, then replay parent
 	// history. This ordering locks in both the identity and context boundaries.
-	writeFile(t, childPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(childRepo)+`}}
-{"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(childRepo)+`}}
+	writeFile(t, childPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(childRepo)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
+{"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(childRepo)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
 {"timestamp":"2026-06-13T02:00:02Z","type":"turn_context","payload":{"cwd":`+jsonString(childWorktree)+`,"model":"gpt-5"}}
 {"timestamp":"2026-06-13T02:00:03Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(parentRepo)+`}}
 {"timestamp":"2026-06-13T02:00:04Z","type":"turn_context","payload":{"cwd":`+jsonString(parentRepo)+`,"model":"gpt-4"}}
@@ -141,7 +141,7 @@ func TestCLIKeepsCodexSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	if got := byID["parent"]; got.CWD != parentRepo || got.Title != "Parent thread" || got.Path != parentPath {
 		t.Fatalf("parent = %#v", got)
 	}
-	if got := byID["child"]; got.CWD != childWorktree || got.Title != "Child subagent" || got.Path != childPath || got.Metadata["parent_thread_id"] != "parent" || got.Metadata["model"] != "gpt-5" {
+	if got := byID["child"]; got.CWD != childWorktree || got.Title != "Child subagent" || got.Path != childPath || got.Metadata["entrypoint"] != "subagent" || got.Metadata["parent_thread_id"] != "parent" || got.Metadata["model"] != "gpt-5" {
 		t.Fatalf("child = %#v", got)
 	}
 

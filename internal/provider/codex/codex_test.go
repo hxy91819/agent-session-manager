@@ -98,6 +98,72 @@ func TestParseSessionMarksExecSessionNonInteractive(t *testing.T) {
 	}
 }
 
+func TestParseSessionAcceptsStringAndObjectSources(t *testing.T) {
+	tests := []struct {
+		name            string
+		source          string
+		originator      string
+		parentThreadID  string
+		wantEntrypoint  string
+		wantInteraction string
+	}{
+		{name: "interactive string", source: `"cli"`, originator: "codex_cli_rs", wantEntrypoint: "cli"},
+		{name: "historical subagent string variant", source: `{"subagent":"review"}`, originator: "codex-tui", wantEntrypoint: "subagent"},
+		{
+			name:           "thread spawn subagent",
+			source:         `{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}`,
+			originator:     "Codex Desktop",
+			parentThreadID: "parent",
+			wantEntrypoint: "subagent",
+		},
+		{
+			name:           "named subagent",
+			source:         `{"subagent":{"other":"guardian"}}`,
+			originator:     "codex-tui",
+			parentThreadID: "parent",
+			wantEntrypoint: "subagent",
+		},
+		{
+			name:           "unknown object preserves metadata",
+			source:         `{"future_source":{"version":1}}`,
+			originator:     "codex-tui",
+			parentThreadID: "parent",
+		},
+		{
+			name:            "exec originator remains non interactive",
+			source:          `{"subagent":"review"}`,
+			originator:      "codex_exec",
+			wantEntrypoint:  "subagent",
+			wantInteraction: "non_interactive",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := strings.NewReader(`{"timestamp":"2026-06-24T02:25:36Z","type":"session_meta","payload":{"id":"sid","parent_thread_id":` + jsonString(tc.parentThreadID) + `,"timestamp":"2026-06-24T02:25:36Z","cwd":"/repo","source":` + tc.source + `,"originator":` + jsonString(tc.originator) + `}}
+{"timestamp":"2026-06-24T02:25:37Z","type":"turn_context","payload":{"cwd":"/worktree","model":"gpt-5"}}
+`)
+
+			got, err := parseSession(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ID != "sid" || got.CWD != "/worktree" || got.Metadata["model"] != "gpt-5" {
+				t.Fatalf("session metadata lost: %#v", got)
+			}
+			if got.Metadata["entrypoint"] != tc.wantEntrypoint {
+				t.Fatalf("entrypoint = %q, want %q", got.Metadata["entrypoint"], tc.wantEntrypoint)
+			}
+			if got.Metadata["interaction_mode"] != tc.wantInteraction {
+				t.Fatalf("interaction_mode = %q, want %q", got.Metadata["interaction_mode"], tc.wantInteraction)
+			}
+			if got.Metadata[session.MetadataParentThreadID] != tc.parentThreadID {
+				t.Fatalf("parent_thread_id = %q, want %q", got.Metadata[session.MetadataParentThreadID], tc.parentThreadID)
+			}
+		})
+	}
+}
+
 func TestParseSessionExtractsLastHumanUserTitle(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>ignore me</INSTRUCTIONS>"}]}}
@@ -375,7 +441,7 @@ func TestDiscoverKeepsSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	writeFile(t, parentPath, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"parent prompt"}]}}
 `)
-	writeFile(t, childPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`}}
+	writeFile(t, childPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
 {"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
 {"timestamp":"2026-06-13T02:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent prompt"}]}}
 `)
@@ -422,7 +488,49 @@ func TestDiscoverKeepsSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	}
 }
 
-func TestDiscoverInvalidatesLegacyCacheForSubagent(t *testing.T) {
+func TestDiscoverCachesAndInvalidatesObjectSourceSession(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	updatedRepo := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "06", "13", "child.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
+{"timestamp":"2026-06-13T02:00:01Z","type":"turn_context","payload":{"cwd":`+jsonString(repo)+`,"model":"gpt-5"}}
+{"timestamp":"2026-06-13T02:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"child task"}]}}
+`)
+	provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+
+	cold, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(cold) != 1 {
+		t.Fatalf("cold discovery = %#v, %v", cold, err)
+	}
+	if cold[0].Title != "child task" || cold[0].CWD != repo || cold[0].Metadata["entrypoint"] != "subagent" ||
+		cold[0].Metadata["model"] != "gpt-5" || cold[0].Metadata[session.MetadataParentThreadID] != "parent" {
+		t.Fatalf("cold session = %#v", cold[0])
+	}
+
+	warm, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, cold, warm)
+
+	writeFile(t, path, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`,"source":{"subagent":{"other":"guardian"}}}}
+{"timestamp":"2026-06-13T02:00:01Z","type":"turn_context","payload":{"cwd":`+jsonString(updatedRepo)+`,"model":"gpt-5.2"}}
+{"timestamp":"2026-06-13T02:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"updated child task"}]}}
+`)
+	invalidated, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(invalidated) != 1 {
+		t.Fatalf("invalidated discovery = %#v, %v", invalidated, err)
+	}
+	if invalidated[0].Title != "updated child task" || invalidated[0].CWD != updatedRepo || invalidated[0].Metadata["model"] != "gpt-5.2" {
+		t.Fatalf("invalidated session = %#v", invalidated[0])
+	}
+}
+
+func TestDiscoverInvalidatesPreObjectSourceCache(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 	sessionDir := filepath.Join(home, "sessions", "2026", "06", "13")
@@ -430,7 +538,7 @@ func TestDiscoverInvalidatesLegacyCacheForSubagent(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionPath := filepath.Join(sessionDir, "child.jsonl")
-	writeFile(t, sessionPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`}}
+	writeFile(t, sessionPath, `{"timestamp":"2026-06-13T02:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T02:00:00Z","cwd":`+jsonString(repo)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
 {"timestamp":"2026-06-13T02:00:01Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
 `)
 
@@ -446,7 +554,7 @@ func TestDiscoverInvalidatesLegacyCacheForSubagent(t *testing.T) {
 	}
 	cachePath := filepath.Join(t.TempDir(), "cache.json")
 	legacyCache := sessioncache.Cache{
-		Version: 1,
+		Version: 6,
 		Entries: make(map[string]sessioncache.Entry),
 	}
 	legacyCache.Put(identity, session.Session{ID: "parent", CWD: repo})
