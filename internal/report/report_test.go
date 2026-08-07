@@ -168,6 +168,28 @@ func TestBuildPayloadIncludesCrossWindowSessionWithInWindowEvidence(t *testing.T
 	}
 }
 
+func TestBuildPayloadKeepsEvidenceIndependentFromSessionTitle(t *testing.T) {
+	start := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	evidence := strings.Repeat("evidence🙂", 200)
+	payload := BuildPayload(Window{Start: start, End: start.AddDate(0, 0, 1)}, []session.Session{{
+		ID:       "long-title",
+		Provider: "codex",
+		Title:    strings.Repeat("title", 1000),
+		Previews: []session.MessagePreview{{Text: evidence, At: start.Add(time.Hour)}},
+	}})
+
+	if len(payload.Sessions) != 1 {
+		t.Fatalf("sessions = %#v", payload.Sessions)
+	}
+	got := payload.Sessions[0]
+	if got.Title != "" {
+		t.Fatalf("report leaked out-of-window title %q", got.Title)
+	}
+	if got.EvidenceCount != 1 || len(got.Evidence) != 1 || got.Evidence[0].Text != evidence {
+		t.Fatalf("evidence = %#v count=%d", got.Evidence, got.EvidenceCount)
+	}
+}
+
 func TestBuildPayloadWithLimitCountsOnlyInWindowEvidence(t *testing.T) {
 	start := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 0, 1)

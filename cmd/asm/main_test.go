@@ -86,6 +86,36 @@ func TestDiscoverAllKeepsSuccessfulResultsAndProviderErrors(t *testing.T) {
 	}
 }
 
+func TestDiscoverAllEmptyProviderDoesNotBlockHealthyResults(t *testing.T) {
+	got := discoverAll([]session.Provider{
+		staticProvider{name: "empty", items: []session.Session{}},
+		staticProvider{name: "healthy", items: []session.Session{{ID: "healthy", Provider: "healthy"}}},
+	}, 10, 30)
+
+	if len(got.Sessions) != 1 || got.Sessions[0].ID != "healthy" {
+		t.Fatalf("sessions = %#v", got.Sessions)
+	}
+	if len(got.ProviderErrors) != 0 {
+		t.Fatalf("provider errors = %#v", got.ProviderErrors)
+	}
+}
+
+func TestDiscoverAllWithOptionsPassesSameWindowAndLimitToEveryProvider(t *testing.T) {
+	since := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	first := &optionsProvider{name: "first"}
+	second := &optionsProvider{name: "second"}
+	discoverAllWithOptions([]session.Provider{first, second}, session.DiscoverOptions{
+		LimitFiles: 7,
+		Since:      since,
+	})
+
+	for _, provider := range []*optionsProvider{first, second} {
+		if provider.got.LimitFiles != 7 || !provider.got.Since.Equal(since) {
+			t.Fatalf("%s options = %#v", provider.name, provider.got)
+		}
+	}
+}
+
 func TestFindSessionFiltersProvider(t *testing.T) {
 	sessions := []session.Session{
 		{ID: "sid", Provider: "codex"},
@@ -296,6 +326,22 @@ type blockingProvider struct {
 	entered chan<- string
 	release <-chan struct{}
 }
+
+type optionsProvider struct {
+	name string
+	got  session.DiscoverOptions
+}
+
+func (p *optionsProvider) Name() string { return p.name }
+
+func (p *optionsProvider) Discover(opts session.DiscoverOptions) ([]session.Session, error) {
+	p.got = opts
+	return nil, nil
+}
+
+func (p *optionsProvider) ResumeCommand(session.Session) session.ExecSpec { return session.ExecSpec{} }
+
+func (p *optionsProvider) NewCommand(string) session.ExecSpec { return session.ExecSpec{} }
 
 func (p blockingProvider) Name() string {
 	return p.name

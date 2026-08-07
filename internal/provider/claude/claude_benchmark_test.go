@@ -51,6 +51,46 @@ func BenchmarkDiscoverHotCache(b *testing.B) {
 	}
 }
 
+func BenchmarkDiscoverChangedLargeSession(b *testing.B) {
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	path := filepath.Join(home, "projects", "-repo", "large.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"type":"user","sessionId":"large","cwd":%q,"timestamp":"2026-06-15T01:00:00Z","message":{"role":"user","content":"initial"}}`+"\n", repo) +
+		`{"type":"assistant","sessionId":"large","timestamp":"2026-06-15T01:00:01Z","message":{"role":"assistant","content":"` + strings.Repeat("x", 5*1024*1024) + `"}}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	provider := Provider{Home: home, CachePath: filepath.Join(b.TempDir(), "cache.json")}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		b.StopTimer()
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, writeErr := fmt.Fprintf(f, `{"type":"user","sessionId":"large","cwd":%q,"timestamp":"2026-06-15T01:00:02Z","message":{"role":"user","content":"iteration %d"}}`+"\n", repo, i)
+		closeErr := f.Close()
+		if writeErr != nil || closeErr != nil {
+			b.Fatalf("append: write=%v close=%v", writeErr, closeErr)
+		}
+		b.StartTimer()
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil || len(got) != 1 {
+			b.Fatalf("sessions=%d err=%v", len(got), err)
+		}
+	}
+}
+
 func makeBenchmarkClaudeStore(b *testing.B) (string, string) {
 	b.Helper()
 	home := b.TempDir()
