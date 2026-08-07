@@ -90,17 +90,13 @@ ID、增加稀疏采样或使用文件系统变更标识；不要恢复完整前
 只有 runner 噪声和维护成本可控时才设置阻断门槛；fixture correctness 必须继续在
 计时外验证。
 
-### 6. 评估异步 TUI 首屏
-
-fixture 中常规启动约 5-18 ms，Codex 16 MiB append 约 6.5 ms；但真实环境安装验证
-中，优化后的整体热启动中位数仍约 2.71 s。下一步应先增加 provider/file-discovery
-分解计时或 benchmark，定位 native store 枚举、文件筛选和解析的占比，避免根据端到端
-总时间猜测瓶颈。只有分解数据和真实 pre-TUI p95 证明异步加载确有必要时，才单独设计
-loading state、selection stability、provider error 展示和 PTY/public-boundary 测试。
-不要把异步首屏混入当前 provider/cache PR。
-
 ## 目前不建议做
 
+- 暂不评估异步 TUI 首屏。异步加载会引入 loading state、selection stability、
+  provider error 展示和 PTY/public-boundary 测试等额外复杂度，却不会减少 discovery
+  本身的工作量。当前优先通过 provider/file-discovery 分解测量，寻找并实施合理的同步
+  冷启动、热启动优化；只有这些空间基本穷尽后，真实 pre-TUI p95 仍明显影响交互，
+  才重新评估异步方案。
 - 不把 Codex parser state 抽象成通用 JSONL incremental parser；格式边界尚不一致。
 - 不为 Kimi、Kiro、opencode、OpenClaw、ZCode 添加虚假增量状态；其 primary store
   是 compact index/state、小 metadata/消息文件或 SQLite。
@@ -112,7 +108,7 @@ loading state、selection stability、provider error 展示和 PTY/public-bounda
 1. `perf: decompose real provider discovery startup cost`；
 2. `perf: benchmark changed CodeBuddy and Cursor transcripts`；
 3. `perf: parse appended Claude transcripts incrementally`（仅在独立方案和行为测试完成后）；
-4. 根据真实数据决定是否处理 Codex 更强身份校验或异步 TUI。
+4. 根据真实数据继续处理其他合理的同步冷启动、热启动瓶颈。
 
 每个后续 PR 都应独立报告 public contract、base/fixed 行为证据、provider 影响矩阵、
 10 样本 before/after，以及未处理 sibling provider 的明确结论。
