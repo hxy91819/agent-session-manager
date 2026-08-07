@@ -74,7 +74,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			if err != nil {
 				continue
 			}
-			cache.Put(id, s)
+			s = cache.Put(id, s)
 		}
 		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		s.ID = file.ChatID
@@ -121,7 +121,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		} else {
 			s.Previews = nil
 		}
-		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {

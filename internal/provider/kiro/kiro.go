@@ -72,7 +72,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 				continue
 			}
 			s = sessionFromRecord(file, rec)
-			cache.Put(identity, s)
+			s = cache.Put(identity, s)
 		}
 		if strings.TrimSpace(s.ID) == "" {
 			continue
@@ -89,7 +89,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 
 		if s.Title == "" {
 			if title, readErr := firstPromptTitle(file.TranscriptPath); readErr == nil && title != "" {
-				s.Title = title
+				s.Title = session.NormalizeTitle(title)
 				s.Metadata["title_source"] = "prompt"
 			}
 		}
@@ -109,7 +109,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 
 		cwdChecker.Mark(&s)
-		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {

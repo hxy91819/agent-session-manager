@@ -72,7 +72,7 @@ func (c Cache) Get(id FileIdentity) (session.Session, bool) {
 	return cloneSession(entry.Session), true
 }
 
-func (c *Cache) Put(id FileIdentity, s session.Session) {
+func (c *Cache) Put(id FileIdentity, s session.Session) session.Session {
 	if c.Entries == nil {
 		c.Entries = make(map[string]Entry)
 	}
@@ -85,6 +85,7 @@ func (c *Cache) Put(id FileIdentity, s session.Session) {
 		Session:         cloneSession(s),
 	}
 	c.dirty = true
+	return s
 }
 
 func (c *Cache) Keep(keys map[string]struct{}) {

@@ -83,7 +83,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			if err != nil || s.ID == "" || s.CWD == "" {
 				continue
 			}
-			cache.Put(id, s)
+			s = cache.Put(id, s)
 		}
 		if s.ID == "" || s.CWD == "" {
 			continue
@@ -113,10 +113,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		s.Metadata["source_home"] = file.Home
 		cwdChecker.Mark(&s)
 		if title := titleForID(s.ID, file.Home, homes, threadNames); title != "" {
-			s.Title = title
+			s.Title = session.NormalizeTitle(title)
 			s.Metadata["title_source"] = "session_index"
 		} else if title := titleForID(s.ID, file.Home, homes, histories); title != "" {
-			s.Title = title
+			s.Title = session.NormalizeTitle(title)
 			s.Metadata["title_source"] = "history"
 		}
 		if opts.Preview.Enabled() && s.Metadata[session.MetadataParentThreadID] == "" {
@@ -131,7 +131,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		} else {
 			s.Previews = nil
 		}
-		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {

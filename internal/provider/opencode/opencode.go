@@ -63,7 +63,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 				continue
 			}
 			s = sessionFromRecord(file, rec)
-			cache.Put(id, s)
+			s = cache.Put(id, s)
 		}
 		if s.ID == "" {
 			continue
@@ -84,7 +84,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		if s.Title == "" {
 			if title := fallbackTitleFromMessages(storageRoot, s.ID); title != "" {
-				s.Title = title
+				s.Title = session.NormalizeTitle(title)
 				s.Metadata["title_source"] = "message"
 			}
 		}
@@ -102,7 +102,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			s.Previews = nil
 		}
 		cwdChecker.Mark(&s)
-		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {

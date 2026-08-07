@@ -70,7 +70,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			if err != nil || s.ID == "" || s.CWD == "" {
 				continue
 			}
-			cache.Put(id, s)
+			s = cache.Put(id, s)
 		}
 		if s.ID == "" || s.CWD == "" {
 			continue
@@ -111,7 +111,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		} else {
 			s.Previews = nil
 		}
-		s.Title = session.NormalizeTitle(s.Title)
 		sessions = append(sessions, s)
 	}
 	if shouldPruneCache(opts, len(files)) {
