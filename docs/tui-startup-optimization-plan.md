@@ -829,6 +829,19 @@ Claude changed-large `+5.81%` paired A/B 观测见
 `docs/tui-startup-performance-baseline.md`。该 Claude 项在 F/G 后复测，不影响进入
 阶段 F，但不得在最终审计中遗漏。
 
+### 10.3 阶段 F：Cache 快速修复
+
+- [x] bounded discovery 没有 native 文件时跳过六个 provider 的历史 cache load；
+- [x] unbounded discovery 继续加载并 prune，bounded/unbounded 和 resume safety
+  公共行为不变；
+- [x] 无 dirty 不写盘沿用既有实现，title 写 cache 前归一化由阶段 E 保证；
+- [x] focused tests、完整仓库检查和 CLI/internal 10 样本对比完成。
+
+最终提交 `dbc7bb8`。`EmptyStoresHistoricalCache` 相对 D 为 `-41.87%`，相对 E
+为 `-42.35%`；扣除 `EmptyStoresEmptyCache` 固定成本后，历史 cache 增量开销降低约
+`98.6%`。其他 CLI 场景相对 E 无显著变化，internal 无 5% 回退。完整 raw output
+和计算口径见 `docs/tui-startup-performance-baseline.md`。
+
 ## 10. 任务终止条件
 
 以下任一情况出现时停止当前生产阶段，不带着不确定性继续扩大修改：

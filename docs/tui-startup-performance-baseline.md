@@ -106,7 +106,7 @@ go test -run '^$' -bench . -benchmem \
 | 阶段 | after commit | CLI 结论 | internal 结论 | 决策 |
 |---|---|---|---|---|
 | E：Shared title policy | `1510a18` | oversized title 启动 `-86.32%`、cache `-96.77%`；原六场景最大变化 `+1.54%` | cache/index/UI 无 5% 回退；paired A/B 中 Codex changed-large 无显著变化、Claude `+5.81%` | 保留；Claude 项在 F/G 后复测 |
-| F：Cache 快速修复 | 待填 | 待填 | 待填 | 待填 |
+| F：Cache 快速修复 | `dbc7bb8` | EmptyStoresHistoricalCache 相对 D `-41.87%`、相对 E `-42.35%`；历史 cache 增量开销约 `-98.6%` | 相对 E 无 5% 回退，allocations 稳定 | 保留，进入 G |
 | G：Cache 分片 | 待填 | 待填 | 待填 | 待填 |
 | H：Codex 增量解析 | 待 benchmark 决策 | 待填 | 待填 | 待填 |
 
@@ -192,3 +192,46 @@ base/after test binary 交替执行 10 次：Codex 无显著差异，Claude 为 
 正式 after 命令与阶段 D 相同，仅输出路径改为上述 `phase-e-final2-*`；统计继续
 使用固定 benchstat 版本。阶段 E 的主要性能收益由新增 oversized 场景证明，原有
 短 title fixture 保持基本稳定。
+
+## 阶段 F：Cache 快速修复
+
+实现提交 `dbc7bb8`。六个缓存型 provider 在 bounded discovery 没有选中任何
+native 文件时，直接返回空结果，不再读取历史 cache；unbounded discovery 仍加载
+cache 并执行 prune。无 dirty 时不写盘是阶段 D 已锁定的现有行为，title 写 cache
+前归一化已由阶段 E 完成，因此 F 没有重复实现这两项。
+
+正确性证据：
+
+- `sessioncache.SkipLoadForEmptyDiscovery` 覆盖 since/limit bounded empty、
+  unbounded empty 和 bounded non-empty；
+- `EmptyStoresHistoricalCache` 在计时外继续验证 0 session；cache cold/warm、
+  bounded/unbounded、load-more 和 missing-cwd resume e2e 全部通过；
+- 六个 provider focused tests、完整仓库检查全部通过。
+
+正式 raw output：
+
+- CLI：`/tmp/asm-tui-startup-eh/phase-f-after-cli.txt`；
+- internal：`/tmp/asm-tui-startup-eh/phase-f-after-internal.txt`；
+- 相对 D：`/tmp/asm-tui-startup-eh/phase-f-vs-d-cli.txt`；
+- 相对 E：`/tmp/asm-tui-startup-eh/phase-f-vs-e-cli.txt` 和
+  `/tmp/asm-tui-startup-eh/phase-f-vs-e-internal.txt`。
+
+CLI 10 样本结果：
+
+| 场景 | D before | E | F | F vs D | F vs E |
+|---|---:|---:|---:|---:|---:|
+| EmptyStoresHistoricalCache | 9.489 ms | 9.566 ms | 5.515 ms | -41.87% | -42.35% |
+| EmptyStoresEmptyCache | 5.384 ms | 5.424 ms | 5.458 ms | 无显著变化 | 无显著变化 |
+| WarmRecentWindow | 9.188 ms | 9.225 ms | 9.287 ms | 无显著变化 | 无显著变化 |
+| WarmHistoryHeavy | 31.26 ms | 30.97 ms | 31.38 ms | 无显著变化 | 无显著变化 |
+| ChangedLargeCodexSession | 63.14 ms | 64.11 ms | 63.58 ms | 无显著变化 | 无显著变化 |
+
+绝对 wall time 包含约 5.4 ms 的空进程/provider 固定成本；按历史 cache 增量开销
+计算，D 为 `9.489-5.384=4.105 ms`，F 为 `5.515-5.458=0.057 ms`，降低约
+`98.6%`，超过计划的 70% 目标。相对 E 的其余 CLI 场景均无显著变化。
+
+internal 相对 E：Claude changed-large 无显著变化，说明阶段 E 的观测项没有在 F
+继续恶化；Codex changed-large 为 `-17.25%`，反映该 benchmark 跨整套运行的漂移，
+不归因于只触发 empty discovery 的 F。sessioncache 关键 load/save、provider
+history-heavy、index 和 UI 均无 5% 回退，B/op 与 allocs/op 稳定。正式命令、环境、
+样本数和 benchstat 版本与阶段 E/D 相同。
