@@ -35,6 +35,8 @@ type Cache struct {
 	shardCount       int
 	generation       string
 	useShards        bool
+	inline           bool
+	adaptiveShards   bool
 	legacyLoaded     bool
 	migrationPending bool
 	shards           map[int]map[string]Entry
@@ -52,9 +54,11 @@ type Entry struct {
 }
 
 type manifest struct {
-	Version    int    `json:"version"`
-	ShardCount int    `json:"shard_count"`
-	Generation string `json:"generation"`
+	Version    int              `json:"version"`
+	ShardCount int              `json:"shard_count"`
+	Generation string           `json:"generation"`
+	Inline     bool             `json:"inline,omitempty"`
+	Entries    map[string]Entry `json:"entries,omitempty"`
 }
 
 type shardFile struct {
@@ -80,12 +84,13 @@ func Load(path string) *Cache {
 
 func loadWithShardCount(path string, shardCount int) *Cache {
 	cache := Cache{
-		Version:      Version,
-		path:         path,
-		shardCount:   shardCount,
-		shards:       make(map[int]map[string]Entry),
-		loadedShards: make(map[int]bool),
-		dirtyShards:  make(map[int]bool),
+		Version:        Version,
+		path:           path,
+		shardCount:     shardCount,
+		shards:         make(map[int]map[string]Entry),
+		loadedShards:   make(map[int]bool),
+		dirtyShards:    make(map[int]bool),
+		adaptiveShards: shardCount == defaultShardCount,
 	}
 	if path == "" {
 		cache.Entries = make(map[string]Entry)
@@ -101,6 +106,16 @@ func loadWithShardCount(path string, shardCount int) *Cache {
 		cache.shardCount = stored.ShardCount
 		cache.generation = stored.Generation
 		cache.useShards = true
+		cache.adaptiveShards = false
+		if stored.Inline {
+			cache.inline = true
+			cache.shardCount = 1
+			cache.shards[0] = stored.Entries
+			if cache.shards[0] == nil {
+				cache.shards[0] = make(map[string]Entry)
+			}
+			cache.loadedShards[0] = true
+		}
 	}
 	return &cache
 }
@@ -266,6 +281,16 @@ func (c *Cache) saveDirtyShards() error {
 	if len(c.dirtyShards) == 0 {
 		return nil
 	}
+	if c.inline {
+		if err := c.writeJSONAtomically(manifestPath(c.path), manifest{
+			Version: Version, ShardCount: 1, Generation: c.generation,
+			Inline: true, Entries: c.shards[0],
+		}); err != nil {
+			return err
+		}
+		c.dirtyShards = make(map[int]bool)
+		return nil
+	}
 	shards := make([]int, 0, len(c.dirtyShards))
 	for shard := range c.dirtyShards {
 		shards = append(shards, shard)
@@ -282,6 +307,32 @@ func (c *Cache) saveDirtyShards() error {
 
 func (c *Cache) migrateLegacy() error {
 	generation := fmt.Sprintf("%x-%x", time.Now().UnixNano(), os.Getpid())
+	if c.adaptiveShards && len(c.Entries) <= 128 {
+		if err := c.writeJSONAtomically(manifestPath(c.path), manifest{
+			Version: Version, ShardCount: 1, Generation: generation,
+			Inline: true, Entries: c.Entries,
+		}); err != nil {
+			return err
+		}
+		c.useShards = true
+		c.inline = true
+		c.adaptiveShards = false
+		c.shardCount = 1
+		c.generation = generation
+		c.shards = map[int]map[string]Entry{0: c.Entries}
+		c.loadedShards = map[int]bool{0: true}
+		c.dirtyShards = make(map[int]bool)
+		c.dirty = false
+		c.migrationPending = false
+		return nil
+	}
+	if c.adaptiveShards {
+		if len(c.Entries) <= 1024 {
+			c.shardCount = 16
+		} else {
+			c.shardCount = 32
+		}
+	}
 	entriesByShard := make(map[int]map[string]Entry, c.shardCount)
 	for shard := 0; shard < c.shardCount; shard++ {
 		entriesByShard[shard] = make(map[string]Entry)
@@ -302,6 +353,7 @@ func (c *Cache) migrateLegacy() error {
 		return err
 	}
 	c.useShards = true
+	c.adaptiveShards = false
 	c.generation = generation
 	c.shards = entriesByShard
 	c.loadedShards = make(map[int]bool, c.shardCount)

@@ -378,6 +378,36 @@ func TestSamePathFromDifferentProvidersDoesNotCollide(t *testing.T) {
 	}
 }
 
+func TestAdaptiveShardLayoutKeepsSmallCachesInline(t *testing.T) {
+	tests := []struct {
+		name       string
+		entries    int
+		wantInline bool
+		wantShards int
+	}{
+		{name: "small inline", entries: 128, wantInline: true, wantShards: 1},
+		{name: "medium sixteen", entries: 129, wantShards: 16},
+		{name: "large thirty two", entries: 1025, wantShards: 32},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "cache.json")
+			cache := Load(path)
+			for i := 0; i < tt.entries; i++ {
+				id := FileIdentity{Provider: "codex", Path: fmt.Sprintf("/%04d.jsonl", i), Size: int64(i), ModTime: time.Unix(int64(i), 0)}
+				cache.Put(id, session.Session{ID: id.Path})
+			}
+			if err := cache.Save(path); err != nil {
+				t.Fatal(err)
+			}
+			loaded := Load(path)
+			if loaded.inline != tt.wantInline || loaded.shardCount != tt.wantShards {
+				t.Fatalf("layout inline=%v shards=%d, want inline=%v shards=%d", loaded.inline, loaded.shardCount, tt.wantInline, tt.wantShards)
+			}
+		})
+	}
+}
+
 func identitiesInDifferentShards(t *testing.T) (FileIdentity, FileIdentity) {
 	t.Helper()
 	cache := loadWithShardCount("", defaultShardCount)
