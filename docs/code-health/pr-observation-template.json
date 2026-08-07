@@ -1,0 +1,29 @@
+{
+  "schema_version": "asm.code-health-pr-observation/v1",
+  "pr_number": 1,
+  "base_revision": "0000000000000000000000000000000000000000",
+  "head_revision": "0000000000000000000000000000000000000000",
+  "merged_revision": null,
+  "first_report": {
+    "would_fail": false,
+    "violation_count": 0,
+    "observation_count": 0,
+    "new_clone_groups": 0,
+    "ci_seconds": 0
+  },
+  "final_report": {
+    "would_fail": false,
+    "violation_count": 0,
+    "observation_count": 0,
+    "new_clone_groups": 0,
+    "ci_seconds": 0
+  },
+  "agent_fixed": false,
+  "fix_rounds": 0,
+  "classification": "pass",
+  "false_positive_metrics": [],
+  "gaming_signals": [],
+  "exception": null,
+  "reviewer": "maintainer",
+  "notes": ""
+}

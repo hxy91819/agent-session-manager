@@ -8,6 +8,10 @@
   生产 Go 代码变化的提交的聚合快照、增长次数和反作弊趋势；
 - `history-trend.md`：对 baseline、历史分布和阈值决定的可读总结。
 
+阶段 C 的新 PR 使用方法见 `pr-workflow.md`。CI 会生成 report-only Summary 和
+90 天 JSON artifact，不写 PR 评论、不阻断合并；每个 PR 的人工判断使用
+`pr-observation-template.json` 和 `pr-observation.schema.json` 记录。
+
 可复现命令：
 
 ```sh

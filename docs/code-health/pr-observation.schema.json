@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hxy91819/agent-session-manager/docs/code-health/pr-observation.schema.json",
+  "title": "asm code-health stage C PR observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "pr_number",
+    "base_revision",
+    "head_revision",
+    "first_report",
+    "final_report",
+    "agent_fixed",
+    "fix_rounds",
+    "classification",
+    "false_positive_metrics",
+    "gaming_signals",
+    "reviewer",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "asm.code-health-pr-observation/v1"
+    },
+    "pr_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "base_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "head_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "merged_revision": {
+      "oneOf": [
+        { "$ref": "#/$defs/revision" },
+        { "type": "null" }
+      ]
+    },
+    "first_report": {
+      "$ref": "#/$defs/report"
+    },
+    "final_report": {
+      "$ref": "#/$defs/report"
+    },
+    "agent_fixed": {
+      "type": "boolean"
+    },
+    "fix_rounds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "classification": {
+      "enum": ["pass", "fixed", "accepted-report", "false-positive", "exception"]
+    },
+    "false_positive_metrics": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "gaming_signals": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "exception": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["symbol", "metric", "allowed_limit", "reason", "evidence", "expires", "approved_by"],
+          "properties": {
+            "symbol": { "type": "string", "minLength": 1 },
+            "metric": { "type": "string", "minLength": 1 },
+            "allowed_limit": { "type": "integer", "minimum": 1 },
+            "reason": { "type": "string", "minLength": 1 },
+            "evidence": { "type": "string", "minLength": 1 },
+            "expires": { "type": "string", "minLength": 1 },
+            "approved_by": { "type": "string", "minLength": 1 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "reviewer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["would_fail", "violation_count", "observation_count", "new_clone_groups", "ci_seconds"],
+      "properties": {
+        "would_fail": { "type": "boolean" },
+        "violation_count": { "type": "integer", "minimum": 0 },
+        "observation_count": { "type": "integer", "minimum": 0 },
+        "new_clone_groups": { "type": "integer", "minimum": 0 },
+        "ci_seconds": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}
