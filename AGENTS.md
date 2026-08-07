@@ -283,6 +283,11 @@ the broken behavior, then change the implementation to make that test pass. Do
 not treat a bug fix as complete without a regression test unless the behavior is
 not testable in this repository; in that case, document why in the change.
 
+Cache parity tests compare normalized sessions with
+`internal/sessiontest.RequireEqual`. This assertion compares timestamps by
+instant across location/offset changes while keeping every other session field
+exact.
+
 Every change to an external interface or other user-observable behavior must
 add or update an end-to-end test that exercises the public boundary and locks in
 the intended user behavior. This includes CLI contracts, output formats, user

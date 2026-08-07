@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
+	"github.com/hxy91819/agent-session-manager/internal/sessiontest"
 )
 
 func TestMain(m *testing.M) {
@@ -420,9 +420,10 @@ func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
 		t.Fatalf("cold = %#v err=%v", cold, err)
 	}
 	warm, err := provider.Discover(session.DiscoverOptions{})
-	if err != nil || !reflect.DeepEqual(cold, warm) {
-		t.Fatalf("warm = %#v err=%v, want %#v", warm, err, cold)
+	if err != nil {
+		t.Fatal(err)
 	}
+	sessiontest.RequireEqual(t, cold, warm)
 	writeClaudeSession(t, path, "current", repo, "after primary file changed and grew")
 	invalidated, err := provider.Discover(session.DiscoverOptions{})
 	if err != nil || invalidated[0].Title != "after primary file changed and grew" {

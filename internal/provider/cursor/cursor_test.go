@@ -3,13 +3,13 @@ package cursor
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
+	"github.com/hxy91819/agent-session-manager/internal/sessiontest"
 )
 
 func TestMain(m *testing.M) {
@@ -243,9 +243,10 @@ func TestDiscoverCacheLifecycleSinceLimitAndWorkspaceRefresh(t *testing.T) {
 		t.Fatalf("cold = %#v err=%v", cold, err)
 	}
 	warm, err := provider.Discover(session.DiscoverOptions{})
-	if err != nil || !reflect.DeepEqual(cold, warm) {
-		t.Fatalf("warm = %#v err=%v, want %#v", warm, err, cold)
+	if err != nil {
+		t.Fatal(err)
 	}
+	sessiontest.RequireEqual(t, cold, warm)
 	withPreview, err := provider.Discover(session.DiscoverOptions{Preview: session.PreviewOptions{UserMessagesPerEdge: 1, MaxChars: 100}})
 	if err != nil || len(withPreview[0].Previews) != 1 || withPreview[0].Previews[0].Text != "before primary change" {
 		t.Fatalf("dynamic previews = %#v err=%v", withPreview, err)

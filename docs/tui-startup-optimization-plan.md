@@ -785,6 +785,24 @@ CLI fixture 规模与生成后 cache 大小：
   使用 GitHub noreply 邮箱；
 - PR 检查和最终 merge commit 以 PR 页面为准，避免在合并前写入推测状态。
 
+PR #39 首轮 macOS/Ubuntu CI 暴露了 cache parity 测试的跨时区误报：cold
+session 携带 `time.Local`，JSON cache round-trip 后为 UTC；二者代表同一 instant，
+但 `reflect.DeepEqual` 还会比较 `time.Location` 的内部状态。处理规则如下：
+
+- 内部比较、cache 和持久化采用绝对时间语义；生产 JSON 是否统一规范化为 UTC
+  留到后续行为阶段单独决策，不在阶段 A-D 的测试修复中顺带改变；
+- TUI 展示以及“今天/昨天”等自然日窗口继续使用 Local；
+- 六个使用 sessioncache parity 测试的 provider（Codex、Claude、Kiro、
+  opencode、CodeBuddy、Cursor）统一使用 `internal/sessiontest.RequireEqual`：所有
+  timestamp 按 instant 比较，其余 session 字段保持严格相等；
+- Kimi、OpenClaw、ZCode 不经过这条 sessioncache round-trip 路径，无需修改；
+- AGENTS.md 固化共享断言规则；现有 pre-commit `go test` 与 Linux、macOS、
+  Windows CI 会执行这些测试，无需再增加一套重复 hook。这样本地提交前和远端
+  跨平台各有独立拦截点。
+
+修复提交、第二轮 autoreview、最终 checks 与 merge commit 在完成后以 PR 页面
+和提交记录为准。
+
 后续从阶段 E 开始。实施前必须先确认 title 的 rune/byte 上限和截断尾部搜索
 语义；随后使用本节记录的 before 命令、fixture 和固定 benchstat 版本生成 after
 数据。阶段 F-H 不应在这些产品契约确认前抢跑。
