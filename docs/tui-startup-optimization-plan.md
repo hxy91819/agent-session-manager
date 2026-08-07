@@ -862,6 +862,25 @@ Codex changed-large CLI 仍为 63.19 ms，internal 为 38.16 ms，与 D 无显�
 Cursor 没有对应结果证明需要同步优化；阶段 H 保持 Codex provider-specific，不引入
 共享增量 parser 抽象。
 
+### 10.5 阶段 H：Codex append-only 增量解析
+
+- [x] ≥1 MiB rollout 保存 offset 和 64 KiB 首尾指纹，只解析已验证 append tail；
+- [x] truncate、replace、prefix mismatch、partial record 和 inherited-history 回退
+  full parse；
+- [x] native title、turn context、preview/report evidence 的 provider 与 CLI 行为覆盖；
+- [x] focused tests、完整仓库检查和最终 CLI/internal 10 样本完成。
+
+最终提交 `d07c0e5`。CLI `ChangedLargeCodexSession` 从 63.194 ms 降至 6.467 ms
+（`-89.77%`），Codex internal 从 38.159 ms 降至 0.899 ms（`-97.64%`），超过
+70% 目标；其余 CLI 最大变化 `+2.40%`，未参与 provider、index/UI 无 5% 回退。
+
+完整前缀哈希方案因 internal 仅改善约 65% 被否决；所有小 rollout 都存状态的版本
+因 history-heavy `+5.20%` 和 cache bytes `+53.83%` 被否决。最终用 1 MiB 门槛和
+稀疏 side map 消除常规 cache 成本。Claude/CodeBuddy/Cursor 保留 provider-specific
+后续评估：Claude 当前 benchmark 未显示阶段 H 引入的回退，CodeBuddy/Cursor 需先有
+changed-large 数据；其余 provider 存储模型不匹配。完整数据见
+`docs/tui-startup-performance-baseline.md`。
+
 ## 10. 任务终止条件
 
 以下任一情况出现时停止当前生产阶段，不带着不确定性继续扩大修改：

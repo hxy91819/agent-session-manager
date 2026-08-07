@@ -108,7 +108,7 @@ go test -run '^$' -bench . -benchmem \
 | E：Shared title policy | `1510a18` | oversized title 启动 `-86.32%`、cache `-96.77%`；原六场景最大变化 `+1.54%` | cache/index/UI 无 5% 回退；paired A/B 中 Codex changed-large 无显著变化、Claude `+5.81%` | 保留；Claude 项在 F/G 后复测 |
 | F：Cache 快速修复 | `dbc7bb8` | EmptyStoresHistoricalCache 相对 D `-41.87%`、相对 E `-42.35%`；历史 cache 增量开销约 `-98.6%` | 相对 E 无 5% 回退，allocations 稳定 | 保留，进入 G |
 | G：Cache 分片 | `bc63d8e` | WarmHistoryHeavy 相对 F `-42.55%`、相对 D `-42.33%`；其他 CLI wall time 无显著回退 | HistoryHeavyLoad `-99.92%`、SingleEntryUpdateSave `-87.52%`；index/UI 无回退 | 保留 64-shard 大型布局，进入 H |
-| H：Codex 增量解析 | 待 benchmark 决策 | 待填 | 待填 | 待填 |
+| H：Codex 增量解析 | `d07c0e5` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
 
 ## 阶段 E：Shared title policy
 
@@ -288,3 +288,62 @@ hot-cache microbenchmark 因读取小 shard/manifest 出现 5% 以上相对变�
 场景未出现对应回退，history-heavy 和 cold 路径整体显著改善。Codex/Claude
 changed-large 分别无显著变化和 `+2.02%`，index/UI 无显著变化。阶段 H 只处理
 Codex；Claude 未达到跟进门槛，CodeBuddy/Cursor 也暂不扩大范围。
+
+## 阶段 H：Codex append-only 增量解析
+
+最终生产提交 `d07c0e5`。仅对不小于 1 MiB 的 Codex rollout 保存 provider-owned
+解析状态：完整 record offset，以及旧前缀首尾各 64 KiB 的 SHA-256 指纹。文件增长
+且两端指纹匹配时只解析 tail；truncate、edge-altering replace、prefix/boundary
+rewrite、partial JSONL 或 parent/child inherited-history 边界均回退 full parse。
+状态通过 `sessioncache` 的稀疏 opaque side map 持久化，其他 provider 不理解
+Codex parser state，普通小 cache entry 也不承担固定状态体积。
+
+正确性证据：
+
+- 公共 CLI 先建立 cache，再追加 turn context 和 user message；第二次 JSON 输出保持
+  native title/title_source，同时刷新 cwd/model，report 输出保留追加前后两条 evidence；
+- provider tests 覆盖 append tail、truncate、atomic replace、prefix mismatch、partial
+  record 完成后的 full parse、parent/child inherited history，以及 native title、preview
+  和 report evidence 语义；
+- 这是行为保持型性能优化，base 的公开输出本来正确，因此没有伪造产品级 base
+  failure；性能 base 由阶段 G changed-large benchmark 提供；
+- focused tests 和完整仓库检查全部通过。
+
+实现中否决了两版方案：
+
+- 每次增量解析重新哈希完整 16 MiB 前缀，internal 约 13 ms，只改善约 65%，未达到
+  70% 门槛；改用首尾边界指纹后才消除 O(file size) 校验；
+- 为所有 rollout 持久化状态曾使 `WarmHistoryHeavy` 回退 `+5.20%`、cache bytes
+  增加 `+53.83%`；最终增加 1 MiB 门槛并将状态从每-entry 字段改为稀疏 side map，
+  普通 cache bytes 恢复到阶段 G 水平。
+
+最终 raw output：
+
+- CLI：`/tmp/asm-tui-startup-eh/phase-h-final-cli.txt`；
+- internal：`/tmp/asm-tui-startup-eh/phase-h-final-internal.txt`；
+- 相对 G：`/tmp/asm-tui-startup-eh/phase-h-vs-g-cli.txt` 和
+  `/tmp/asm-tui-startup-eh/phase-h-vs-g-internal.txt`；
+- 相对 D：`/tmp/asm-tui-startup-eh/phase-h-vs-d-cli.txt`。
+
+最终 10 样本结果：
+
+| 场景 | G | H | 变化 |
+|---|---:|---:|---:|
+| CLI ChangedLargeCodexSession | 63.194 ms | 6.467 ms | -89.77% |
+| Codex DiscoverChangedLargeSession | 38.159 ms | 0.899 ms | -97.64% |
+| Codex changed-large bytes | 40.25 MiB | 276.8 KiB | -99.33% |
+| Codex changed-large allocs | 1069.5 | 199 | -81.39% |
+
+其余 CLI wall time 相对 G 最大变化为 `WarmHistoryHeavy +2.40%`，cache bytes 无显著
+变化，fixture session 数全部相同；相对 D 的 `WarmHistoryHeavy` 仍为约 `-41%`。
+Codex cold/hot 分别 `-2.26%`/`-2.02%`。Claude changed-large、CodeBuddy/Cursor
+history/cold/hot、index 和 UI 均无 5% 回退。sessioncache 核心 history load 和
+single-entry save 无显著回退；部分 shard-count update microbenchmark wall time 为
+`+5.88%`/`+6.65%`，但 bytes/allocs 不变，公开 CLI 无对应回退。
+
+Sibling provider 决策：Claude、CodeBuddy、Cursor 也读取 appendable JSONL 并在文件
+identity 改变后 full parse，但 parser state 和继承/preview 规则各不相同。Claude
+changed-large 相对 G 无显著变化，本阶段不扩范围；CodeBuddy/Cursor 没有 changed-large
+证据证明达到实施门槛，后续应先补 benchmark。Kimi、Kiro、opencode、OpenClaw、
+ZCode 分别使用 compact state/index、小 metadata/消息文件或 SQLite，不具备相同的
+大型 primary JSONL 启动瓶颈。阶段 H 不创建共享 incremental parser abstraction。
