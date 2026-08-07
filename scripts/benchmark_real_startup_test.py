@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+SCRIPT = Path(__file__).with_name("benchmark-real-startup.py").resolve()
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("benchmark_real_startup", SCRIPT)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("unable to load benchmark script")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class BenchmarkRealStartupTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.fake_asm = self.root / "fake-asm.py"
+        self.fake_asm.write_text(
+            """#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import sys
+
+cache = pathlib.Path(os.environ["XDG_CACHE_HOME"])
+cache.mkdir(parents=True, exist_ok=True)
+(cache / "marker").write_text("cached", encoding="utf-8")
+if "--json" in sys.argv:
+    print(json.dumps({
+        "sessions": [
+            {"provider": "codex", "id": "session-a"},
+            {"provider": "claude", "id": "session-b"},
+        ],
+        "projects": [{"cwd": "/fixture/project", "count": 2}],
+        "provider_errors": [],
+    }))
+    raise SystemExit(0)
+diag = os.environ.get("ASM_STARTUP_DIAG_FILE")
+if diag:
+    pathlib.Path(diag).write_text(json.dumps([
+        {"provider": "codex", "stage": "provider_total", "nanos": 1000},
+        {"provider": "codex", "stage": "primary_parse", "nanos": 750},
+    ]), encoding="utf-8")
+print("session not found: __asm_real_startup_probe_missing__", file=sys.stderr)
+raise SystemExit(1)
+""",
+            encoding="utf-8",
+        )
+        self.fake_asm.chmod(0o755)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_runner_writes_only_aggregate_artifacts(self) -> None:
+        output = self.root / "output"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--asm-bin",
+                str(self.fake_asm),
+                "--output-dir",
+                str(output),
+                "--revision",
+                "fixture",
+                "--cold-runs",
+                "2",
+                "--warmup-runs",
+                "1",
+                "--warm-runs",
+                "3",
+                "--diagnostics",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+        samples = json.loads((output / "samples.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["wall_time_seconds"]["cold"]["n"], 2)
+        self.assertEqual(summary["wall_time_seconds"]["warm"]["n"], 3)
+        self.assertTrue(summary["correctness"]["matches"])
+        self.assertEqual(summary["correctness"]["cold"]["providers"], {"claude": 1, "codex": 1})
+        self.assertEqual(len(samples["cold_ns"]), 2)
+        self.assertEqual(len(samples["warm_ns"]), 3)
+        self.assertIn("diagnostic_stages", summary)
+        self.assertFalse(any(output.rglob("marker")))
+        self.assertFalse(any(path.name.endswith("raw.json") for path in output.rglob("*")))
+
+    def test_nonempty_output_directory_fails_without_deleting_it(self) -> None:
+        output = self.root / "existing"
+        output.mkdir()
+        sentinel = output / "keep.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--asm-bin",
+                str(self.fake_asm),
+                "--output-dir",
+                str(output),
+                "--cold-runs",
+                "1",
+                "--warm-runs",
+                "1",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+
+    def test_distribution_uses_nearest_rank_p95(self) -> None:
+        module = load_module()
+        stats = module.distribution(list(range(1, 21)))
+        self.assertEqual(stats["median"], 10.5)
+        self.assertEqual(stats["p95"], 19)
+
+
+if __name__ == "__main__":
+    unittest.main()

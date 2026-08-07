@@ -401,3 +401,18 @@ Cursor 55、Kimi 22；opencode 和 OpenClaw 在本次默认窗口内均为 0。�
 - 对比 session/project/provider 聚合计数与不可逆集合哈希，确保结果语义不变；
 - 增加 provider/file-discovery 分解数据定位耗时，但仍以公共 CLI 冷/热 wall time 作为
   最终用户可见验收指标。
+
+仓库脚本可自动执行单版本协议并生成聚合报告：
+
+```sh
+go build -o /tmp/asm-startup ./cmd/asm
+python3 scripts/benchmark-real-startup.py \
+  --asm-bin /tmp/asm-startup \
+  --revision "$(git rev-parse HEAD)"
+```
+
+默认参数就是冷启动 10 次、预热 2 次、热启动 20 次和最近 30 天。脚本使用临时
+`XDG_CACHE_HOME`，不会移动或读取用户现有 asm cache；原始 session JSON 和任务 cache
+在进程结束时自动清理，只保留计时、cache bytes、聚合数量和不可逆哈希。诊断构建若
+支持 `ASM_STARTUP_DIAG_FILE` 聚合事件，可额外传 `--diagnostics` 生成 provider/stage
+摘要；该模式包含计时开销，不能替代无诊断的公共 CLI wall-time 验收。
