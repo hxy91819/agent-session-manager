@@ -363,7 +363,9 @@ ZCode 分别使用 compact state/index、小 metadata/消息文件或 SQLite，�
 
 聚合正确性前后完全一致：均发现 730 个 session、86 个 project、0 个 provider
 error；排序后的 `{provider,id}` 集合和 `{cwd,count}` project 集合哈希分别一致，
-provider 数量也逐项一致。该验证只公开聚合值和不可逆哈希，不公开会话内容。
+provider 数量也逐项一致：Codex 286、Claude 183、ZCode 68、CodeBuddy 58、Kiro 58、
+Cursor 55、Kimi 22；opencode 和 OpenClaw 在本次默认窗口内均为 0。该验证只公开聚合
+值和不可逆哈希，不公开会话内容。
 
 | 场景 | Before | After | 变化 |
 |---|---:|---:|---:|
@@ -373,10 +375,29 @@ provider 数量也逐项一致。该验证只公开聚合值和不可逆哈希�
 
 冷启动中位数由 32.065 s 降至 30.698 s，均值由 32.184 s 降至 30.701 s；热启动
 中位数由 2.746 s 降至 2.710 s，均值由 2.767 s 降至 2.708 s。两项 wall time
-变化均达到统计显著。
+变化均达到统计显著。完整分布摘要如下：
+
+| 场景 | 版本 | min | median | mean | p95 |
+|---|---|---:|---:|---:|---:|
+| 冷启动 | Before | 31.373 s | 32.065 s | 32.184 s | 34.310 s |
+| 冷启动 | After | 30.327 s | 30.698 s | 30.701 s | 31.001 s |
+| 热启动 | Before | 2.711 s | 2.746 s | 2.767 s | 2.825 s |
+| 热启动 | After | 2.679 s | 2.710 s | 2.708 s | 2.737 s |
 
 真实整体收益小于 history-heavy、oversized-title 和 changed-large fixture 的专项
 收益。当前真实启动同时包含多个 provider 的 native store 枚举、文件筛选和解析，
 因此不能把整体改善归因于单一 provider；结果表明 cache 体积和 cache 内热点已明显
 改善，但真实端到端启动仍主要受 cache 外成本支配。专项 fixture 与真实环境验证测量
-不同工作负载，结论互相补充而不互相替代。
+不同工作负载，结论互相补充而不互相替代。真实环境的较小百分比不否定阶段 E-H：
+专项 benchmark 已证明目标瓶颈被消除，真实验证又证明安装后正确性不变、冷/热启动
+均有统计显著改善；它同时为下一轮继续降低端到端冷/热启动时间提供了基线。
+
+后续性能 PR 应复用本节协议，但不要直接把未来绝对时间与本次不断变化的真实 stores
+做纵向比较。应在同一次验证中，用当时的 `main` 和候选版本对同一份 stores 交替测量：
+
+- 保持默认 30 天窗口和相同公共 CLI 探针；
+- 冷启动每轮从空 cache 开始，至少 10 个样本；热启动预热 2 次，至少 20 个样本；
+- 同时报告 benchstat 变化、median、mean、p95 和 cache bytes；
+- 对比 session/project/provider 聚合计数与不可逆集合哈希，确保结果语义不变；
+- 增加 provider/file-discovery 分解数据定位耗时，但仍以公共 CLI 冷/热 wall time 作为
+  最终用户可见验收指标。
