@@ -347,3 +347,36 @@ changed-large 相对 G 无显著变化，本阶段不扩范围；CodeBuddy/Curso
 证据证明达到实施门槛，后续应先补 benchmark。Kimi、Kiro、opencode、OpenClaw、
 ZCode 分别使用 compact state/index、小 metadata/消息文件或 SQLite，不具备相同的
 大型 primary JSONL 启动瓶颈。阶段 H 不创建共享 incremental parser abstraction。
+
+## 真实环境安装验证
+
+2026-08-07 在同一台开发机的真实 provider stores 上，先测量已安装的阶段 D 生产
+基线 `53dd1e7`，再从干净工作树构建并安装 PR commit `249b50f`。验证使用 Linux
+`6.6.92-34.1.tl4.x86_64`、32 CPU、Go 1.26.5 和默认最近 30 天窗口。
+
+为覆盖完整 discovery 而不进入交互 TUI，每次调用公共 CLI
+`asm --resume __asm_real_startup_probe_missing__`，预期以“session 不存在”退出。冷启动
+测量 10 次，每轮先把默认 cache 移到任务隔离目录，从空 cache 开始；热启动先预热
+2 次，再测量 20 次。使用 `date +%s%N` 包围真实安装二进制调用，并以固定版本
+`benchstat@v0.0.0-20260709024250-82a0b07e230d` 比较。原始计时和可恢复 cache 备份仅
+保存在任务隔离临时目录，不提交真实 title、cwd、session ID 或 transcript。
+
+聚合正确性前后完全一致：均发现 730 个 session、86 个 project、0 个 provider
+error；排序后的 `{provider,id}` 集合和 `{cwd,count}` project 集合哈希分别一致，
+provider 数量也逐项一致。该验证只公开聚合值和不可逆哈希，不公开会话内容。
+
+| 场景 | Before | After | 变化 |
+|---|---:|---:|---:|
+| 冷启动（每轮空 cache，n=10） | 32.07 s ±2% | 30.70 s ±1% | -4.26%（p=0.000） |
+| 热启动（预热后，n=20） | 2.746 s ±2% | 2.710 s ±1% | -1.31%（p=0.000） |
+| 默认 cache 大小 | 5,455,003 bytes | 1,084,420 bytes | -80.12% |
+
+冷启动中位数由 32.065 s 降至 30.698 s，均值由 32.184 s 降至 30.701 s；热启动
+中位数由 2.746 s 降至 2.710 s，均值由 2.767 s 降至 2.708 s。两项 wall time
+变化均达到统计显著。
+
+真实整体收益小于 history-heavy、oversized-title 和 changed-large fixture 的专项
+收益。当前真实启动同时包含多个 provider 的 native store 枚举、文件筛选和解析，
+因此不能把整体改善归因于单一 provider；结果表明 cache 体积和 cache 内热点已明显
+改善，但真实端到端启动仍主要受 cache 外成本支配。专项 fixture 与真实环境验证测量
+不同工作负载，结论互相补充而不互相替代。

@@ -71,10 +71,12 @@ ID、增加稀疏采样或使用文件系统变更标识；不要恢复完整前
 
 ### 5. 评估异步 TUI 首屏
 
-当前常规启动约 5-18 ms，Codex 16 MiB append 约 6.5 ms，没有证据支持立即引入异步
-加载。只有真实 pre-TUI p95 仍明显影响交互时，才单独设计 loading state、selection
-stability、provider error 展示和 PTY/public-boundary 测试。不要把异步首屏混入
-provider/cache 后续 PR。
+fixture 中常规启动约 5-18 ms，Codex 16 MiB append 约 6.5 ms；但真实环境安装验证
+中，优化后的整体热启动中位数仍约 2.71 s。下一步应先增加 provider/file-discovery
+分解计时或 benchmark，定位 native store 枚举、文件筛选和解析的占比，避免根据端到端
+总时间猜测瓶颈。只有分解数据和真实 pre-TUI p95 证明异步加载确有必要时，才单独设计
+loading state、selection stability、provider error 展示和 PTY/public-boundary 测试。
+不要把异步首屏混入当前 provider/cache PR。
 
 ## 目前不建议做
 
