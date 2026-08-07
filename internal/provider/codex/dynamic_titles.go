@@ -3,19 +3,21 @@ package codex
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
 
 const (
-	dynamicTitleCacheVersion = 1
+	dynamicTitleCacheVersion = 2
 	dynamicTitleHistory      = "history"
 	dynamicTitleSessionIndex = "session_index"
 	dynamicTitleMaxRecord    = 4 * 1024 * 1024
@@ -37,7 +39,11 @@ type dynamicTitleIndexState struct {
 	AppendSafe      bool              `json:"append_safe"`
 	HeadSHA256      string            `json:"head_sha256"`
 	TailSHA256      string            `json:"tail_sha256"`
+	FileID          string            `json:"file_id,omitempty"`
+	ChangeID        string            `json:"change_id,omitempty"`
+	ContentSHA256   string            `json:"content_sha256,omitempty"`
 	Titles          map[string]string `json:"titles"`
+	IntegritySHA256 string            `json:"integrity_sha256"`
 }
 
 type historyRecord struct {
@@ -97,7 +103,7 @@ func (c *dynamicTitleCache) read(path, kind string) map[string]string {
 	if err != nil {
 		return nil
 	}
-	if ok && c.canReuse(f, info.Size(), info.ModTime().UnixNano(), state) {
+	if ok && c.canReuse(f, info, state) {
 		if info.Size() == state.Offset {
 			return state.Titles
 		}
@@ -111,11 +117,29 @@ func (c *dynamicTitleCache) read(path, kind string) map[string]string {
 	return c.readFull(path, kind, f, info.Size(), info.ModTime().UnixNano())
 }
 
-func (c *dynamicTitleCache) canReuse(f *os.File, size, modTime int64, state dynamicTitleIndexState) bool {
+func (c *dynamicTitleCache) canReuse(f *os.File, info os.FileInfo, state dynamicTitleIndexState) bool {
+	size := info.Size()
 	if state.Offset < 0 || size < state.Offset || state.Titles == nil {
 		return false
 	}
-	if size == state.Offset && modTime != state.ModTimeUnixNano {
+	if !dynamicTitleStateIntegrityValid(state) {
+		return false
+	}
+	fileID, changeID, strongIdentity := dynamicTitleFileIdentity(info)
+	if strongIdentity {
+		if fileID != state.FileID {
+			return false
+		}
+		if size == state.Offset && changeID != state.ChangeID {
+			return false
+		}
+	} else {
+		contentHash, err := dynamicTitleContentHash(f, state.Offset)
+		if err != nil || contentHash != state.ContentSHA256 {
+			return false
+		}
+	}
+	if size == state.Offset && info.ModTime().UnixNano() != state.ModTimeUnixNano {
 		return false
 	}
 	if size > state.Offset && !state.AppendSafe {
@@ -154,15 +178,27 @@ func (c *dynamicTitleCache) storeParsed(
 		return cloneTitles(titles)
 	}
 	appendSafe = appendSafe && dynamicTitleEndsWithNewline(f, size)
-	c.Entries[path] = dynamicTitleIndexState{
+	fileID, changeID, strongIdentity := dynamicTitleFileIdentity(info)
+	contentHash := ""
+	if !strongIdentity {
+		contentHash, err = dynamicTitleContentHash(f, size)
+		if err != nil {
+			return cloneTitles(titles)
+		}
+	}
+	state := dynamicTitleIndexState{
 		Kind:            kind,
 		Offset:          size,
 		ModTimeUnixNano: modTime,
 		AppendSafe:      appendSafe,
 		HeadSHA256:      head,
 		TailSHA256:      tail,
+		FileID:          fileID,
+		ChangeID:        changeID,
+		ContentSHA256:   contentHash,
 		Titles:          titles,
 	}
+	c.Entries[path] = state
 	c.dirty = true
 	return titles
 }
@@ -260,6 +296,59 @@ func dynamicTitleHash(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func dynamicTitleContentHash(f *os.File, size int64) (string, error) {
+	if size < 0 {
+		return "", errors.New("negative dynamic title index size")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, io.NewSectionReader(f, 0, size)); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func dynamicTitleStateIntegrity(state dynamicTitleIndexState) string {
+	hash := sha256.New()
+	writeString := func(value string) {
+		var size [binary.MaxVarintLen64]byte
+		n := binary.PutUvarint(size[:], uint64(len(value)))
+		_, _ = hash.Write(size[:n])
+		_, _ = io.WriteString(hash, value)
+	}
+	writeInt64 := func(value int64) {
+		var data [8]byte
+		binary.LittleEndian.PutUint64(data[:], uint64(value))
+		_, _ = hash.Write(data[:])
+	}
+	writeString(state.Kind)
+	writeInt64(state.Offset)
+	writeInt64(state.ModTimeUnixNano)
+	if state.AppendSafe {
+		_, _ = hash.Write([]byte{1})
+	} else {
+		_, _ = hash.Write([]byte{0})
+	}
+	writeString(state.HeadSHA256)
+	writeString(state.TailSHA256)
+	writeString(state.FileID)
+	writeString(state.ChangeID)
+	writeString(state.ContentSHA256)
+	ids := make([]string, 0, len(state.Titles))
+	for id := range state.Titles {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		writeString(id)
+		writeString(state.Titles[id])
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func dynamicTitleStateIntegrityValid(state dynamicTitleIndexState) bool {
+	return state.IntegritySHA256 != "" && state.IntegritySHA256 == dynamicTitleStateIntegrity(state)
+}
+
 func cloneTitles(titles map[string]string) map[string]string {
 	if titles == nil {
 		return nil
@@ -274,6 +363,12 @@ func cloneTitles(titles map[string]string) map[string]string {
 func (c *dynamicTitleCache) save(path string) error {
 	if path == "" || !c.dirty {
 		return nil
+	}
+	for key, state := range c.Entries {
+		if state.IntegritySHA256 == "" {
+			state.IntegritySHA256 = dynamicTitleStateIntegrity(state)
+			c.Entries[key] = state
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

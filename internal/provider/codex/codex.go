@@ -83,7 +83,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		histories[home] = nonNilTitleMap(titleCache.read(filepath.Join(home, "history.jsonl"), dynamicTitleHistory))
 		threadNames[home] = nonNilTitleMap(titleCache.read(filepath.Join(home, "session_index.jsonl"), dynamicTitleSessionIndex))
 	}
-	_ = titleCache.save(titleCachePath)
 	parsed := make([]parsedFile, len(files))
 	misses := make([]cacheMiss, 0, len(files))
 	metadataOnly := !opts.Preview.Enabled()
@@ -171,6 +170,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		cache.Keep(keep)
 	}
 	_ = cache.Save(cachePath)
+	_ = titleCache.save(titleCachePath)
 	return sessions, nil
 }
 

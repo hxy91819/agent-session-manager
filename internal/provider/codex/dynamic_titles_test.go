@@ -45,6 +45,21 @@ func TestDynamicTitleCacheFallsBackForNonAppendMutations(t *testing.T) {
 			want: "new-title",
 		},
 		{
+			name: "middle rewrite with preserved timestamp",
+			layout: func(_ string) string {
+				return dynamicTitleFiller(dynamicTitleHashEdge) +
+					dynamicSessionIndexRecord("sid", "old-title") +
+					dynamicTitleFiller(dynamicTitleHashEdge)
+			},
+			mutate: func(t *testing.T, path string, modTime time.Time) {
+				rewriteDynamicTitle(t, path, "old-title", "new-title")
+				if err := os.Chtimes(path, modTime, modTime); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "new-title",
+		},
+		{
 			name: "prefix rewrite before append",
 			layout: func(filler string) string {
 				return dynamicSessionIndexRecord("sid", "old-title") + filler
@@ -165,6 +180,27 @@ func TestDynamicTitleCacheRebuildsFromMissingCorruptOrOldState(t *testing.T) {
 	writeFile(t, path, dynamicSessionIndexRecord("sid", "after recreate"))
 	if got := readDynamicTitleForTest(t, cachePath, path, "sid"); got != "after recreate" {
 		t.Fatalf("recreated title = %q", got)
+	}
+}
+
+func TestDynamicTitleCacheRejectsValidJSONWithCorruptTitles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session_index.jsonl")
+	cachePath := filepath.Join(t.TempDir(), "dynamic.json")
+	writeFile(t, path, dynamicSessionIndexRecord("sid", "native title"))
+	if got := readDynamicTitleForTest(t, cachePath, path, "sid"); got != "native title" {
+		t.Fatalf("initial title = %q", got)
+	}
+
+	cache := loadDynamicTitleCache(cachePath)
+	state := cache.Entries[path]
+	state.Titles["sid"] = "corrupt cached title"
+	cache.Entries[path] = state
+	cache.dirty = true
+	if err := cache.save(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	if got := readDynamicTitleForTest(t, cachePath, path, "sid"); got != "native title" {
+		t.Fatalf("corrupt state title = %q, want native rebuild", got)
 	}
 }
 
