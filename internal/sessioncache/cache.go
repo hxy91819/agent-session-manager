@@ -43,6 +43,10 @@ func DefaultPath(provider string) (string, error) {
 	return filepath.Join(dir, "asm", provider+"-sessions.json"), nil
 }
 
+func SkipLoadForEmptyDiscovery(opts session.DiscoverOptions, fileCount int) bool {
+	return fileCount == 0 && (!opts.Since.IsZero() || opts.LimitFiles > 0)
+}
+
 func Load(path string) Cache {
 	cache := Cache{Version: Version, Entries: make(map[string]Entry)}
 	if path == "" {

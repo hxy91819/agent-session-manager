@@ -52,6 +52,28 @@ func TestCacheHitsOnlyMatchingIdentity(t *testing.T) {
 	}
 }
 
+func TestSkipLoadForEmptyDiscoveryOnlySkipsBoundedEmptyScans(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name      string
+		opts      session.DiscoverOptions
+		fileCount int
+		want      bool
+	}{
+		{name: "since bounded empty", opts: session.DiscoverOptions{Since: now}, want: true},
+		{name: "limit bounded empty", opts: session.DiscoverOptions{LimitFiles: 1}, want: true},
+		{name: "unbounded empty", want: false},
+		{name: "bounded with active file", opts: session.DiscoverOptions{Since: now, LimitFiles: 1}, fileCount: 1, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SkipLoadForEmptyDiscovery(tt.opts, tt.fileCount); got != tt.want {
+				t.Fatalf("SkipLoadForEmptyDiscovery() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCacheSaveLoadAndKeep(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	modTime := time.Date(2026, 6, 15, 1, 0, 0, 0, time.UTC)

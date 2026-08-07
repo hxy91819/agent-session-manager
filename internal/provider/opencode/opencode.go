@@ -43,6 +43,9 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		return nil, err
 	}
+	if sessioncache.SkipLoadForEmptyDiscovery(opts, len(files)) {
+		return []session.Session{}, nil
+	}
 
 	cachePath := p.cachePath()
 	cache := sessioncache.Load(cachePath)
