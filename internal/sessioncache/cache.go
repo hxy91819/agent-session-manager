@@ -330,7 +330,7 @@ func (c *Cache) migrateLegacy() error {
 		if len(c.Entries) <= 1024 {
 			c.shardCount = 16
 		} else {
-			c.shardCount = 32
+			c.shardCount = 64
 		}
 	}
 	entriesByShard := make(map[int]map[string]Entry, c.shardCount)

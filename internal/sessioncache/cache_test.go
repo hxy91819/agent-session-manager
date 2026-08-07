@@ -387,7 +387,7 @@ func TestAdaptiveShardLayoutKeepsSmallCachesInline(t *testing.T) {
 	}{
 		{name: "small inline", entries: 128, wantInline: true, wantShards: 1},
 		{name: "medium sixteen", entries: 129, wantShards: 16},
-		{name: "large thirty two", entries: 1025, wantShards: 32},
+		{name: "large sixty four", entries: 1025, wantShards: 64},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
