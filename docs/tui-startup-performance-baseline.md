@@ -84,6 +84,22 @@ go test -run '^$' -bench . -benchmem \
   commit、样本数和摘要与计划记录一致，因此从已验证记录恢复持久化入口。
 - 该修复不修改 benchmark、fixture 或生产代码，也不重新解释历史结果。后续阶段
   以本文件中的 base 数据为统一 before，并保留各阶段新 raw output 的生成命令。
+- 2026-08-07：在 PR #39 的合并提交 `6e7060f` 上额外执行 3 轮 CLI 冒烟复验：
+
+  ```sh
+  go test -run '^$' -bench '^BenchmarkCLIStartup' \
+    -count=3 -benchtime=1s ./tests \
+    > /tmp/asm-tui-startup-eh/phase-d-recheck-cli.txt
+  go run golang.org/x/perf/cmd/benchstat@v0.0.0-20260709024250-82a0b07e230d \
+    /tmp/asm-before-cli.txt \
+    /tmp/asm-tui-startup-eh/phase-d-recheck-cli.txt
+  ```
+
+  六个场景的 fixture session 数和 cache bytes 与历史基线一致；五个 wall-time
+  场景无显著差异。`ColdPopulatedStores` 显示约 `+3.37%`，但 after 只有 3 个样本，
+  benchstat 明确提示无法计算 95% 置信区间，因此该结果只证明 benchmark 和 fixture
+  在合并提交上可复现，不作为性能回退或阶段验收结论。正式 E-H 对比仍使用每项
+  10 个样本。
 
 ## 阶段对比记录
 
