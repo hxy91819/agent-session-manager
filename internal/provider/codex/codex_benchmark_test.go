@@ -47,6 +47,45 @@ func BenchmarkDiscoverChangedLargeSession(b *testing.B) {
 	}
 }
 
+func BenchmarkDiscoverObjectSourceWarmCache(b *testing.B) {
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	path := filepath.Join(home, "sessions", "2026", "06", "15", "subagent.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	var body strings.Builder
+	fmt.Fprintf(&body, `{"timestamp":"2026-06-15T01:00:00Z","type":"session_meta","payload":{"id":"subagent","parent_thread_id":"parent","timestamp":"2026-06-15T01:00:00Z","cwd":%q,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}`+"\n", repo)
+	large := strings.Repeat("x", 128*1024)
+	for range 128 {
+		fmt.Fprintf(&body, `{"timestamp":"2026-06-15T01:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":%q}]}}`+"\n", large)
+	}
+	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	provider := Provider{Home: home, CachePath: filepath.Join(b.TempDir(), "cache.json")}
+	initial, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportMetric(float64(len(initial)), "initial_sessions")
+
+	lastCount := 0
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		lastCount = len(got)
+	}
+	b.ReportMetric(float64(lastCount), "sessions/op")
+}
+
 func appendCodexBenchmarkRecord(b *testing.B, path string, iteration int) {
 	b.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
