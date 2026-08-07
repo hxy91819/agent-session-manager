@@ -450,7 +450,11 @@ func TestDiscoverInvalidatesLegacyCacheForSubagent(t *testing.T) {
 		Entries: make(map[string]sessioncache.Entry),
 	}
 	legacyCache.Put(identity, session.Session{ID: "parent", CWD: repo})
-	if err := legacyCache.Save(cachePath); err != nil {
+	legacyData, err := json.Marshal(legacyCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, legacyData, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
