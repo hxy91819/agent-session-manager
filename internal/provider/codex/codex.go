@@ -33,6 +33,8 @@ const (
 	incrementalHashEdgeBytes = 64 * 1024
 	minimumIncrementalBytes  = 1024 * 1024
 	defaultParseWorkers      = 8
+	metadataParseCacheKey    = "_asm_codex_parse_mode"
+	metadataParseCacheValue  = "metadata"
 )
 
 type Provider struct {
@@ -81,6 +83,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 	parsed := make([]parsedFile, len(files))
 	misses := make([]cacheMiss, 0, len(files))
+	metadataOnly := !opts.Preview.Enabled()
 	for i, file := range files {
 		id := sessioncache.FileIdentity{
 			Provider: Name,
@@ -89,12 +92,15 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			ModTime:  file.ModTime,
 		}
 		s, ok := cache.Get(id)
-		if ok {
+		if ok && (!opts.Preview.Enabled() || s.Metadata[metadataParseCacheKey] != metadataParseCacheValue) {
 			parsed[i] = parsedFile{id: id, session: s, available: true}
 			continue
 		}
-		miss := cacheMiss{index: i, file: file, id: id}
+		miss := cacheMiss{index: i, file: file, id: id, metadataOnly: metadataOnly}
 		miss.previousID, miss.previous, miss.previousState, miss.hasPrevious = cache.GetLatest(Name, file.Path)
+		if opts.Preview.Enabled() && miss.previous.Metadata[metadataParseCacheKey] == metadataParseCacheValue {
+			miss.hasPrevious = false
+		}
 		misses = append(misses, miss)
 	}
 	parseCacheMisses(misses, p.workerCount(), parsed)
@@ -109,6 +115,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if result.cacheMiss {
 			s = cache.PutWithState(result.id, s, result.state)
 		}
+		delete(s.Metadata, metadataParseCacheKey)
 		if s.ID == "" || s.CWD == "" {
 			continue
 		}
@@ -172,6 +179,7 @@ type cacheMiss struct {
 	previous      session.Session
 	previousState []byte
 	hasPrevious   bool
+	metadataOnly  bool
 }
 
 type parsedFile struct {
@@ -210,14 +218,23 @@ func parseCacheMisses(misses []cacheMiss, workers int, parsed []parsedFile) {
 						miss.previousID,
 						miss.previous,
 						miss.previousState,
+						miss.metadataOnly,
 					)
 				}
 				var err error
 				if !ok {
-					s, state, err = parseSessionFileWithState(miss.file.Path, miss.id.Size)
+					s, state, err = parseSessionFileWithState(miss.file.Path, miss.id.Size, miss.metadataOnly)
 				}
 				if err != nil || s.ID == "" || s.CWD == "" {
 					continue
+				}
+				if miss.metadataOnly {
+					if s.Metadata == nil {
+						s.Metadata = make(map[string]string)
+					}
+					s.Metadata[metadataParseCacheKey] = metadataParseCacheValue
+				} else {
+					delete(s.Metadata, metadataParseCacheKey)
 				}
 				parsed[miss.index] = parsedFile{
 					id:        miss.id,
@@ -426,14 +443,14 @@ type incrementalParseState struct {
 	TailSHA256 string `json:"tail_sha256"`
 }
 
-func parseSessionFileWithState(path string, expectedSize int64) (session.Session, []byte, error) {
+func parseSessionFileWithState(path string, expectedSize int64, metadataOnly bool) (session.Session, []byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return session.Session{}, nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	out, stopped, err := parseSessionInto(f, session.Session{})
+	out, stopped, err := parseSessionIntoMode(f, session.Session{}, metadataOnly)
 	if err != nil {
 		return out, nil, err
 	}
@@ -459,6 +476,7 @@ func parseSessionFileIncremental(
 	previousID sessioncache.FileIdentity,
 	previous session.Session,
 	rawState []byte,
+	metadataOnly bool,
 ) (session.Session, []byte, bool) {
 	var state incrementalParseState
 	if json.Unmarshal(rawState, &state) != nil ||
@@ -479,7 +497,7 @@ func parseSessionFileIncremental(
 		return session.Session{}, nil, false
 	}
 
-	out, stopped, err := parseSessionInto(f, previous)
+	out, stopped, err := parseSessionIntoMode(f, previous, metadataOnly)
 	if err != nil {
 		return session.Session{}, nil, false
 	}
@@ -548,13 +566,20 @@ func parseSession(r io.Reader) (session.Session, error) {
 }
 
 func parseSessionInto(r io.Reader, out session.Session) (session.Session, bool, error) {
+	return parseSessionIntoMode(r, out, false)
+}
+
+func parseSessionIntoMode(r io.Reader, out session.Session, metadataOnly bool) (session.Session, bool, error) {
 	if out.Metadata == nil {
 		out.Metadata = make(map[string]string)
 	}
 	haveSessionMeta := out.ID != ""
 	stoppedAtInheritedHistory := false
 
-	oversized, err := readCodexRecords(r, func(line []byte) bool {
+	visit := func(line []byte) bool {
+		if metadataOnly && !metadataRecordNeedsFullDecode(line) {
+			return true
+		}
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -612,11 +637,188 @@ func parseSessionInto(r io.Reader, out session.Session) (session.Session, bool, 
 			}
 		}
 		return true
-	})
+	}
+	var oversized int
+	var err error
+	if metadataOnly {
+		oversized, err = readCodexMetadataRecords(r, visit)
+	} else {
+		oversized, err = readCodexRecords(r, visit)
+	}
 	if oversized > 0 {
 		markReportEvidencePartial(out.Metadata, oversizedJSONLRecordNote)
 	}
 	return out, stoppedAtInheritedHistory, err
+}
+
+func metadataRecordNeedsFullDecode(line []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(line))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return true
+	}
+	recordType := ""
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		key, ok := keyToken.(string)
+		if err != nil || !ok {
+			return true
+		}
+		switch key {
+		case "type":
+			if decoder.Decode(&recordType) != nil {
+				return true
+			}
+		case "payload":
+			switch recordType {
+			case "session_meta", "turn_context":
+				return true
+			case "response_item":
+				return responseItemNeedsFullDecode(decoder)
+			case "":
+				// Producer records put their discriminator before payload. Fall
+				// back if that ordering changes instead of guessing from content.
+				return true
+			default:
+				return false
+			}
+		default:
+			var ignored json.RawMessage
+			if decoder.Decode(&ignored) != nil {
+				return true
+			}
+		}
+	}
+	return true
+}
+
+func responseItemNeedsFullDecode(decoder *json.Decoder) bool {
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return true
+	}
+	payloadType := ""
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		key, ok := keyToken.(string)
+		if err != nil || !ok {
+			return true
+		}
+		switch key {
+		case "type":
+			if decoder.Decode(&payloadType) != nil {
+				return true
+			}
+			if payloadType != "message" {
+				return false
+			}
+		case "role":
+			var role string
+			if decoder.Decode(&role) != nil {
+				return true
+			}
+			return payloadType != "message" || role == "user"
+		case "content":
+			// A changed producer field order is safe but slower until the
+			// header can again prove this is not a user-authored message.
+			return true
+		default:
+			var ignored json.RawMessage
+			if decoder.Decode(&ignored) != nil {
+				return true
+			}
+		}
+	}
+	return true
+}
+
+func readCodexMetadataRecords(r io.Reader, visit func([]byte) bool) (int, error) {
+	reader := bufio.NewReader(r)
+	evidenceRisk := 0
+	for {
+		var record []byte
+		var prefix []byte
+		var suffix []byte
+		totalBytes := 0
+		discarded := false
+		oversized := false
+		haveFragment := false
+
+		for {
+			fragment, continues, err := reader.ReadLine()
+			if err != nil {
+				if errors.Is(err, io.EOF) && !haveFragment {
+					return evidenceRisk, nil
+				}
+				if !errors.Is(err, io.EOF) {
+					return evidenceRisk, err
+				}
+				continues = false
+			}
+			haveFragment = true
+			totalBytes += len(fragment)
+			if len(prefix) < oversizedRecordEdgeBytes {
+				remaining := oversizedRecordEdgeBytes - len(prefix)
+				prefix = append(prefix, fragment[:min(remaining, len(fragment))]...)
+			}
+
+			if !discarded && !oversized {
+				if len(fragment) > maxJSONLRecordBytes-len(record) {
+					suffix = appendCodexRecordSuffix(suffix, record)
+					suffix = appendCodexRecordSuffix(suffix, fragment)
+					record = nil
+					oversized = true
+				} else {
+					record = append(record, fragment...)
+					if !metadataRecordNeedsFullDecode(prefix) {
+						record = nil
+						discarded = true
+					}
+				}
+			} else if oversized {
+				suffix = appendCodexRecordSuffix(suffix, fragment)
+			}
+
+			if !continues {
+				break
+			}
+		}
+		if discarded {
+			continue
+		}
+		if oversized {
+			recovered, timestamped, ok := recoverOversizedCodexUserRecord(jsonlrecords.OversizedRecord{
+				Prefix: prefix,
+				Suffix: suffix,
+				Bytes:  totalBytes,
+			})
+			if ok {
+				if !visit(recovered) {
+					return evidenceRisk, nil
+				}
+				if !timestamped {
+					evidenceRisk++
+				}
+			} else if oversizedCouldContainUserEvidence(prefix) {
+				evidenceRisk++
+			}
+			continue
+		}
+		record = bytes.TrimSpace(record)
+		if len(record) != 0 && !visit(record) {
+			return evidenceRisk, nil
+		}
+	}
+}
+
+func appendCodexRecordSuffix(suffix, fragment []byte) []byte {
+	if len(fragment) >= oversizedRecordEdgeBytes {
+		return append(suffix[:0], fragment[len(fragment)-oversizedRecordEdgeBytes:]...)
+	}
+	overflow := len(suffix) + len(fragment) - oversizedRecordEdgeBytes
+	if overflow > 0 {
+		copy(suffix, suffix[overflow:])
+		suffix = suffix[:len(suffix)-overflow]
+	}
+	return append(suffix, fragment...)
 }
 
 func sourceEntrypoint(raw json.RawMessage) string {

@@ -233,6 +233,9 @@ func TestCLIReportAfterWarmDiscoveryKeepsCodexEvidence(t *testing.T) {
 		got.Metadata["entrypoint"] != "subagent" || got.Metadata["title_source"] != "session_index" {
 		t.Fatalf("warm session = %#v", got)
 	}
+	if _, leaked := got.Metadata["_asm_codex_parse_mode"]; leaked {
+		t.Fatalf("internal parse mode leaked into public JSON: %#v", got.Metadata)
+	}
 
 	out, err := env.Run(t, "report", "--start", "2026-06-13", "--end", "2026-06-14", "--preview-max-chars", "2000")
 	if err != nil {

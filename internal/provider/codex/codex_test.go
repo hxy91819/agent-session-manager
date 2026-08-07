@@ -182,6 +182,50 @@ func TestParseSessionExtractsLastHumanUserTitle(t *testing.T) {
 	}
 }
 
+func TestMetadataParseMatchesFullParseForHeaderAndHistoryBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "latest context and user title after assistant payload",
+			body: `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","parent_thread_id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":"/old","source":{"subagent":{"other":"review"}}}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"turn_context","payload":{"cwd":"/middle","model":"gpt-old"}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"spoofed content: \"role\":\"user\""}]}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"turn_context","payload":{"cwd":"/latest","model":"gpt-new"}}
+{"timestamp":"2026-06-13T01:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"real title"}]}}
+`,
+		},
+		{
+			name: "changed envelope and payload field order",
+			body: `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"reordered","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+{"timestamp":"2026-06-13T01:00:01Z","payload":{"content":[{"text":"reordered title","type":"input_text"}],"role":"user","type":"message"},"type":"response_item"}
+`,
+		},
+		{
+			name: "inherited parent history",
+			body: `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","timestamp":"2026-06-13T01:00:00Z","cwd":"/child"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"child title"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"session_meta","payload":{"id":"parent","timestamp":"2026-06-12T01:00:00Z","cwd":"/parent"}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"parent title"}]}}
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			full, fullStopped, fullErr := parseSessionIntoMode(strings.NewReader(tt.body), session.Session{}, false)
+			metadata, metadataStopped, metadataErr := parseSessionIntoMode(strings.NewReader(tt.body), session.Session{}, true)
+			if fullErr != nil || metadataErr != nil {
+				t.Fatalf("full err=%v metadata err=%v", fullErr, metadataErr)
+			}
+			if fullStopped != metadataStopped {
+				t.Fatalf("stopped: full=%v metadata=%v", fullStopped, metadataStopped)
+			}
+			sessiontest.RequireEqual(t, []session.Session{full}, []session.Session{metadata})
+		})
+	}
+}
+
 func TestParseSessionSkipsInjectedUserContexts(t *testing.T) {
 	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>"}]}}
