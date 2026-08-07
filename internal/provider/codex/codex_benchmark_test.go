@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
@@ -141,6 +142,62 @@ func BenchmarkDiscoverHotCache(b *testing.B) {
 			b.Fatal("expected sessions")
 		}
 	}
+}
+
+func BenchmarkDiscoverColdCacheMixedRollouts(b *testing.B) {
+	home, cachePath := makeMixedBenchmarkCodexStore(b)
+	provider := Provider{Home: home, CachePath: cachePath}
+	opts := session.DiscoverOptions{}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := os.RemoveAll(filepath.Dir(cachePath)); err != nil {
+			b.Fatal(err)
+		}
+		got, err := provider.Discover(opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) != 24 {
+			b.Fatalf("sessions = %d, want 24", len(got))
+		}
+	}
+}
+
+func makeMixedBenchmarkCodexStore(b *testing.B) (string, string) {
+	b.Helper()
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	sessionDir := filepath.Join(home, "sessions", "2026", "08", "07")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	sizes := []int{64 * 1024, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024}
+	base := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	for i := range 24 {
+		path := filepath.Join(sessionDir, fmt.Sprintf("mixed-%02d.jsonl", i))
+		body := mixedBenchmarkCodexSession(i, repo, sizes[i%len(sizes)])
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		modTime := base.Add(time.Duration(i) * time.Second)
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return home, filepath.Join(b.TempDir(), "cache", "codex-cache.json")
+}
+
+func mixedBenchmarkCodexSession(i int, repo string, payloadBytes int) string {
+	var body strings.Builder
+	fmt.Fprintf(&body, `{"timestamp":"2026-08-07T01:00:00Z","type":"session_meta","payload":{"id":"mixed-%02d","parent_thread_id":"parent-%02d","timestamp":"2026-08-07T01:00:00Z","cwd":%q,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent-%02d","depth":1,"agent_role":"explorer"}}}}}`+"\n", i, i, repo, i)
+	fmt.Fprintf(&body, `{"timestamp":"2026-08-07T01:00:01Z","type":"turn_context","payload":{"cwd":%q,"model":"gpt-5.6"}}`+"\n", repo)
+	payload := strings.Repeat("x", payloadBytes)
+	fmt.Fprintf(&body, `{"timestamp":"2026-08-07T01:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":%q}]}}`+"\n", payload)
+	return body.String()
 }
 
 func makeBenchmarkCodexStore(b *testing.B) (string, string) {

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,6 +24,71 @@ type cliSession struct {
 	CWD      string            `json:"cwd"`
 	Title    string            `json:"title"`
 	Metadata map[string]string `json:"metadata"`
+}
+
+func TestCLICodexColdCacheWorkloadPreservesOrderingGroupingAndResumeSafety(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+	root := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "08", "07")
+	base := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+
+	for i := range 10 {
+		path := filepath.Join(root, fmt.Sprintf("session-%02d.jsonl", i))
+		writeCodexColdWorkloadSession(t, path, fmt.Sprintf("session-%02d", i), repo)
+		setModTime(t, path, base.Add(time.Duration(10+i)*time.Minute))
+	}
+	duplicate := filepath.Join(root, "duplicate-old.jsonl")
+	writeCodexColdWorkloadSession(t, duplicate, "session-00", repo)
+	setModTime(t, duplicate, base.Add(time.Minute))
+	invalid := filepath.Join(root, "invalid.jsonl")
+	writeFile(t, invalid, "not-json\n")
+	setModTime(t, invalid, base.Add(25*time.Minute))
+	missingPath := filepath.Join(root, "missing.jsonl")
+	writeCodexColdWorkloadSession(t, missingPath, "missing", missing)
+	setModTime(t, missingPath, base.Add(30*time.Minute))
+
+	cold := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	warm := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("Codex cold and warm output differ:\ncold=%#v\nwarm=%#v", cold, warm)
+	}
+	wantIDs := []string{
+		"missing", "session-09", "session-08", "session-07", "session-06",
+		"session-05", "session-04", "session-03", "session-02", "session-01", "session-00",
+	}
+	assertSessionIDs(t, cold, wantIDs...)
+	if len(cold.ProviderErrors) != 0 {
+		t.Fatalf("provider errors = %#v, want none", cold.ProviderErrors)
+	}
+	assertProjectCount(t, cold, repo, 10)
+	assertProjectCount(t, cold, missing, 1)
+
+	out, err := env.Run(t, "--since-days", "0", "--resume", "missing", "--print-exec")
+	if err == nil || !strings.Contains(out, "cwd is unavailable") {
+		t.Fatalf("missing-cwd resume = %v\n%s", err, out)
+	}
+}
+
+func writeCodexColdWorkloadSession(t testing.TB, path, id, cwd string) {
+	t.Helper()
+	writeFile(t, path, `{"timestamp":"2026-08-07T01:00:00Z","type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":"2026-08-07T01:00:00Z","cwd":`+jsonString(cwd)+`,"source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1,"agent_role":"explorer"}}}}}
+{"timestamp":"2026-08-07T01:00:01Z","type":"turn_context","payload":{"cwd":`+jsonString(cwd)+`,"model":"gpt-5.6"}}
+{"timestamp":"2026-08-07T01:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":`+jsonString(strings.Repeat("payload-", 8*1024))+`}]}}
+`)
+}
+
+func assertProjectCount(t testing.TB, payload cliCachePayload, cwd string, want int) {
+	t.Helper()
+	for _, project := range payload.Projects {
+		if project["cwd"] == cwd {
+			if got := int(project["count"].(float64)); got != want {
+				t.Fatalf("project %q count = %d, want %d", cwd, got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("project %q not found in %#v", cwd, payload.Projects)
 }
 
 func TestCLICacheColdAndWarmResultsMatchAcrossProviders(t *testing.T) {
