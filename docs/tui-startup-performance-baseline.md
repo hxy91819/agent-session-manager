@@ -500,3 +500,111 @@ bytes，每次热启动重复解析约 2.61 秒，同时造成 session 漏发现
 title 中，216 个来自 `session_index`、73 个来自 `history`、4 个来自 rollout；98.6%
 不依赖 rollout title，这为更晚的 metadata/turn-context 快路径提供依据，但其正确性
 风险高于有界并行解析。
+
+## P0：兼容 Codex subagent source schema
+
+### 契约与实现
+
+- 测试提交：`cd804de`；生产实现：`dd8642b`；A/B 的生产 base 与测试提交相同，
+  相对其父提交只增加测试和 benchmark；
+- `session_meta.source` 的历史字符串继续原样映射到 `entrypoint`；含 `subagent` tag 的
+  对象统一映射为 `entrypoint=subagent`；未知对象不设置 entrypoint，但不能使 `id`、
+  `cwd`、timestamp、parent 或其他 metadata 丢失；
+- subagent 本身不作为隐藏条件。非交互分类仍只使用字符串 `source=exec` 或稳定的
+  `originator=codex_exec`；
+- `sessioncache.Version` 从 6 升至 7。旧解析器可能把 child rollout 中后续继承的 parent
+  metadata 缓存为该文件的 session，因此不能继续复用 version 6；旧 cache 安全退化为
+  native store 重建，不删除用户 cache；
+- provider fixture 覆盖字符串、`subagent=review`、`thread_spawn`、`other`、未知对象、
+  无后续 child metadata、parent boundary、exec 分类、cold/warm parity、primary
+  invalidation，以及 title/cwd/model/parent；公共 CLI 同时锁定 parent/child JSON、
+  resume command 和 report 只计 parent user work。
+
+base 上的失败是产品断言失败：provider cold discovery 对对象 source 返回 0；公共 CLI
+漏掉 child，并把 child 文件中继承的 parent metadata 误归属为该文件的会话。修复后相同
+测试通过。完整 focused provider/cache/index/UI/report/cmd/CLI 矩阵以及仓库 performance
+contract、lint、全量测试、build、pre-commit 均通过。
+
+### Focused benchmark
+
+`BenchmarkDiscoverObjectSourceWarmCache` 使用 producer-compatible 的对象 source 和
+16 MiB assistant payload；先 discovery 一次，再重复相同 warm discovery。相同 benchmark
+在 base/after 各运行 10 个样本、`benchtime=1s`：
+
+| 指标 | Base `cd804de` | After `dd8642b` | 变化 |
+|---|---:|---:|---:|
+| wall time | 256.28 ms | 86.69 us | -99.97% |
+| B/op | 147330.8 KiB | 9.21 KiB | -99.99% |
+| allocs/op | 5496 | 111 | -97.98% |
+| sessions/op | 0 | 1 | 修复漏发现并命中 cache |
+
+raw output：
+
+- `/tmp/asm-tui-startup-p0-20260807/object-source-before.txt`；
+- `/tmp/asm-tui-startup-p0-20260807/object-source-after.txt`；
+- `/tmp/asm-tui-startup-p0-20260807/object-source-benchstat.txt`。
+
+### 真实冷/热 A/B
+
+环境为 Go 1.26.5、Linux `6.6.92-34.1.tl4.x86_64`、AMD EPYC 7K62、32 CPU；
+base/after 均用 `-buildvcs=false` 构建。公共 runner 使用默认最近 30 天和 missing-session
+resume 探针；每个版本冷启动 10 次、热预热 2 次后采样 20 次，cache 均位于隔离的
+临时 `XDG_CACHE_HOME`。固定
+`benchstat@v0.0.0-20260709024250-82a0b07e230d` 的结论为：
+
+| 场景 | 版本 | min | median | mean | p95 | max |
+|---|---|---:|---:|---:|---:|---:|
+| 冷启动 | Base | 31.366 s | 31.684 s | 31.755 s | 32.518 s | 32.518 s |
+| 冷启动 | After | 22.937 s | 23.278 s | 23.234 s | 23.348 s | 23.348 s |
+| 热启动 | Base | 2.654 s | 2.694 s | 2.696 s | 2.730 s | 2.762 s |
+| 热启动 | After | 0.080 s | 0.082 s | 0.083 s | 0.086 s | 0.088 s |
+
+benchstat：冷启动 `-26.53%`（p=0.000，n=10），热启动 `-96.94%`
+（p=0.000，n=20）。base 冷 cache 中位数 1,115,549 bytes，after 为
+1,287,145 bytes（`+15.38%`）；热 cache 从 1,119,714 增至 1,287,145 bytes
+（`+14.95%`）。增长来自 447 个原本漏发现、现已正确持久化的目标 session，不能以
+维持较小 cache 为由回退修复。
+
+runner 内部正确性在两个版本各自 cold/warm 一致且 provider error 为 0：base 为
+753 sessions/87 projects，Codex 295；after 为 1200 sessions/89 projects，Codex 742；
+其他 provider 数量逐项不变。完整集合哈希为：
+
+| 版本 | `{provider,id}` SHA-256 | `{cwd,count}` SHA-256 |
+|---|---|---|
+| Base | `5f55928023e26a810d804a1e41d51b38508a9f56663f37510f275feaca40e526` | `92b59806f83799d07a1a0e8900c7b7713e78395b255a58785c1dd6c001a40bc4` |
+| After | `70cd3aab51f23801a09bf3f37843e86de12ba6d06b0757caff4ebb3b02e67ead` | `e666dbca3c5302a4958f5bccdb0d7c254499416d7b8503cf0067de2f6420d25e` |
+
+由于本项有意修复漏发现，另用紧邻 base/after JSON 快照验证集合差异：新增 447、移除
+0、意外新增 0；全部新增 session 都是 `entrypoint=subagent` 且带 parent。排除对象
+source 目标后，两边均为 752 个 session，非目标 session 哈希同为
+`966cf74a0a88413bb4f3c0ccd4b585227954e9ee70351ef310e73e9716bfde04`，非目标 project
+哈希同为 `92b59806f83799d07a1a0e8900c7b7713e78395b255a58785c1dd6c001a40bc4`。
+真实 store 在 runner 与紧邻审计间新增了一个非目标 session，因此两组绝对计数相差 1，
+但各自 base/after 的目标增量和非目标哈希都闭合。额外审计的原始 JSON 和 cache 已覆盖
+删除，只保留聚合值和不可逆哈希。
+
+真实 raw output：
+
+- `/tmp/asm-tui-startup-p0-20260807/real-base/`；
+- `/tmp/asm-tui-startup-p0-20260807/real-after/`；
+- `/tmp/asm-tui-startup-p0-20260807/real-benchstat.txt`；
+- `/tmp/asm-tui-startup-p0-20260807/correctness-audit.txt`；
+- `/tmp/asm-tui-startup-p0-20260807/added-metadata-audit.json`。
+
+### Sibling provider 影响分类
+
+| Provider | 实际读取路径 | 结论 |
+|---|---|---|
+| Codex | rollout `session_meta.source` | affected；字符串类型假设使整个 metadata 失效，本项修复 |
+| Claude | project JSONL 顶层 `entrypoint`/`promptSource` 字符串 | not affected；没有 Codex source enum |
+| CodeBuddy | project JSONL 的 session/message/providerData | not affected；没有 session_meta/source |
+| Cursor | transcript role/message/content | not affected；ID/CWD 来自路径解析，没有 source 字段 |
+| Kimi | compact `session_index.jsonl` + `state.json` | not affected；存储模型不同 |
+| Kiro | metadata JSON + Prompt JSONL | not affected；parent/reason 为独立字段 |
+| opencode | session/project/message/part JSON | not affected；存储模型不同 |
+| OpenClaw | compact sessions index，`origin` 已用 `json.RawMessage` | not affected；可变对象不会使主记录失效 |
+| ZCode | SQLite session/message/part 查询 | not affected；无 JSON source enum |
+
+cache version 是共享的，因此 Codex、Claude、Kiro、opencode、CodeBuddy、Cursor 会发生
+一次性 cold rebuild；它们的 focused cold/warm、invalidation 和公共 CLI 测试均通过。
+P0 决定保留。P1 不在本项中实施，必须在 P0 合并后的主线上重新采集独立 base/after。

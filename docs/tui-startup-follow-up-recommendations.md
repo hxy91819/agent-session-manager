@@ -16,7 +16,7 @@ cache、cwd status 或 TUI 建模。
 
 ## 建议尽快做
 
-### 1. P0：兼容 Codex subagent source schema
+### 1. P0：兼容 Codex subagent source schema（已完成，待合并）
 
 先补失败测试，再修改 `internal/provider/codex`。解析器必须同时接受历史字符串 source
 和当前对象 source，不能因为一个可选字段形态变化而丢弃 `id`、`cwd`、timestamp、
@@ -34,6 +34,13 @@ parent relation 或其他 session metadata。需要先明确对象 source 如何
 - 同一时点真实 base/after：冷启动各至少 10 次，热启动各预热 2 次后至少 20 次。
 
 该项同时修复 session 漏发现和热启动，预计可移除当前约 2.61 秒 Codex 重复 parse。
+
+2026-08-07 已按统一门槛完成：测试提交 `cd804de` 在公共 CLI 上稳定复现 child 消失和
+继承 parent 误归属，生产提交 `dd8642b` 修复后通过；真实同机 A/B 的冷启动为
+`-26.53%`，热启动为 `-96.94%`。紧邻正确性快照新增 447 个目标 subagent、移除 0，
+排除目标 schema 后 session/project 哈希均一致。完整测试、性能和 provider 影响证据见
+性能基线文档“P0”一节。P1 必须等待 P0 合并后，以当时主线重新采集独立 base，不能
+复用本项 after。
 
 ### 2. P1：Codex cache miss 有界并行解析
 
