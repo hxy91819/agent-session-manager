@@ -108,7 +108,7 @@ func (c *dynamicTitleCache) read(path, kind string) map[string]string {
 			return state.Titles
 		}
 		titles := cloneTitles(state.Titles)
-		appendSafe, parseErr := scanDynamicTitles(io.NewSectionReader(f, state.Offset, info.Size()-state.Offset), kind, titles)
+		appendSafe, parseErr := scanDynamicTitles(io.NewSectionReader(f, state.Offset, info.Size()-state.Offset), kind, titles, true)
 		if parseErr == nil {
 			return c.storeParsed(path, kind, f, info.Size(), info.ModTime().UnixNano(), appendSafe, titles)
 		}
@@ -156,7 +156,8 @@ func (c *dynamicTitleCache) readFull(path, kind string, f *os.File, size, modTim
 		return nil
 	}
 	titles := make(map[string]string)
-	appendSafe, _ := scanDynamicTitles(io.LimitReader(f, size), kind, titles)
+	appendSafe, _ := scanDynamicTitles(io.LimitReader(f, size), kind, titles, false)
+	normalizeDynamicTitles(titles)
 	return c.storeParsed(path, kind, f, size, modTime, appendSafe, titles)
 }
 
@@ -214,30 +215,24 @@ func dynamicTitleEndsWithNewline(f *os.File, size int64) bool {
 	return last[0] == '\n'
 }
 
-func scanDynamicTitles(r io.Reader, kind string, titles map[string]string) (bool, error) {
+func scanDynamicTitles(r io.Reader, kind string, titles map[string]string, normalize bool) (bool, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), dynamicTitleMaxRecord)
-	lastRecordComplete := true
 	for scanner.Scan() {
-		lastRecordComplete = scannerRecordComplete(scanner.Bytes())
 		switch kind {
 		case dynamicTitleHistory:
-			applyHistoryTitle(scanner.Bytes(), titles)
+			applyHistoryTitle(scanner.Bytes(), titles, normalize)
 		case dynamicTitleSessionIndex:
-			applySessionIndexTitle(scanner.Bytes(), titles)
+			applySessionIndexTitle(scanner.Bytes(), titles, normalize)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return false, err
 	}
-	return lastRecordComplete, nil
+	return true, nil
 }
 
-func scannerRecordComplete(record []byte) bool {
-	return len(record) == 0 || json.Valid(record)
-}
-
-func applyHistoryTitle(data []byte, titles map[string]string) {
+func applyHistoryTitle(data []byte, titles map[string]string, normalize bool) {
 	var rec historyRecord
 	if json.Unmarshal(data, &rec) != nil {
 		return
@@ -246,10 +241,13 @@ func applyHistoryTitle(data []byte, titles map[string]string) {
 	if rec.SessionID == "" || text == "" || strings.HasPrefix(text, "$") || strings.HasPrefix(text, "/") {
 		return
 	}
-	titles[rec.SessionID] = normalizeDynamicTitle(text)
+	if normalize {
+		text = normalizeDynamicTitle(text)
+	}
+	titles[rec.SessionID] = text
 }
 
-func applySessionIndexTitle(data []byte, titles map[string]string) {
+func applySessionIndexTitle(data []byte, titles map[string]string, normalize bool) {
 	var rec sessionIndexRecord
 	if json.Unmarshal(data, &rec) != nil {
 		return
@@ -258,11 +256,23 @@ func applySessionIndexTitle(data []byte, titles map[string]string) {
 	if rec.ID == "" || title == "" {
 		return
 	}
-	titles[rec.ID] = normalizeDynamicTitle(title)
+	if normalize {
+		title = normalizeDynamicTitle(title)
+	}
+	titles[rec.ID] = title
 }
 
 func normalizeDynamicTitle(title string) string {
+	if len(title) <= session.MaxTitleRunes {
+		return title
+	}
 	return session.NormalizeTitle(title)
+}
+
+func normalizeDynamicTitles(titles map[string]string) {
+	for id, title := range titles {
+		titles[id] = normalizeDynamicTitle(title)
+	}
 }
 
 func dynamicTitleFingerprints(f *os.File, size int64) (string, string, error) {
@@ -418,6 +428,6 @@ func (c *dynamicTitleCache) readFullPath(path, kind string) map[string]string {
 		return nil
 	}
 	titles := make(map[string]string)
-	_, _ = scanDynamicTitles(io.LimitReader(f, info.Size()), kind, titles)
+	_, _ = scanDynamicTitles(io.LimitReader(f, info.Size()), kind, titles, false)
 	return titles
 }

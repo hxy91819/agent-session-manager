@@ -166,6 +166,32 @@ func BenchmarkDiscoverHotCacheDynamicTitleIndexes(b *testing.B) {
 	b.ReportMetric(float64(indexBytes), "index-input-bytes/op")
 }
 
+func BenchmarkDiscoverColdCacheDynamicTitleIndexes(b *testing.B) {
+	home, cachePath, indexBytes := makeDynamicTitleBenchmarkStore(b)
+	provider := Provider{Home: home, CachePath: cachePath}
+	opts := session.DiscoverOptions{}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+			b.Fatal(err)
+		}
+		if err := os.Remove(dynamicTitleCachePath(cachePath)); err != nil && !os.IsNotExist(err) {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+		got, err := provider.Discover(opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) != 200 || got[0].Title == "" {
+			b.Fatalf("sessions = %d, first title = %q", len(got), got[0].Title)
+		}
+	}
+	b.ReportMetric(float64(indexBytes), "index-input-bytes/op")
+}
+
 func BenchmarkDiscoverColdCacheMixedRollouts(b *testing.B) {
 	benchmarkDiscoverColdCacheMixedRollouts(b, 0)
 }

@@ -83,6 +83,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		histories[home] = nonNilTitleMap(titleCache.read(filepath.Join(home, "history.jsonl"), dynamicTitleHistory))
 		threadNames[home] = nonNilTitleMap(titleCache.read(filepath.Join(home, "session_index.jsonl"), dynamicTitleSessionIndex))
 	}
+	_ = titleCache.save(titleCachePath)
 	parsed := make([]parsedFile, len(files))
 	misses := make([]cacheMiss, 0, len(files))
 	metadataOnly := !opts.Preview.Enabled()
@@ -146,10 +147,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		s.Metadata["source_home"] = file.Home
 		cwdChecker.Mark(&s)
 		if title := titleForID(s.ID, file.Home, homes, threadNames); title != "" {
-			s.Title = session.NormalizeTitle(title)
+			s.Title = title
 			s.Metadata["title_source"] = "session_index"
 		} else if title := titleForID(s.ID, file.Home, homes, histories); title != "" {
-			s.Title = session.NormalizeTitle(title)
+			s.Title = title
 			s.Metadata["title_source"] = "history"
 		}
 		if opts.Preview.Enabled() && s.Metadata[session.MetadataParentThreadID] == "" {
@@ -170,7 +171,6 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		cache.Keep(keep)
 	}
 	_ = cache.Save(cachePath)
-	_ = titleCache.save(titleCachePath)
 	return sessions, nil
 }
 
