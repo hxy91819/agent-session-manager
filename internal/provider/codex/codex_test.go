@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -733,6 +734,69 @@ func TestDiscoverRefreshesCWDStatusWhenUsingCache(t *testing.T) {
 	}
 }
 
+func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "06", "13", "current.jsonl")
+	writeCodexSessionWithTitle(t, path, "current", repo, "before primary change")
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+
+	cold, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(cold) != 1 || cold[0].Title != "before primary change" {
+		t.Fatalf("cold = %#v err=%v", cold, err)
+	}
+	warm, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("warm = %#v err=%v, want %#v", warm, err, cold)
+	}
+
+	writeFile(t, filepath.Join(home, "session_index.jsonl"), `{"id":"current","thread_name":"dynamic index title"}`+"\n")
+	dynamic, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || dynamic[0].Title != "dynamic index title" {
+		t.Fatalf("dynamic = %#v err=%v", dynamic, err)
+	}
+	if err := os.Remove(filepath.Join(home, "session_index.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	writeCodexSessionWithTitle(t, path, "current", repo, "after primary file changed and grew")
+	invalidated, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || invalidated[0].Title != "after primary file changed and grew" {
+		t.Fatalf("invalidated = %#v err=%v", invalidated, err)
+	}
+
+	if err := os.WriteFile(cachePath, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(recovered) != 1 || recovered[0].Title != "after primary file changed and grew" {
+		t.Fatalf("corrupt-cache recovery = %#v err=%v", recovered, err)
+	}
+
+	oldPath := filepath.Join(home, "sessions", "2026", "01", "01", "old.jsonl")
+	writeCodexSessionWithTitle(t, oldPath, "old", repo, "old title")
+	oldTime := time.Now().AddDate(0, 0, -60)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Discover(session.DiscoverOptions{Since: time.Now().AddDate(0, 0, -30)}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ok := sessioncache.Load(cachePath).Get(sessioncache.FileIdentity{
+		Provider: Name, Path: oldPath, Size: info.Size(), ModTime: info.ModTime(),
+	})
+	if !ok {
+		t.Fatal("bounded scan pruned the historical cache entry")
+	}
+}
+
 func TestDiscoverFiltersByFileModTimeNotDateDirectory(t *testing.T) {
 	home := t.TempDir()
 	oldDir := filepath.Join(home, "sessions", "2025", "01", "01")
@@ -814,6 +878,16 @@ func TestNewCommandUsesConfiguredProfile(t *testing.T) {
 func writeSession(t *testing.T, path, id, cwd string) {
 	t.Helper()
 	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(cwd)+`}}
+`)
+}
+
+func writeCodexSessionWithTitle(t *testing.T, path, id, cwd, title string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(cwd)+`}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+jsonString(title)+`}]}}
 `)
 }
 

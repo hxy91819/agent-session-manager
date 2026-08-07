@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1756,48 +1755,22 @@ func runCommand(t *testing.T, args ...string) string {
 
 func runCommandAllowError(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	cmdArgs := append([]string{"run", "./cmd/asm"}, args...)
-	cmd := exec.Command("go", cmdArgs...)
-	cmd.Dir = ".."
-	goCache := os.Getenv("GOCACHE")
-	if goCache == "" {
-		cacheDir, err := os.UserCacheDir()
-		if err != nil {
-			t.Fatal(err)
-		}
-		goCache = filepath.Join(cacheDir, "go-build")
-	}
-	cmd.Env = append(os.Environ(),
-		"GOCACHE="+goCache,
-		"XDG_CACHE_HOME="+t.TempDir(),
-		"KIMI_CODE_HOME="+t.TempDir(),
-		"KIMI_HOME="+t.TempDir(),
-		"OPENCODE_HOME="+t.TempDir(),
-		"CODEBUDDY_HOME="+t.TempDir(),
-		"CURSOR_HOME="+t.TempDir(),
-		"OPENCLAW_STATE_DIR="+t.TempDir(),
-		"ASM_CODEX_EXTRA_HOMES=",
-		"ASM_CLAUDE_EXTRA_HOMES=",
-		"KIRO_HOME="+t.TempDir(),
-		"ZCODE_HOME="+t.TempDir(),
-	)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return newASMTestEnv(t).Run(t, args...)
 }
 
-func writeSession(t *testing.T, path, id, cwd string) {
+func writeSession(t testing.TB, path, id, cwd string) {
 	t.Helper()
 	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":`+jsonString(id)+`,"timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(cwd)+`}}
 `)
 }
 
-func writeClaudeSession(t *testing.T, path, id, cwd, title string) {
+func writeClaudeSession(t testing.TB, path, id, cwd, title string) {
 	t.Helper()
 	writeFile(t, path, `{"type":"user","sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":`+jsonString(title)+`}}
 `)
 }
 
-func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, title string) {
+func writeKimiSession(t testing.TB, home, sessionDir, id, cwd, title string) {
 	t.Helper()
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1808,7 +1781,7 @@ func writeKimiSession(t *testing.T, home, sessionDir, id, cwd, title string) {
 `)
 }
 
-func writeKiroSession(t *testing.T, home, id, cwd, title string) {
+func writeKiroSession(t testing.TB, home, id, cwd, title string) {
 	t.Helper()
 	sessionsDir := filepath.Join(home, "sessions", "cli")
 	writeFile(t, filepath.Join(sessionsDir, id+".json"), `{"session_id":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"created_at":"2026-06-13T01:00:00Z","updated_at":"2026-06-13T01:01:00Z","title":`+jsonString(title)+`,"session_created_reason":"user","session_state":{"version":"1"}}
@@ -1817,7 +1790,7 @@ func writeKiroSession(t *testing.T, home, id, cwd, title string) {
 `)
 }
 
-func writeOpencodeSession(t *testing.T, home, projectID, id, cwd, title string) {
+func writeOpencodeSession(t testing.TB, home, projectID, id, cwd, title string) {
 	t.Helper()
 	sessionDir := filepath.Join(home, "storage", "session", projectID)
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -1841,13 +1814,13 @@ func jsonString(value string) string {
 	return string(data)
 }
 
-func writeCodeBuddySession(t *testing.T, home, id, cwd, title string) {
+func writeCodeBuddySession(t testing.TB, home, id, cwd, title string) {
 	t.Helper()
 	writeFile(t, filepath.Join(home, "projects", "repo", id+".jsonl"), `{"sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-06-13T01:00:00Z","ai-title":`+jsonString(title)+`,"model":"codebuddy"}
 `)
 }
 
-func writeCursorSession(t *testing.T, home, id, cwd, title string) {
+func writeCursorSession(t testing.TB, home, id, cwd, title string) {
 	t.Helper()
 	projectKey := "project-" + id
 	writeFile(t, filepath.Join(home, "projects", projectKey, "worker.log"), `[info] Getting tree structure for workspacePath=`+cwd+`
@@ -1856,7 +1829,7 @@ func writeCursorSession(t *testing.T, home, id, cwd, title string) {
 `)
 }
 
-func writeOpenClawSession(t *testing.T, stateDir, id, nativeID, title string) {
+func writeOpenClawSession(t testing.TB, stateDir, id, nativeID, title string) {
 	t.Helper()
 	writeFile(t, filepath.Join(stateDir, "agents", "main", "sessions", "sessions.json"), `{
   `+jsonString(id)+`: {
@@ -1875,7 +1848,7 @@ type zcodeSessionFixture struct {
 	UpdatedAt int64
 }
 
-func writeZCodeSession(t *testing.T, home, id, cwd, title string) {
+func writeZCodeSession(t testing.TB, home, id, cwd, title string) {
 	t.Helper()
 	writeZCodeSessions(t, home, []zcodeSessionFixture{{
 		ID:        id,
@@ -1886,7 +1859,7 @@ func writeZCodeSession(t *testing.T, home, id, cwd, title string) {
 	}})
 }
 
-func writeZCodeSessions(t *testing.T, home string, sessions []zcodeSessionFixture) {
+func writeZCodeSessions(t testing.TB, home string, sessions []zcodeSessionFixture) {
 	t.Helper()
 	dbDir := filepath.Join(home, "cli", "db")
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
@@ -1955,7 +1928,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	}
 }
 
-func writeFile(t *testing.T, path, content string) {
+func writeFile(t testing.TB, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

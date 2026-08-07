@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
 func TestMain(m *testing.M) {
@@ -398,6 +400,63 @@ func TestDiscoverRefreshesCWDStatusWhenUsingCache(t *testing.T) {
 	}
 	if got[0].Metadata["cwd_missing"] != "" || got[0].Metadata["cwd_error"] != "" {
 		t.Fatalf("cached discovery kept stale cwd metadata: %#v", got[0].Metadata)
+	}
+}
+
+func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(projectDir, "current.jsonl")
+	writeClaudeSession(t, path, "current", repo, "before primary change")
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+
+	cold, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(cold) != 1 || cold[0].Title != "before primary change" {
+		t.Fatalf("cold = %#v err=%v", cold, err)
+	}
+	warm, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("warm = %#v err=%v, want %#v", warm, err, cold)
+	}
+	writeClaudeSession(t, path, "current", repo, "after primary file changed and grew")
+	invalidated, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || invalidated[0].Title != "after primary file changed and grew" {
+		t.Fatalf("invalidated = %#v err=%v", invalidated, err)
+	}
+	if err := os.WriteFile(cachePath, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(recovered) != 1 || recovered[0].Title != "after primary file changed and grew" {
+		t.Fatalf("corrupt-cache recovery = %#v err=%v", recovered, err)
+	}
+
+	oldPath := filepath.Join(projectDir, "old.jsonl")
+	writeClaudeSession(t, oldPath, "old", repo, "old title")
+	oldTime := time.Now().AddDate(0, 0, -60)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Discover(session.DiscoverOptions{Since: time.Now().AddDate(0, 0, -30)}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ok := sessioncache.Load(cachePath).Get(sessioncache.FileIdentity{
+		Provider: Name, Path: oldPath, Size: info.Size(), ModTime: info.ModTime(),
+	})
+	if !ok {
+		t.Fatal("bounded scan pruned the historical cache entry")
 	}
 }
 

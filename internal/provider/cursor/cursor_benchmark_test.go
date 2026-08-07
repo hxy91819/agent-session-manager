@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
@@ -25,6 +26,41 @@ func BenchmarkDiscoverColdCache(b *testing.B) {
 		}
 		if len(got) == 0 {
 			b.Fatal("expected sessions")
+		}
+	}
+}
+
+func BenchmarkDiscoverHistoryHeavyWarmCache(b *testing.B) {
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	projectKey := strings.TrimPrefix(strings.ReplaceAll(repo, string(os.PathSeparator), "-"), "-")
+	now := time.Now()
+	for i := range 2000 {
+		chatID := fmt.Sprintf("chat-%04d", i)
+		path := filepath.Join(home, "projects", projectKey, "agent-transcripts", chatID, chatID+".jsonl")
+		writeBenchmarkFile(b, path, fmt.Sprintf(`{"role":"user","message":{"content":[{"type":"text","text":"benchmark cursor title %04d"}]}}`+"\n", i))
+		modTime := now.AddDate(0, 0, -60)
+		if i < 10 {
+			modTime = now.Add(-time.Duration(i+1) * time.Minute)
+		}
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			b.Fatal(err)
+		}
+	}
+	provider := Provider{Home: home, CachePath: filepath.Join(b.TempDir(), "cache.json")}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		b.Fatal(err)
+	}
+	opts := session.DiscoverOptions{Since: now.AddDate(0, 0, -30)}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		got, err := provider.Discover(opts)
+		if err != nil || len(got) != 10 {
+			b.Fatalf("sessions=%d err=%v", len(got), err)
 		}
 	}
 }

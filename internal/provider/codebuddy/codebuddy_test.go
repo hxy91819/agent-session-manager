@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
 func TestMain(m *testing.M) {
@@ -210,6 +212,70 @@ func TestDiscoverKeepsSessionsWithMissingCWD(t *testing.T) {
 	}
 }
 
+func TestDiscoverCacheLifecycleSinceLimitAndCWDRefresh(t *testing.T) {
+	home := t.TempDir()
+	repo := filepath.Join(home, "repo-created-after-warm")
+	path := filepath.Join(home, "projects", "repo", "current.jsonl")
+	writeCodeBuddyCacheFixture(t, path, "current", repo, "before primary change")
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+
+	cold, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(cold) != 1 || cold[0].Title != "before primary change" || cold[0].Metadata["cwd_missing"] != "true" {
+		t.Fatalf("cold = %#v err=%v", cold, err)
+	}
+	warm, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("warm = %#v err=%v, want %#v", warm, err, cold)
+	}
+	withPreview, err := provider.Discover(session.DiscoverOptions{Preview: session.PreviewOptions{UserMessagesPerEdge: 1, MaxChars: 100}})
+	if err != nil || len(withPreview[0].Previews) != 1 || withPreview[0].Previews[0].Text != "before primary change" {
+		t.Fatalf("dynamic previews = %#v err=%v", withPreview, err)
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || refreshed[0].Metadata["cwd_missing"] != "" {
+		t.Fatalf("cwd refresh = %#v err=%v", refreshed, err)
+	}
+	writeCodeBuddyCacheFixture(t, path, "current", repo, "after primary file changed and grew")
+	invalidated, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || invalidated[0].Title != "after primary file changed and grew" {
+		t.Fatalf("invalidated = %#v err=%v", invalidated, err)
+	}
+	if err := os.WriteFile(cachePath, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := provider.Discover(session.DiscoverOptions{}); err != nil || len(recovered) != 1 {
+		t.Fatalf("corrupt-cache recovery = %#v err=%v", recovered, err)
+	}
+
+	oldPath := filepath.Join(home, "projects", "repo", "old.jsonl")
+	writeCodeBuddyCacheFixture(t, oldPath, "old", repo, "old title")
+	oldTime := time.Now().AddDate(0, 0, -60)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	limited, err := provider.Discover(session.DiscoverOptions{Since: time.Now().AddDate(0, 0, -30), LimitFiles: 1})
+	if err != nil || len(limited) != 1 || limited[0].ID != "current" {
+		t.Fatalf("bounded limit = %#v err=%v", limited, err)
+	}
+	info, err := os.Stat(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ok := sessioncache.Load(cachePath).Get(sessioncache.FileIdentity{
+		Provider: Name, Path: oldPath, Size: info.Size(), ModTime: info.ModTime(),
+	})
+	if !ok {
+		t.Fatal("bounded scan pruned the historical cache entry")
+	}
+}
+
 func TestResumeCommandUsesCodeBuddyResumeFromSessionCWD(t *testing.T) {
 	spec := New("").ResumeCommand(session.Session{ID: "sid", CWD: "/repo"})
 
@@ -240,6 +306,11 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeCodeBuddyCacheFixture(t *testing.T, path, id, cwd, title string) {
+	t.Helper()
+	writeFile(t, path, `{"sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-06-13T01:00:00Z","role":"user","content":`+jsonString(title)+`,"ai-title":`+jsonString(title)+`}`+"\n")
 }
 
 func jsonString(value string) string {

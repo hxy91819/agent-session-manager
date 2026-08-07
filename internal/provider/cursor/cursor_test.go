@@ -3,11 +3,13 @@ package cursor
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
 )
 
 func TestMain(m *testing.M) {
@@ -218,6 +220,78 @@ func TestDiscoverMarksDecodedMissingCWD(t *testing.T) {
 	}
 }
 
+func TestDiscoverCacheLifecycleSinceLimitAndWorkspaceRefresh(t *testing.T) {
+	home := t.TempDir()
+	repoBefore := filepath.Join(home, "repo-before")
+	repoAfter := filepath.Join(home, "repo-after")
+	if err := os.MkdirAll(repoBefore, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(repoAfter, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := filepath.Join(home, "projects", "project")
+	workerLog := filepath.Join(projectDir, "worker.log")
+	writeFile(t, workerLog, "[info] Getting tree structure for workspacePath="+repoBefore+"\n")
+	path := filepath.Join(projectDir, "agent-transcripts", "current", "current.jsonl")
+	writeCursorCacheFixture(t, path, "before primary change")
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+
+	cold, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(cold) != 1 || cold[0].Title != "before primary change" || cold[0].CWD != repoBefore {
+		t.Fatalf("cold = %#v err=%v", cold, err)
+	}
+	warm, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("warm = %#v err=%v, want %#v", warm, err, cold)
+	}
+	withPreview, err := provider.Discover(session.DiscoverOptions{Preview: session.PreviewOptions{UserMessagesPerEdge: 1, MaxChars: 100}})
+	if err != nil || len(withPreview[0].Previews) != 1 || withPreview[0].Previews[0].Text != "before primary change" {
+		t.Fatalf("dynamic previews = %#v err=%v", withPreview, err)
+	}
+	writeFile(t, workerLog, "[info] Getting tree structure for workspacePath="+repoAfter+"\n")
+	refreshed, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || refreshed[0].CWD != repoAfter {
+		t.Fatalf("workspace refresh = %#v err=%v", refreshed, err)
+	}
+	writeCursorCacheFixture(t, path, "after primary file changed and grew")
+	invalidated, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || invalidated[0].Title != "after primary file changed and grew" {
+		t.Fatalf("invalidated = %#v err=%v", invalidated, err)
+	}
+	if err := os.WriteFile(cachePath, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := provider.Discover(session.DiscoverOptions{}); err != nil || len(recovered) != 1 {
+		t.Fatalf("corrupt-cache recovery = %#v err=%v", recovered, err)
+	}
+
+	oldPath := filepath.Join(projectDir, "agent-transcripts", "old", "old.jsonl")
+	writeCursorCacheFixture(t, oldPath, "old title")
+	oldTime := time.Now().AddDate(0, 0, -60)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	limited, err := provider.Discover(session.DiscoverOptions{Since: time.Now().AddDate(0, 0, -30), LimitFiles: 1})
+	if err != nil || len(limited) != 1 || limited[0].ID != "current" {
+		t.Fatalf("bounded limit = %#v err=%v", limited, err)
+	}
+	info, err := os.Stat(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ok := sessioncache.Load(cachePath).Get(sessioncache.FileIdentity{
+		Provider: Name, Path: oldPath, Size: info.Size(), ModTime: info.ModTime(),
+	})
+	if !ok {
+		t.Fatal("bounded scan pruned the historical cache entry")
+	}
+}
+
 func TestDecodeProjectCWDMarksHyphenatedKeysUnavailable(t *testing.T) {
 	home := t.TempDir()
 	repo := filepath.Join(home, "workspace", "my-app")
@@ -315,4 +389,9 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeCursorCacheFixture(t *testing.T, path, title string) {
+	t.Helper()
+	writeFile(t, path, `{"role":"user","message":{"content":[{"type":"text","text":"`+title+`"}]}}`+"\n")
 }

@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,58 @@ import (
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
+
+func BenchmarkDiscoverChangedLargeSession(b *testing.B) {
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	path := filepath.Join(home, "sessions", "2026", "06", "15", "large.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	large, err := json.Marshal(strings.Repeat("x", 16*1024*1024))
+	if err != nil {
+		b.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"timestamp":"2026-06-15T01:00:00Z","type":"session_meta","payload":{"id":"large","timestamp":"2026-06-15T01:00:00Z","cwd":%q}}`+"\n", repo) +
+		`{"timestamp":"2026-06-15T01:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":` + string(large) + `}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	provider := Provider{Home: home, CachePath: filepath.Join(b.TempDir(), "cache.json")}
+	if _, err := provider.Discover(session.DiscoverOptions{}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		b.StopTimer()
+		appendCodexBenchmarkRecord(b, path, i)
+		b.StartTimer()
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil || len(got) != 1 {
+			b.Fatalf("sessions=%d err=%v", len(got), err)
+		}
+	}
+}
+
+func appendCodexBenchmarkRecord(b *testing.B, path string, iteration int) {
+	b.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	_, writeErr := fmt.Fprintf(f, `{"timestamp":"2026-06-15T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"iteration %d"}]}}`+"\n", iteration)
+	closeErr := f.Close()
+	if writeErr != nil {
+		b.Fatal(writeErr)
+	}
+	if closeErr != nil {
+		b.Fatal(closeErr)
+	}
+}
 
 func BenchmarkDiscoverColdCache(b *testing.B) {
 	home, cachePath := makeBenchmarkCodexStore(b)

@@ -38,6 +38,42 @@ func TestFilterMatchesMetadata(t *testing.T) {
 	}
 }
 
+func TestFilterSearchesEveryPublicSessionField(t *testing.T) {
+	base := session.Session{
+		ID:       "id-needle",
+		Provider: "provider-needle",
+		CWD:      "/cwd-needle",
+		Title:    "title-needle",
+		Path:     "/path-needle",
+		Metadata: map[string]string{"metadata-key-needle": "metadata-value-needle"},
+	}
+	for _, query := range []string{
+		"id-needle", "provider-needle", "cwd-needle", "title-needle",
+		"path-needle", "metadata-key-needle", "metadata-value-needle",
+	} {
+		got := FilterAndSort([]session.Session{base}, Query{Search: query})
+		if len(got) != 1 {
+			t.Fatalf("query %q did not match public session fields", query)
+		}
+	}
+}
+
+func TestSortingAndGroupingDoNotDependOnTitleSize(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	items := []session.Session{
+		{ID: "older", CWD: "/repo", Title: string(make([]byte, 64*1024)), UpdatedAt: base},
+		{ID: "newer", CWD: "/repo", Title: "normal", UpdatedAt: base.Add(time.Hour)},
+	}
+	got := FilterAndSort(items, Query{Sort: SortActive})
+	if got[0].ID != "newer" || got[1].ID != "older" {
+		t.Fatalf("order = %#v", got)
+	}
+	projects := GroupProjects(got)
+	if len(projects) != 1 || projects[0].Count != 2 {
+		t.Fatalf("projects = %#v", projects)
+	}
+}
+
 func TestGroupProjectsSortsByMostRecentSession(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	sessions := []session.Session{
