@@ -109,6 +109,7 @@ go test -run '^$' -bench . -benchmem \
 | F：Cache 快速修复 | `110bbb0` | EmptyStoresHistoricalCache 相对 D `-41.87%`、相对 E `-42.35%`；历史 cache 增量开销约 `-98.6%` | 相对 E 无 5% 回退，allocations 稳定 | 保留，进入 G |
 | G：Cache 分片 | `cabf966` | WarmHistoryHeavy 相对 F `-42.55%`、相对 D `-42.33%`；其他 CLI wall time 无显著回退 | HistoryHeavyLoad `-99.92%`、SingleEntryUpdateSave `-87.52%`；index/UI 无回退 | 保留 64-shard 大型布局，进入 H |
 | H：Codex 增量解析 | `eeeee26` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
+| P2：Codex metadata 快路径 | `a433aab` | 真实冷启动 `-28.68%`；交替热测无显著变化 | 混合 rollout `-94.70%`、B/op `-96.54%`；实际输入 bytes 不变 | 保留；report 继续完整解析，P3 未开始 |
 
 ## 阶段 E：Shared title policy
 
@@ -717,3 +718,150 @@ provider 在真实关键路径成为主导且补齐 changed-large benchmark 后�
 
 全仓 `go test -race ./...` 通过；focused provider/CLI、完整仓库门禁和 autoreview 结果
 随本项最终提交一并验收。P1 决定保留，P2 未开始。
+
+## P2：Codex metadata/turn-context 快路径
+
+### 启动门槛与独立 base
+
+- P2 基于 P1 合并后的 `origin/master@07243f0`；测试/benchmark 提交为 `f6c2f9d`，
+  生产实现为 `a433aab`，没有复用 P1 after；
+- 首次公共 base 为冷启动 10 次、热预热 2 次后 20 次：冷中位数/p95
+  `5.533/5.625 s`，热中位数 `81.70 ms`；1209 sessions、90 projects、0 error，
+  冷热哈希一致；
+- 同一 base 的 Codex-only 空 cache 冷启动 10 次中位数/p95 为 `5.490/5.610 s`，
+  约占完整冷启动中位数 99.2%。单次 `strace` 只记录长度、不保留 transcript 内容，
+  得到 1,489,266,097 bytes 正向 read 返回；符合 producer schema 的 24-file 大小混合
+  benchmark 每次输入约 33.44 MB，却分配约 230.1 MiB。由此确认 P1 后真实关键路径仍由
+  Codex 大 rollout 深度解析主导，P2 门槛成立；
+- 真实 store 在首次 base 与 after 间新增 1 个 Codex session。为避免把 producer 增长
+  当成语义差异，又在当前 1210-session 集合上独立重采 base2；下文正式 A/B 使用
+  base2 和 after，二者聚合与哈希完全一致。
+
+门槛 raw output：
+
+- `/tmp/asm-tui-startup-p2-20260807/real-base/`；
+- `/tmp/asm-tui-startup-p2-20260807/codex-base-time-rss.txt`；
+- `/tmp/asm-tui-startup-p2-20260807/codex-base-read.strace`；
+- `/tmp/asm-tui-startup-p2-20260807/mixed-base.txt`。
+
+### 契约与实现
+
+- 仅 `DiscoverOptions.Preview.Enabled()==false` 使用 metadata 快路径。它仍顺序读取完整
+  rollout，但只完整解码 `session_meta`、`turn_context` 和 user `response_item`；由
+  producer header 明确证明为 assistant/tool/无关类型的记录边读边丢弃，不再保留和
+  深度解码大型 payload。header 不完整、字段顺序变化或类型不明确时保守回退完整解码；
+- 快路径继续提取最新 cwd/model、对象或字符串 source、parent boundary 和 rollout
+  title fallback；随后仍动态应用 `session_index > history > rollout` title 优先级、
+  cwd status、去重、newest-first 和 limit；P1 的 8-worker 有界并行保持不变；
+- cache 中用 provider-private、输出前删除的 parse-mode 标记区分快路径结果。普通
+  discovery 可以复用 full cache；report 若遇到 metadata-only cache 会重做完整 primary
+  parse，随后继续走原有 user-preview evidence reader。cache schema/version 不变，旧 cache
+  仍被视为完整解析结果；
+- 公共 CLI 测试先建立普通 cold/warm cache，再运行 report，锁定最新 turn context、对象
+  source、native title、项目聚合和两条 evidence。Provider 测试覆盖 full/metadata
+  等价、changed header order、assistant 内容伪装、parent inherited-history boundary、
+  append-boundary rewrite，以及既有 append、truncate、atomic replace、prefix rewrite、
+  partial/oversized JSONL、cache invalidation、duplicate ID、parse failure、dynamic inputs、
+  missing cwd、newest-first 和 limit 矩阵；
+- 这是行为保持型性能优化，base 的公共输出本来正确，因此没有伪造产品级失败；新增
+  public contract 在 base 和实现上均通过，性能缺口由独立真实 base 与 benchmark 证明。
+
+### Focused 性能与资源
+
+`BenchmarkDiscoverColdCacheMixedRollouts` 使用 24 个 64 KiB、256 KiB、1 MiB、4 MiB
+混合 rollout，包含对象 source、parent metadata、turn context 和 assistant payload；
+每档 10 个样本、`benchtime=1x`：
+
+| 指标 | Base `f6c2f9d` | After `a433aab` | 变化 |
+|---|---:|---:|---:|
+| wall time | 103.182 ms | 5.473 ms | -94.70%（p=0.000） |
+| rollout input | 31.89 MiB/op | 31.89 MiB/op | 无变化 |
+| B/op | 230.105 MiB | 7.955 MiB | -96.54% |
+| allocs/op | 3.703k | 7.879k | +112.80% |
+
+allocs/op 增加来自保守 header token 的小对象；累计分配 bytes、真实峰值 RSS 和 wall time
+均显著下降，因此保留该权衡。Codex-only 10 次真实冷测中，中位数从 `5.490 s` 降至
+`2.495 s`（约 -54.6%）；峰值 RSS 中位数从 67.47 MiB 降至 50.42 MiB（-25.27%），
+p95 从 71.29 MiB 降至 53.71 MiB（-24.65%）。after `strace` 为
+1,496,262,884 bytes；它比 base 多约 7 MB，来自评测期间真实 store 增长。稳定 fixture
+的 31.89 MiB/op 输入完全不变，说明收益不是减少读取、降低 title 上限或 evidence。
+
+focused raw output：
+
+- `/tmp/asm-tui-startup-p2-20260807/mixed-after.txt`；
+- `/tmp/asm-tui-startup-p2-20260807/mixed-benchstat.txt`；
+- `/tmp/asm-tui-startup-p2-20260807/codex-after-time-rss.txt`；
+- `/tmp/asm-tui-startup-p2-20260807/codex-after-read.strace`。
+
+### 正式真实冷/热 A/B 与 report 哈希
+
+环境为 Go 1.26.5、Linux `6.6.92-34.1.tl4.x86_64`、AMD EPYC 7K62、32 CPU；base
+`07243f0` 与 after `a433aab` 均用 `-buildvcs=false` 构建。公共 runner 使用默认最近
+30 天和 missing-session resume 探针；每个版本冷启动 10 次，热态预热 2 次后采集
+20 次，并使用隔离临时 `XDG_CACHE_HOME`：
+
+| 场景 | 版本 | min | median | mean | p95 | max |
+|---|---|---:|---:|---:|---:|---:|
+| 冷启动 | Base | 5.440 s | 5.540 s | 5.531 s | 5.601 s | 5.601 s |
+| 冷启动 | After | 3.931 s | 3.951 s | 4.067 s | 4.567 s | 4.567 s |
+| 热启动 | Base | 77.87 ms | 80.50 ms | 80.94 ms | 84.93 ms | 85.58 ms |
+| 热启动 | After | 80.02 ms | 81.73 ms | 83.45 ms | 93.97 ms | 99.13 ms |
+
+固定 benchstat：冷启动 `-28.68%`（p=0.000，n=10），冷 p95 `-18.45%`；原始
+20-sample 热测为 `+1.53%`（低于 5% 门槛）。为复核 after 热样本尾部噪声，又在分别
+预热的独立 cache 上交替执行 base/after 各 30 次，结果 `81.55/82.37 ms`，p=0.150，
+无显著变化。冷 cache 中位数从 1,295,718 增至 1,322,936 bytes（+2.10%），来自
+provider-private parse-mode 标记；该标记不进入公共 JSON。
+
+base/after 的 cold/warm 各自一致，跨版本也逐项一致：1210 sessions、90 projects、
+0 provider error；provider 数量为 Codex 752、Claude 184、CodeBuddy 70、ZCode 68、
+Kiro 58、Cursor 55、Kimi 23，opencode/OpenClaw 为 0。不可逆哈希为：
+
+- session `{provider,id}` SHA-256：
+  `37ffcc5872d32357534da004342d0118c1c1c216e94df9cc7625ea1a395fcaa9`；
+- project `{cwd,count}` SHA-256：
+  `933344b4d062212526e38c5d63eb48bb3bf8a3984509c8baf48ff0299ea7c4fd`。
+
+`asm report --period last-week` 在独立 base/after cache 上均为 125 sessions、26 projects、
+311 条 evidence、0 provider error；evidence SHA-256 均为
+`b507cb6b9ac9dd97103466c40f22f9c2c85154c50217a7a4f9beefa78de72180`，去除
+evidence/previews 后的完整聚合 SHA-256 均为
+`b5ebdd20a17da2a4ef8035d730d1a72407e4cd0b251652a101f19817169f7a4d`。report wall
+time 为 `13.673/13.437 s`，符合 P2 不加速 report、但必须保持 evidence 的边界。
+
+正式 raw output：
+
+- `/tmp/asm-tui-startup-p2-20260807/real-base2/`；
+- `/tmp/asm-tui-startup-p2-20260807/real-after/`；
+- `/tmp/asm-tui-startup-p2-20260807/real-benchstat.txt`；
+- `/tmp/asm-tui-startup-p2-20260807/warm-paired/`；
+- `/tmp/asm-tui-startup-p2-20260807/report-base-hashes.json`；
+- `/tmp/asm-tui-startup-p2-20260807/report-after-hashes.json`。
+
+### Cross-agent 审查与决策
+
+**Current PR correctness**：Codex 的根因是 primary parser 对每条 rollout 先保留并深度
+解码整个 payload；新增 fast/full parity、cache/report E2E 和真实 A/B 证明目标机制已修复，
+且 session、title、cwd/model、parent、grouping、resume safety 和 report evidence 不变。
+
+**Cross-agent assessment**：
+
+| Provider | 实际 primary store / parser | 触发可达性与结论 |
+|---|---|---|
+| Codex | per-session rollout JSONL | affected；真实约 1.5 GB，本项修复 |
+| Claude | project JSONL，metadata/message 同记录 | 大型 assistant payload 可达，但字段/title/preview 规则独立；不共享 Codex fast path |
+| CodeBuddy | project JSONL，providerData/message 同记录 | 大型 payload 可达，但 title/model/source 规则独立；本项不扩范围 |
+| Cursor | agent transcript JSONL，ID/CWD 来自路径 | 大型 payload 可达，但首/末 user title 与 cwd 规则独立；本项不扩范围 |
+| Kiro | 小型 primary metadata JSON + Prompt JSONL | Codex assistant/tool payload 触发不可达；Prompt 内容本身是 title/evidence |
+| opencode | 小 session/project/message/part JSON | 拆分存储，无大型单条 primary payload |
+| Kimi | compact index + `state.json` | 无 per-session transcript primary parse |
+| OpenClaw | compact `sessions.json` index | 当前不解析 transcript，触发不可达 |
+| ZCode | SQLite indexed queries | 无 JSONL primary parser，触发不可达 |
+
+**Contributor action**：P2 只需保持 Codex 正确性、cache 模式边界和资源证据；已完成，
+没有引入共享 parser 或要求其他 provider 承担 cache 兼容成本。
+
+**Maintainer follow-up**：不在本任务实施 sibling 优化。P2 合并后若新的真实分解确认
+Claude、CodeBuddy 或 Cursor 成为冷启动主导项，应分别先补 producer-schema 大文件
+benchmark 与 public contract，再设计 provider-owned fast path；没有确认瓶颈前不创建
+共享抽象。P3 dynamic title index 未开始。P2 决定保留。
