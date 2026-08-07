@@ -103,10 +103,41 @@ user-preview evidence 路径。
 
 ### 4. P3：Codex dynamic title index 增量化
 
-P0 后 Codex 非 primary 热成本中，`session_index`/`history` dynamic side input 约 36 ms。
-只有真实热启动已降到百毫秒量级且该阶段成为主导项时，才为 append-only index 设计
-独立状态。覆盖 append latest-wins、truncate、replace、corruption、原子保存和 cache
-版本兼容；预期收益只有几十毫秒，不能抢在 P0/P1 前实施。
+状态：待从 P2 合并提交 `4053965` 开始独立执行，工作分支为
+`agent/tui-startup-p3`。P0 后 Codex 非 primary 热成本中，`session_index`/`history`
+dynamic side input 约 36 ms；P2 后真实热启动中位数约 82 ms，因此 P3 值得重新验证，
+但该历史估算不能代替本项 base。
+
+先测试和测量，后实现。必须重新采集独立 P3 base，并分解普通 discovery 的热路径；
+只有确认 `session_index.jsonl`/`history.jsonl` 的重复全量解析仍是剩余关键路径，且预期
+收益相对实现与 cache 复杂度有意义时，才继续生产实现。若门槛不成立，停止实现并记录
+分解、raw path 和否决证据。
+
+实施范围只限 Codex dynamic title side inputs：持久化足以安全恢复 append-only 解析的
+索引状态，热路径只消费已验证的新完整 records；不得改变 primary rollout cache、P2
+metadata/turn-context 快路径、其他 provider 或 report evidence 路径。动态 title 仍须在
+每次 discovery 后正确覆盖缓存的 primary 结果，并保持
+`session_index > history > rollout`、最新非空 native name wins、可见 session、项目归组、
+newest-first、limit、cwd/model、parent/child 去重和 resume safety。
+
+正确性最低覆盖：cold/warm parity；两个 index 的 append 与 latest-wins；空 title；重复
+ID；跨文件 title 优先级与 rollout fallback；文件缺失、创建、truncate、atomic replace、
+prefix/boundary rewrite；partial、corrupt 和 oversized JSONL；旧 cache/version 兼容；
+增量状态原子保存及写入失败后的安全回退；普通 discovery 连续运行中的动态输入变化；
+公共 CLI JSON 与 report E2E。不得因索引状态损坏或身份不明确而使用可能过期的 title，
+此时应保守重建。
+
+性能验收使用符合 producer schema、包含大小和重复 ID 混合的 title indexes，报告实际
+读取 bytes、sec/op、B/op、allocs/op 和峰值 RSS。同机独立真实 base/after 冷各至少
+10 次，热各预热 2 次后至少 20 次；校验 session/project/provider 数量、provider error、
+两类不可逆哈希，以及周报 evidence/聚合哈希。PR 描述必须写入测试命令、样本数、
+base/after 数据、哈希和保留或否决结论，不能只链接本地 raw 文件。
+
+按 coherent stages 提交测试、实现和文档；完成 focused tests、`go test -race ./...`、
+provider performance contract、`golangci-lint`、`go test ./...`、build、pre-commit，使用
+`behavior-e2e-validation`、`cross-agent-pr-review` 和 `autoreview`。将 raw 临时路径、
+独立 base/after、cache/RSS 取舍及最终决策追加到性能基线和本文档。P3 不顺带实施其他
+provider 优化或后续性能项。
 
 ### 每个优化项的统一执行门槛
 
