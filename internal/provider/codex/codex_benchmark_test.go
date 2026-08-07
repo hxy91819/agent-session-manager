@@ -157,11 +157,10 @@ func BenchmarkDiscoverColdCacheMixedRolloutsWorkers(b *testing.B) {
 }
 
 func benchmarkDiscoverColdCacheMixedRollouts(b *testing.B, workers int) {
-	home, cachePath := makeMixedBenchmarkCodexStore(b)
+	home, cachePath, rolloutBytes := makeMixedBenchmarkCodexStore(b)
 	provider := Provider{Home: home, CachePath: cachePath, parseWorkers: workers}
 	opts := session.DiscoverOptions{}
 
-	b.ReportMetric(float64(provider.workerCount()), "workers")
 	b.ReportAllocs()
 	for b.Loop() {
 		if err := os.RemoveAll(filepath.Dir(cachePath)); err != nil {
@@ -175,9 +174,11 @@ func benchmarkDiscoverColdCacheMixedRollouts(b *testing.B, workers int) {
 			b.Fatalf("sessions = %d, want 24", len(got))
 		}
 	}
+	b.ReportMetric(float64(provider.workerCount()), "workers")
+	b.ReportMetric(float64(rolloutBytes), "rollout-bytes/op")
 }
 
-func makeMixedBenchmarkCodexStore(b *testing.B) (string, string) {
+func makeMixedBenchmarkCodexStore(b *testing.B) (string, string, int) {
 	b.Helper()
 	home := b.TempDir()
 	repo := filepath.Join(home, "repo")
@@ -190,9 +191,11 @@ func makeMixedBenchmarkCodexStore(b *testing.B) (string, string) {
 	}
 	sizes := []int{64 * 1024, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024}
 	base := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	rolloutBytes := 0
 	for i := range 24 {
 		path := filepath.Join(sessionDir, fmt.Sprintf("mixed-%02d.jsonl", i))
 		body := mixedBenchmarkCodexSession(i, repo, sizes[i%len(sizes)])
+		rolloutBytes += len(body)
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			b.Fatal(err)
 		}
@@ -201,7 +204,7 @@ func makeMixedBenchmarkCodexStore(b *testing.B) (string, string) {
 			b.Fatal(err)
 		}
 	}
-	return home, filepath.Join(b.TempDir(), "cache", "codex-cache.json")
+	return home, filepath.Join(b.TempDir(), "cache", "codex-cache.json"), rolloutBytes
 }
 
 func mixedBenchmarkCodexSession(i int, repo string, payloadBytes int) string {

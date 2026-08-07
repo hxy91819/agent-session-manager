@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1085,6 +1086,51 @@ func TestDiscoverFallsBackWhenRolloutIsNotAppendOnly(t *testing.T) {
 				t.Fatalf("stale prefix state reused: %#v", got[0])
 			}
 		})
+	}
+}
+
+func TestDiscoverFallsBackWhenAppendBoundaryIsRewritten(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	path := filepath.Join(home, "sessions", "2026", "06", "13", "session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":` + jsonString(repo) + `}}` + "\n" +
+		largeAssistantRecord() +
+		`{"timestamp":"2026-06-13T01:00:02Z","type":"turn_context","payload":{"cwd":` + jsonString(repo) + `,"model":"gpt-old"}}` + "\n"
+	writeFile(t, path, body)
+	provider := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "cache.json")}
+	first, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(first) != 1 || first[0].Metadata["model"] != "gpt-old" {
+		t.Fatalf("initial discovery = %#v, %v", first, err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldModel := []byte("gpt-old")
+	modelOffset := bytes.LastIndex(data, oldModel)
+	if modelOffset < 0 || int64(len(data)-modelOffset) > incrementalHashEdgeBytes {
+		t.Fatalf("model offset %d is not inside the append boundary", modelOffset)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("gpt-new"), int64(modelOffset)); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, path, `{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[]}}`+"\n")
+
+	got, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(got) != 1 || got[0].Metadata["model"] != "gpt-new" {
+		t.Fatalf("append-boundary rewrite reused stale state: %#v, %v", got, err)
 	}
 }
 

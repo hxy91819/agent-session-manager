@@ -208,6 +208,60 @@ func TestCLICodexAppendRefreshesSessionAndReportEvidence(t *testing.T) {
 	}
 }
 
+func TestCLIReportAfterWarmDiscoveryKeepsCodexEvidence(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	updatedRepo := t.TempDir()
+	path := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "06", "13", "report-after-discovery.jsonl")
+	writeFile(t, path, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"report-after-discovery","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`,"source":{"subagent":{"other":"review"}}}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"turn_context","payload":{"cwd":`+jsonString(repo)+`,"model":"gpt-old"}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first report request"}]}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":`+jsonString(strings.Repeat("assistant-payload-", 32*1024))+`}]}}
+{"timestamp":"2026-06-13T01:00:04Z","type":"turn_context","payload":{"cwd":`+jsonString(updatedRepo)+`,"model":"gpt-new"}}
+{"timestamp":"2026-06-13T01:00:05Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second report request"}]}}
+`)
+	writeFile(t, filepath.Join(env.ProviderHome["codex"], "history.jsonl"), `{"session_id":"report-after-discovery","text":"history title"}`+"\n")
+	writeFile(t, filepath.Join(env.ProviderHome["codex"], "session_index.jsonl"), `{"id":"report-after-discovery","thread_name":"native title"}`+"\n")
+
+	cold := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	warm := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("Codex cold and warm output differ:\ncold=%#v\nwarm=%#v", cold, warm)
+	}
+	got := sessionByID(t, warm, "report-after-discovery")
+	if got.Title != "native title" || got.CWD != updatedRepo || got.Metadata["model"] != "gpt-new" ||
+		got.Metadata["entrypoint"] != "subagent" || got.Metadata["title_source"] != "session_index" {
+		t.Fatalf("warm session = %#v", got)
+	}
+
+	out, err := env.Run(t, "report", "--start", "2026-06-13", "--end", "2026-06-14", "--preview-max-chars", "2000")
+	if err != nil {
+		t.Fatalf("report command: %v\n%s", err, out)
+	}
+	var report struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+			Projects int `json:"projects"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID            string `json:"id"`
+			EvidenceCount int    `json:"evidence_count"`
+			Evidence      []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if report.Totals.Sessions != 1 || report.Totals.Projects != 1 || len(report.Sessions) != 1 ||
+		report.Sessions[0].ID != "report-after-discovery" || report.Sessions[0].EvidenceCount != 2 ||
+		len(report.Sessions[0].Evidence) != 2 || report.Sessions[0].Evidence[0].Text != "first report request" ||
+		report.Sessions[0].Evidence[1].Text != "second report request" {
+		t.Fatalf("report payload = %#v", report)
+	}
+}
+
 func TestCLICachePreservesSinceLimitOrderingAndResumeSafety(t *testing.T) {
 	env := newASMTestEnv(t)
 	repo := t.TempDir()
