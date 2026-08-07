@@ -81,6 +81,10 @@ parsing, index behavior, launcher behavior, and UI model behavior.
 
 ## Design Rules
 
+- When implementing, tuning, or evaluating repository code-health metrics, read
+  `docs/agent-code-health-experiment.md` and preserve its staged, diff-aware
+  experiment design.
+
 - Keep provider-specific storage formats inside `internal/provider/<name>/`.
 - Keep cross-provider concepts in `internal/session`.
 - Keep sorting/search/project grouping in `internal/index`, not in providers.
