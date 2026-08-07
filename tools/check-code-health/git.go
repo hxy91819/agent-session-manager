@@ -46,26 +46,30 @@ func analyzeGitRevision(root, revision string, cfg config) (snapshot, error) {
 }
 
 func extractGitArchive(root, revision, destination string) error {
+	archive, err := os.CreateTemp("", "asm-code-health-archive-*.tar")
+	if err != nil {
+		return fmt.Errorf("create git archive: %w", err)
+	}
+	archivePath := archive.Name()
+	defer func() {
+		_ = archive.Close()
+		_ = os.Remove(archivePath)
+	}()
+
 	cmd := exec.Command("git", "archive", "--format=tar", revision)
 	cmd.Dir = root
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("open git archive: %w", err)
-	}
+	// A real file avoids the reader/wait deadlock that Git for Windows can hit
+	// when its archive stream is connected to an inherited stdout pipe.
+	cmd.Stdout = archive
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start git archive: %w", err)
-	}
-	extractErr := extractTar(stdout, destination)
-	waitErr := cmd.Wait()
-	if extractErr != nil {
-		return extractErr
-	}
-	if waitErr != nil {
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git archive %s: %s", revision, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind git archive: %w", err)
+	}
+	return extractTar(archive, destination)
 }
 
 func extractTar(reader io.Reader, destination string) error {
