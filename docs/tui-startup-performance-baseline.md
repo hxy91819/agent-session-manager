@@ -105,7 +105,90 @@ go test -run '^$' -bench . -benchmem \
 
 | 阶段 | after commit | CLI 结论 | internal 结论 | 决策 |
 |---|---|---|---|---|
-| E：Shared title policy | 待填 | 待填 | 待填 | 待填 |
+| E：Shared title policy | `1510a18` | oversized title 启动 `-86.32%`、cache `-96.77%`；原六场景最大变化 `+1.54%` | cache/index/UI 无 5% 回退；paired A/B 中 Codex changed-large 无显著变化、Claude `+5.81%` | 保留；Claude 项在 F/G 后复测 |
 | F：Cache 快速修复 | 待填 | 待填 | 待填 | 待填 |
 | G：Cache 分片 | 待填 | 待填 | 待填 | 待填 |
 | H：Codex 增量解析 | 待 benchmark 决策 | 待填 | 待填 | 待填 |
+
+## 阶段 E：Shared title policy
+
+实现与契约：
+
+- 维护者确认最多 512 rune、同时最多 2048 byte，`…` 计入上限，被截断尾部不再
+  搜索；普通 title 保持原样；
+- 生产实现提交：`42477c8`；避免缓存型 provider 重复归一化后的最终提交：
+  `1510a18`；benchmark 补强提交：`68c26ca`；
+- `sessioncache.Version` 从 5 更新到 6，旧 cache 安全退化为 miss 并从 native
+  store 重建，不删除用户 cache；report evidence 和 preview 没有经过 title 截断。
+
+公共行为证据：
+
+- base `3719b4e` 上执行
+  `go test ./tests -run '^TestCLITitleNormalizationAcrossProviders$' -count=1`，
+  9 个 provider 的长 title 均以 827–832 rune、约 2.8 KiB 原样返回，尾部 token
+  仍可搜索，测试因产品断言失败；
+- 最终实现上同一测试通过；普通 title、`title_source`、合法 UTF-8、rune/byte
+  上限和尾部不可搜索均由真实 provider fixture 锁定；
+- `TestCLIReportKeepsEvidenceIndependentFromNormalizedTitle` 通过，证明 title 截断
+  不改变 report evidence；focused provider、index、UI、report、cmd 和 CLI tests
+  以及完整仓库检查全部通过。
+
+Provider 影响分类：
+
+| Provider | title 路径 | cache | 结论 |
+|---|---|---:|---|
+| Codex | rollout，动态 session index/history | 是 | 两条路径均归一化 |
+| Claude | project JSONL user/summary | 是 | cache 写入前归一化 |
+| Kimi | state title/last prompt | 否 | 返回前归一化 |
+| Kiro | metadata JSON，动态 prompt fallback | 是 | 两条路径均归一化 |
+| opencode | session JSON，动态 message fallback | 是 | 两条路径均归一化 |
+| CodeBuddy | project JSONL title/summary/user | 是 | cache 写入前归一化 |
+| Cursor | transcript first user message | 是 | cache 写入前归一化 |
+| OpenClaw | compact sessions index | 否 | 返回前归一化 |
+| ZCode | SQLite title/first input | 否 | 返回前归一化 |
+
+### E.1 基线缺口与修正
+
+阶段 D 的 history-heavy fixture 只含短 title，无法量化真实 cache 中 43–624 KiB
+title 的放大。阶段 E 新增公开 CLI `WarmOversizedTitles`：120 个 Claude session，
+每个 native title 约 68.4 KiB。相同 benchmark 代码分别应用到生产 base
+`3719b4e`（临时 benchmark commit `f4bee01`）和最终实现，fixture correctness 在
+计时外验证 120 个 session。该场景是 D 基线遗漏后的补测，不回填或改写原始 D
+数字。
+
+补测命令：
+
+```sh
+go test -run '^$' \
+  -bench '^BenchmarkCLIStartup/WarmOversizedTitles$' \
+  -count=10 -benchtime=1s ./tests
+```
+
+| 指标 | before | E after | 变化 |
+|---|---:|---:|---:|
+| wall time | 68.238 ms ±1% | 9.338 ms ±3% | -86.32% |
+| cache bytes | 8266.8 KiB | 267.0 KiB | -96.77% |
+| fixture sessions | 120 | 120 | 无变化 |
+
+### E.2 原始 suite 对比与异常复核
+
+最终 raw output：
+
+- CLI：`/tmp/asm-tui-startup-eh/phase-e-final2-cli.txt`；
+- internal：`/tmp/asm-tui-startup-eh/phase-e-final2-internal.txt`；
+- oversized before：`/tmp/asm-tui-startup-eh/phase-e-oversized-before2.txt`；
+- changed-large paired A/B：`/tmp/asm-tui-startup-eh/phase-e-ab3-base.txt` 和
+  `/tmp/asm-tui-startup-eh/phase-e-ab3-after.txt`。
+
+原六个 CLI 场景中，五项无显著变化；`ChangedLargeCodexSession` 为 `+1.54%`，
+仍低于 5%。sessioncache 的关键 wall time 最大变化 `+1.64%`，allocations 无变化；
+index 为 `+1.31%`，UI 无显著变化。整套 internal 串行结果的 Codex/Claude
+changed-large 分别出现 `+18.95%`/`+9.99%`，且多轮整套采样漂移较大，因此又将
+base/after test binary 交替执行 10 次：Codex 无显著差异，Claude 为 `+5.81%`，
+两者 B/op 和 allocs/op 均无显著回退。Claude 参与本阶段 title 路径，暂不作为
+“未参与 provider 回退”否决阶段 E；保留该观测，在 F/G 完成后用 paired A/B
+复测，再决定是否需要 Claude incremental parsing follow-up。
+
+正式 after 命令与阶段 D 相同，仅输出路径改为上述 `phase-e-final2-*`；统计继续
+使用固定 benchstat 版本。阶段 E 的主要性能收益由新增 oversized 场景证明，原有
+短 title fixture 保持基本稳定。

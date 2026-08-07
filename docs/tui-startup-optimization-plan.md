@@ -812,6 +812,23 @@ session 携带 `time.Local`，JSON cache round-trip 后为 UTC；二者代表同
 本节摘要均存在。阶段 E 开始前已从这些可核对证据恢复持久化基线文档；该修复不
 改变 fixture、历史统计或生产代码。后续各生产阶段的 after 数据统一追加到该文档。
 
+### 10.2 阶段 E：Shared title policy
+
+- [x] 产品契约确认：最多 512 rune、最多 2048 byte、`…` 计入上限、截断尾部
+  不可搜索；普通 title 不变；
+- [x] 9 个 provider 的 native/dynamic title 路径统一归一化，六个 cache provider
+  写入 cache 前归一化，cache Version 更新为 6；
+- [x] base 公共 CLI 产品断言失败、修复后通过；report evidence 保持独立；
+- [x] focused tests、完整仓库检查和 10 样本 CLI/internal benchmark 完成；
+- [x] 修复阶段 D 未覆盖 oversized title 的 benchmark 缺口并记录 before/after。
+
+阶段 E 最终生产提交为 `1510a18`，benchmark 补强提交为 `68c26ca`。新增
+`WarmOversizedTitles` 补测显示 wall time `-86.32%`、cache bytes `-96.77%`；原六个
+CLI 场景最大变化为 `+1.54%`。详细 raw output、provider 分类、完整 internal 结果和
+Claude changed-large `+5.81%` paired A/B 观测见
+`docs/tui-startup-performance-baseline.md`。该 Claude 项在 F/G 后复测，不影响进入
+阶段 F，但不得在最终审计中遗漏。
+
 ## 10. 任务终止条件
 
 以下任一情况出现时停止当前生产阶段，不带着不确定性继续扩大修改：
