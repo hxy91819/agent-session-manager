@@ -42,7 +42,7 @@ parent relation 或其他 session metadata。需要先明确对象 source 如何
 性能基线文档“P0”一节。P1 必须等待 P0 合并后，以当时主线重新采集独立 base，不能
 复用本项 after。
 
-### 2. P1：Codex cache miss 有界并行解析
+### 2. P1：Codex cache miss 有界并行解析（已完成）
 
 P0 合并并重新建立真实基线后，再并行 primary cache miss。首个候选上限为 8 worker；
 cache Get/GetLatest、最终 Put/Save、newest-first 输出、重复 ID 去重和 dynamic side input
@@ -59,6 +59,15 @@ cache Get/GetLatest、最终 Put/Save、newest-first 输出、重复 ID 去重�
 
 单样本 8 worker parser 上限为 `-67.9%`，但只有公共 CLI p95 和内存风险同时可接受时
 才能保留。
+
+2026-08-07 已从 P0 合并后的 `origin/master@b6b2a23` 独立完成 P1：默认 8 worker
+只并行 primary file parse，cache 读写、去重和 dynamic inputs 继续按原顺序串行处理。
+真实冷启动 median/p95 从 23.246/23.620 秒降至 5.476/5.684 秒，benchstat 为
+`-76.44%`；热启动无显著变化。base/after 的 1207 个 session、89 个 project、provider
+计数、0 error 和两类不可逆哈希完全一致。真实峰值 RSS 从 49.9 MiB 增至 71.1 MiB；
+16 worker 相对 8 worker 收益很小且 RSS 进一步升至约 112 MiB，因此保留 8。完整
+focused base/after、worker sweep、race、正确性和 cross-agent 证据见性能基线文档 P1 节。
+本项完成后停止，不在同一任务进入 P2。
 
 ### 3. P2：Codex metadata/turn-context 快路径
 
