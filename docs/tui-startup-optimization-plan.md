@@ -807,6 +807,11 @@ session 携带 `time.Local`，JSON cache round-trip 后为 UTC；二者代表同
 语义；随后使用本节记录的 before 命令、fixture 和固定 benchstat 版本生成 after
 数据。阶段 F-H 不应在这些产品契约确认前抢跑。
 
+阶段 D 交付物补充核对（2026-08-07）：PR #39 合并到 `origin/master` 后遗漏了计划
+要求的 `docs/tui-startup-performance-baseline.md`，但 benchmark suite、原始输出和
+本节摘要均存在。阶段 E 开始前已从这些可核对证据恢复持久化基线文档；该修复不
+改变 fixture、历史统计或生产代码。后续各生产阶段的 after 数据统一追加到该文档。
+
 ## 10. 任务终止条件
 
 以下任一情况出现时停止当前生产阶段，不带着不确定性继续扩大修改：
