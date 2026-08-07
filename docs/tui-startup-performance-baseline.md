@@ -107,7 +107,7 @@ go test -run '^$' -bench . -benchmem \
 |---|---|---|---|---|
 | E：Shared title policy | `1510a18` | oversized title 启动 `-86.32%`、cache `-96.77%`；原六场景最大变化 `+1.54%` | cache/index/UI 无 5% 回退；paired A/B 中 Codex changed-large 无显著变化、Claude `+5.81%` | 保留；Claude 项在 F/G 后复测 |
 | F：Cache 快速修复 | `dbc7bb8` | EmptyStoresHistoricalCache 相对 D `-41.87%`、相对 E `-42.35%`；历史 cache 增量开销约 `-98.6%` | 相对 E 无 5% 回退，allocations 稳定 | 保留，进入 G |
-| G：Cache 分片 | 待填 | 待填 | 待填 | 待填 |
+| G：Cache 分片 | `bc63d8e` | WarmHistoryHeavy 相对 F `-42.55%`、相对 D `-42.33%`；其他 CLI wall time 无显著回退 | HistoryHeavyLoad `-99.92%`、SingleEntryUpdateSave `-87.52%`；index/UI 无回退 | 保留 64-shard 大型布局，进入 H |
 | H：Codex 增量解析 | 待 benchmark 决策 | 待填 | 待填 | 待填 |
 
 ## 阶段 E：Shared title policy
@@ -235,3 +235,56 @@ internal 相对 E：Claude changed-large 无显著变化，说明阶段 E 的观
 不归因于只触发 empty discovery 的 F。sessioncache 关键 load/save、provider
 history-heavy、index 和 UI 均无 5% 回退，B/op 与 allocs/op 稳定。正式命令、环境、
 样本数和 benchstat 版本与阶段 E/D 相同。
+
+## 阶段 G：Cache 分片
+
+最终生产提交 `bc63d8e`。`sessioncache` 按 identity/path hash 延迟加载所需 shard，
+只保存 dirty shard，并在 unbounded prune 时跨 shard 清理。单 shard 损坏只造成局部
+miss；legacy 单文件 cache 保持只读兼容，迁移失败时继续保留最后有效 cache，成功
+迁移则最后原子写入 manifest 启用新布局。Provider 仍只依赖 cache 接口，不知道
+分片布局。
+
+布局选择经过三轮验证：
+
+- 固定 32 shard 会让小 cache 的 `WarmRecentWindow`、`WarmOversizedTitles` 和
+  `ColdPopulatedStores` 分别回退 `+6.01%`、`+8.18%`、`+15.10%`，因此否决；
+- 改为小 cache（不超过 128 entry）内联 manifest、中型 16 shard、大型 32 shard
+  后消除了上述 CLI 回退，但公开 `WarmHistoryHeavy` 仅改善 `-34.57%`，未达到
+  40% 门槛；
+- 最终大型 cache 使用 64 shard。相同 2000-entry 样本中，16/32/64 个 active
+  shard 的 load 分别为 11.05/5.511/2.764 ms，single-entry update 分别为
+  1.854/1.244/1.008 ms，因此选择 64。
+
+公共行为与容错证据：
+
+- cold/warm、primary/dynamic invalidation、bounded/unbounded、limit/order、cwd
+  refresh 和 resume safety E2E 均保持不变；CLI fixture session 数全部不变；
+- 模块测试覆盖 lazy load、dirty save、跨 shard prune、局部 corruption、legacy
+  迁移幂等性、迁移/rename 失败回滚和不同 provider 隔离；
+- 完整仓库检查全部通过。
+
+最终 raw output：
+
+- CLI：`/tmp/asm-tui-startup-eh/phase-g-final64-cli.txt`；
+- internal：`/tmp/asm-tui-startup-eh/phase-g-final64-internal.txt`；
+- 相对 F：`/tmp/asm-tui-startup-eh/phase-g-final64-vs-f-cli.txt`；
+- 相对 D：`/tmp/asm-tui-startup-eh/phase-g-final64-vs-d-cli.txt` 和
+  `/tmp/asm-tui-startup-eh/phase-g-final64-vs-d-internal.txt`。
+
+CLI 10 样本中，`WarmHistoryHeavy` 从 F 的 31.38 ms 降至 18.03 ms
+（`-42.55%`），相对 D 为 `-42.33%`；`EmptyStoresHistoricalCache` 相对 D 为
+`-43.67%`，其余场景无显著 wall-time 回退。Codex changed-large 为 63.19 ms，
+与 D 的 63.14 ms 无显著差异，说明整文件解析仍是阶段 H 的主要瓶颈。
+
+相对 D 的关键 internal 结果：
+
+| Benchmark | D | G | wall time | bytes | allocs |
+|---|---:|---:|---:|---:|---:|
+| HistoryHeavyLoad | 16.87 ms | 12.72 us | -99.92% | -99.95% | -99.96% |
+| SingleEntryUpdateSave | 7.669 ms | 957.3 us | -87.52% | -96.94% | -96.81% |
+
+`ActiveIdentityLookup` 增加约 1.06 us，属于 hash/shard 定位固定成本；部分 provider
+hot-cache microbenchmark 因读取小 shard/manifest 出现 5% 以上相对变化，但公开 CLI
+场景未出现对应回退，history-heavy 和 cold 路径整体显著改善。Codex/Claude
+changed-large 分别无显著变化和 `+2.02%`，index/UI 无显著变化。阶段 H 只处理
+Codex；Claude 未达到跟进门槛，CodeBuddy/Cursor 也暂不扩大范围。

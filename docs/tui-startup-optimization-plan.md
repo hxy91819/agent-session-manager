@@ -842,6 +842,26 @@ Claude changed-large `+5.81%` paired A/B 观测见
 `98.6%`。其他 CLI 场景相对 E 无显著变化，internal 无 5% 回退。完整 raw output
 和计算口径见 `docs/tui-startup-performance-baseline.md`。
 
+### 10.4 阶段 G：Cache 分片
+
+- [x] lazy shard load、dirty shard save、跨 shard prune 和局部 corruption fallback；
+- [x] legacy 单文件只读兼容迁移，manifest 最后原子启用，失败保留最后有效 cache；
+- [x] cold/warm parity、dynamic inputs、bounded/unbounded、resume safety 和迁移容错
+  测试通过；
+- [x] 16/32/64 shard benchmark、CLI/internal 10 样本和完整仓库检查完成。
+
+最终提交 `bc63d8e`。固定 32 shard 因小 cache CLI 回退 `+6.01%` 至 `+15.10%`
+被否决；自适应 32-shard 大型布局虽消除回退，但 `WarmHistoryHeavy` 仅 `-34.57%`，
+未达到 40% 目标。最终采用不超过 128 entry 内联 manifest、中型 16 shard、大型
+64 shard：`WarmHistoryHeavy` 相对 F `-42.55%`、相对 D `-42.33%`，其他 CLI
+wall time 无显著回退；single-entry save 相对 D 降低 `-87.52%`。完整数据和容错
+证据见 `docs/tui-startup-performance-baseline.md`。
+
+Codex changed-large CLI 仍为 63.19 ms，internal 为 38.16 ms，与 D 无显著变化，
+因此满足阶段 H 的实施条件。Claude changed-large 相对 D 仅 `+2.02%`，CodeBuddy、
+Cursor 没有对应结果证明需要同步优化；阶段 H 保持 Codex provider-specific，不引入
+共享增量 parser 抽象。
+
 ## 10. 任务终止条件
 
 以下任一情况出现时停止当前生产阶段，不带着不确定性继续扩大修改：
