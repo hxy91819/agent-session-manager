@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	dynamicTitleCacheVersion = 2
+	dynamicTitleCacheVersion = 3
 	dynamicTitleHistory      = "history"
 	dynamicTitleSessionIndex = "session_index"
 	dynamicTitleMaxRecord    = 4 * 1024 * 1024
@@ -133,6 +133,12 @@ func (c *dynamicTitleCache) canReuse(f *os.File, info os.FileInfo, state dynamic
 		if size == state.Offset && changeID != state.ChangeID {
 			return false
 		}
+		if size > state.Offset {
+			contentHash, err := dynamicTitleContentHash(f, state.Offset)
+			if err != nil || contentHash != state.ContentSHA256 {
+				return false
+			}
+		}
 	} else {
 		contentHash, err := dynamicTitleContentHash(f, state.Offset)
 		if err != nil || contentHash != state.ContentSHA256 {
@@ -179,13 +185,10 @@ func (c *dynamicTitleCache) storeParsed(
 		return cloneTitles(titles)
 	}
 	appendSafe = appendSafe && dynamicTitleEndsWithNewline(f, size)
-	fileID, changeID, strongIdentity := dynamicTitleFileIdentity(info)
-	contentHash := ""
-	if !strongIdentity {
-		contentHash, err = dynamicTitleContentHash(f, size)
-		if err != nil {
-			return cloneTitles(titles)
-		}
+	fileID, changeID, _ := dynamicTitleFileIdentity(info)
+	contentHash, err := dynamicTitleContentHash(f, size)
+	if err != nil {
+		return cloneTitles(titles)
 	}
 	state := dynamicTitleIndexState{
 		Kind:            kind,

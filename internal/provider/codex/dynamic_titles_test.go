@@ -60,6 +60,19 @@ func TestDynamicTitleCacheFallsBackForNonAppendMutations(t *testing.T) {
 			want: "new-title",
 		},
 		{
+			name: "middle rewrite before append",
+			layout: func(_ string) string {
+				return dynamicTitleFiller(dynamicTitleHashEdge) +
+					dynamicSessionIndexRecord("sid", "old-title") +
+					dynamicTitleFiller(dynamicTitleHashEdge)
+			},
+			mutate: func(t *testing.T, path string, _ time.Time) {
+				rewriteDynamicTitle(t, path, "old-title", "new-title")
+				appendFile(t, path, dynamicSessionIndexRecord("other", "appended"))
+			},
+			want: "new-title",
+		},
+		{
 			name: "prefix rewrite before append",
 			layout: func(filler string) string {
 				return dynamicSessionIndexRecord("sid", "old-title") + filler
