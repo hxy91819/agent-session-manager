@@ -1,6 +1,25 @@
 # TUI 启动性能遗留工作建议
 
-## 当前结论
+## 当前进展（2026-08-08）
+
+P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 review 完成。P3 最终提交链
+停在 `8fb0ae7`，真实冷启动 `3.950→4.139 s`（`+4.78%`，低于 5% 保留门槛），热启动
+`78.39→44.55 ms`（`-43.17%`）；1196 sessions、90 projects、provider counts、0 error、
+两类不可逆哈希及 last-week 的 311 条 evidence/聚合哈希一致。完整数据和 raw path 见
+性能基线文档 P3 节。
+
+当前没有已批准或已定义的 P4。P3 land 后的下一步应先重新采集 post-P3 provider/stage
+分解并建立跨版本趋势，再由新的真实关键路径决定是否立项；不得沿用 P3 前的成本排序
+直接实施其他 provider 优化。候选顺序为：
+
+1. post-P3 重基线与跨版本启动趋势；
+2. 仅在达到门槛时评估 Claude、CodeBuddy 或 Cursor 的 provider-owned fast path；
+3. 仅在同步优化基本耗尽且 pre-TUI p95 仍影响体验时，单独评估异步 TUI 首屏。
+
+因此本轮进展状态是“P3 已完成并准备 land，后续性能实现未启动”。下文保留 P0 启动前
+的历史诊断、各阶段契约和有条件后续项，供下一轮重新立项时复用。
+
+## P0 启动前的历史结论
 
 阶段 E-H 已消除超长 title、历史 cache 和 changed-large Codex rollout 的专项瓶颈，
 但 2026-08-07 对 `origin/master@8cc4af8` 的真实分解诊断确认，当前冷启动中位数仍为
