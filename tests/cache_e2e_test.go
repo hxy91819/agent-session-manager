@@ -165,6 +165,60 @@ func TestCLICacheInvalidationAndDynamicInputs(t *testing.T) {
 	}
 }
 
+func TestCLICodexDynamicTitleIndexesStayFreshAcrossRuns(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	root := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "06", "13")
+	writeSession(t, filepath.Join(root, "native.jsonl"), "native", repo)
+	writeSession(t, filepath.Join(root, "history.jsonl"), "history", repo)
+	writeSession(t, filepath.Join(root, "rollout.jsonl"), "rollout", repo)
+	appendTestFile(t, filepath.Join(root, "rollout.jsonl"), `{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"rollout fallback"}]}}`+"\n")
+	historyPath := filepath.Join(env.ProviderHome["codex"], "history.jsonl")
+	indexPath := filepath.Join(env.ProviderHome["codex"], "session_index.jsonl")
+	writeFile(t, historyPath, `{"session_id":"native","text":"history under native"}`+"\n"+
+		`{"session_id":"history","text":"history initial"}`+"\n")
+	writeFile(t, indexPath, `{"id":"native","thread_name":"native initial"}`+"\n")
+
+	initial := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	warm := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if !reflect.DeepEqual(initial, warm) {
+		t.Fatalf("Codex dynamic title cold/warm output differs:\ncold=%#v\nwarm=%#v", initial, warm)
+	}
+	assertSessionTitle(t, warm, "native", "native initial")
+	assertSessionTitle(t, warm, "history", "history initial")
+	assertSessionTitle(t, warm, "rollout", "rollout fallback")
+
+	appendTestFile(t, historyPath, `{"session_id":"history","text":"history appended"}`+"\n"+
+		`{"session_id":"native","text":"history newer than native"}`+"\n"+
+		`{"session_id":"history","text":"   "}`+"\n"+
+		`{"session_id":"history","text":"history latest"}`+"\n")
+	appendTestFile(t, indexPath, `{"id":"native","thread_name":"   "}`+"\n"+
+		`not-json`+"\n"+
+		`{"id":"native","thread_name":"native appended"}`+"\n")
+	appended := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	assertSessionTitle(t, appended, "native", "native appended")
+	assertSessionTitle(t, appended, "history", "history latest")
+	assertSessionTitle(t, appended, "rollout", "rollout fallback")
+
+	if err := os.Remove(indexPath); err != nil {
+		t.Fatal(err)
+	}
+	withoutIndex := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	assertSessionTitle(t, withoutIndex, "native", "history newer than native")
+
+	writeFile(t, indexPath, `{"id":"native","thread_name":"native recreated"}`+"\n")
+	recreated := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	assertSessionTitle(t, recreated, "native", "native recreated")
+
+	out, err := env.Run(t, "report", "--start", "2026-06-13", "--end", "2026-06-14", "--preview-max-chars", "2000")
+	if err != nil {
+		t.Fatalf("report command: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"text": "rollout fallback"`) {
+		t.Fatalf("report lost rollout evidence after dynamic title updates:\n%s", out)
+	}
+}
+
 func TestCLICodexAppendRefreshesSessionAndReportEvidence(t *testing.T) {
 	env := newASMTestEnv(t)
 	repo := t.TempDir()

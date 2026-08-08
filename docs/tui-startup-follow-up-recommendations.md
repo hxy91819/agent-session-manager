@@ -1,6 +1,25 @@
 # TUI 启动性能遗留工作建议
 
-## 当前结论
+## 当前进展（2026-08-08）
+
+P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 review 完成。P3 最终提交链
+停在 `8fb0ae7`，真实冷启动 `3.950→4.139 s`（`+4.78%`，低于 5% 保留门槛），热启动
+`78.39→44.55 ms`（`-43.17%`）；1196 sessions、90 projects、provider counts、0 error、
+两类不可逆哈希及 last-week 的 311 条 evidence/聚合哈希一致。完整数据和 raw path 见
+性能基线文档 P3 节。
+
+当前没有已批准或已定义的 P4。P3 land 后的下一步应先重新采集 post-P3 provider/stage
+分解并建立跨版本趋势，再由新的真实关键路径决定是否立项；不得沿用 P3 前的成本排序
+直接实施其他 provider 优化。候选顺序为：
+
+1. post-P3 重基线与跨版本启动趋势；
+2. 仅在达到门槛时评估 Claude、CodeBuddy 或 Cursor 的 provider-owned fast path；
+3. 仅在同步优化基本耗尽且 pre-TUI p95 仍影响体验时，单独评估异步 TUI 首屏。
+
+因此本轮进展状态是“P3 已完成并准备 land，后续性能实现未启动”。下文保留 P0 启动前
+的历史诊断、各阶段契约和有条件后续项，供下一轮重新立项时复用。
+
+## P0 启动前的历史结论
 
 阶段 E-H 已消除超长 title、历史 cache 和 changed-large Codex rollout 的专项瓶颈，
 但 2026-08-07 对 `origin/master@8cc4af8` 的真实分解诊断确认，当前冷启动中位数仍为
@@ -101,12 +120,55 @@ user-preview evidence 路径。
 完整资源、raw path、cache/RSS 取舍和 cross-agent matrix 见性能基线文档 P2 节。
 本项保留并停止，不进入 P3。
 
-### 4. P3：Codex dynamic title index 增量化
+### 4. P3：Codex dynamic title index 增量化（已完成）
 
-P0 后 Codex 非 primary 热成本中，`session_index`/`history` dynamic side input 约 36 ms。
-只有真实热启动已降到百毫秒量级且该阶段成为主导项时，才为 append-only index 设计
-独立状态。覆盖 append latest-wins、truncate、replace、corruption、原子保存和 cache
-版本兼容；预期收益只有几十毫秒，不能抢在 P0/P1 前实施。
+P3 已从 P2 合并提交 `4053965` 独立执行，工作分支为 `agent/tui-startup-p3`。测试提交
+`af07933`，初始生产实现 `cffdfb3`，最终安全与冷路径修正为 `c64725b`、`27280ce`、
+`8fb0ae7`。独立 base 确认两个 title index 的重复全量解析在 producer-schema fixture
+中为 27.747 ms，约占当时真实热启动三分之一，实施门槛成立。
+
+先测试和测量，后实现。必须重新采集独立 P3 base，并分解普通 discovery 的热路径；
+只有确认 `session_index.jsonl`/`history.jsonl` 的重复全量解析仍是剩余关键路径，且预期
+收益相对实现与 cache 复杂度有意义时，才继续生产实现。若门槛不成立，停止实现并记录
+分解、raw path 和否决证据。
+
+实施范围只限 Codex dynamic title side inputs：持久化足以安全恢复 append-only 解析的
+索引状态，热路径只消费已验证的新完整 records；不得改变 primary rollout cache、P2
+metadata/turn-context 快路径、其他 provider 或 report evidence 路径。动态 title 仍须在
+每次 discovery 后正确覆盖缓存的 primary 结果，并保持
+`session_index > history > rollout`、最新非空 native name wins、可见 session、项目归组、
+newest-first、limit、cwd/model、parent/child 去重和 resume safety。
+
+正确性最低覆盖：cold/warm parity；两个 index 的 append 与 latest-wins；空 title；重复
+ID；跨文件 title 优先级与 rollout fallback；文件缺失、创建、truncate、atomic replace、
+prefix/boundary/middle rewrite 及 rewrite 后 append；partial、corrupt 和 oversized JSONL；
+旧 cache/version 兼容；
+增量状态原子保存及写入失败后的安全回退；普通 discovery 连续运行中的动态输入变化；
+公共 CLI JSON 与 report E2E。不得因索引状态损坏或身份不明确而使用可能过期的 title，
+此时应保守重建。
+
+性能验收使用符合 producer schema、包含大小和重复 ID 混合的 title indexes，报告实际
+读取 bytes、sec/op、B/op、allocs/op 和峰值 RSS。同机独立真实 base/after 冷各至少
+10 次，热各预热 2 次后至少 20 次；校验 session/project/provider 数量、provider error、
+两类不可逆哈希，以及周报 evidence/聚合哈希。PR 描述必须写入测试命令、样本数、
+base/after 数据、哈希和保留或否决结论，不能只链接本地 raw 文件。
+
+按 coherent stages 提交测试、实现和文档；完成 focused tests、`go test -race ./...`、
+provider performance contract、`golangci-lint`、`go test ./...`、build、pre-commit，使用
+`behavior-e2e-validation`、`cross-agent-pr-review` 和 `autoreview`。将 raw 临时路径、
+独立 base/after、cache/RSS 取舍及最终决策追加到性能基线和本文档。P3 不顺带实施其他
+provider 优化或后续性能项。
+
+2026-08-07 已完成统一门槛：最终相同 fixture wall time `-59.81%`、B/op `-35.90%`、
+allocs/op `-64.71%`；无变化热态真实 title-index source bytes 从 3,414,037 降至 213,495
+（`-93.75%`），文件增长时则完整校验旧前缀。冻结真实 store 并稳定 30 天窗口后的公共
+runner 中，冷启动中位数 `3.950→4.139 s`（`+4.78%`），热启动 `78.39→44.55 ms`
+（`-43.17%`）；cache 增加约 151 KiB。冷 RSS 中位数 `56,164→61,588 KiB`、最大值
+`58,304→70,660 KiB`，仍在 P1 已验收的约 71 MiB 上界内；热 RSS 未增长。1196 sessions、
+90 projects、provider counts、0 error 和两类不可逆哈希完全一致；last-week 的 311 条
+evidence 哈希与聚合哈希也完全一致。两轮 autoreview 的三项安全 finding 均增加失败
+回归并修复；完整 raw path、无效 live-run 说明、cache/RSS 取舍、cross-agent matrix 和
+命令见性能基线文档 P3 节。P3 决定保留并停止，不进入其他 provider 或后续性能项。
 
 ### 每个优化项的统一执行门槛
 

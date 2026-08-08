@@ -144,6 +144,54 @@ func BenchmarkDiscoverHotCache(b *testing.B) {
 	}
 }
 
+func BenchmarkDiscoverHotCacheDynamicTitleIndexes(b *testing.B) {
+	home, cachePath, indexBytes := makeDynamicTitleBenchmarkStore(b)
+	provider := Provider{Home: home, CachePath: cachePath}
+	opts := session.DiscoverOptions{}
+	if _, err := provider.Discover(opts); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		got, err := provider.Discover(opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) != 200 || got[0].Title == "" {
+			b.Fatalf("sessions = %d, first title = %q", len(got), got[0].Title)
+		}
+	}
+	b.ReportMetric(float64(indexBytes), "index-input-bytes/op")
+}
+
+func BenchmarkDiscoverColdCacheDynamicTitleIndexes(b *testing.B) {
+	home, cachePath, indexBytes := makeDynamicTitleBenchmarkStore(b)
+	provider := Provider{Home: home, CachePath: cachePath}
+	opts := session.DiscoverOptions{}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+			b.Fatal(err)
+		}
+		if err := os.Remove(dynamicTitleCachePath(cachePath)); err != nil && !os.IsNotExist(err) {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+		got, err := provider.Discover(opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) != 200 || got[0].Title == "" {
+			b.Fatalf("sessions = %d, first title = %q", len(got), got[0].Title)
+		}
+	}
+	b.ReportMetric(float64(indexBytes), "index-input-bytes/op")
+}
+
 func BenchmarkDiscoverColdCacheMixedRollouts(b *testing.B) {
 	benchmarkDiscoverColdCacheMixedRollouts(b, 0)
 }
@@ -234,6 +282,49 @@ func makeBenchmarkCodexStore(b *testing.B) (string, string) {
 		}
 	}
 	return home, filepath.Join(b.TempDir(), "codex-cache.json")
+}
+
+func makeDynamicTitleBenchmarkStore(b *testing.B) (string, string, int) {
+	b.Helper()
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	sessionDir := filepath.Join(home, "sessions", "2026", "08", "07")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	for i := range 200 {
+		path := filepath.Join(sessionDir, fmt.Sprintf("dynamic-%03d.jsonl", i))
+		body := fmt.Sprintf(`{"timestamp":"2026-08-07T01:00:00Z","type":"session_meta","payload":{"id":"dynamic-%03d","timestamp":"2026-08-07T01:00:00Z","cwd":%q}}`+"\n", i, repo)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	var history strings.Builder
+	historySizes := []int{32, 128, 512, 1024}
+	for i := range 5_500 {
+		id := i % 2_000
+		text := fmt.Sprintf("history %04d ", i) + strings.Repeat("x", historySizes[i%len(historySizes)])
+		fmt.Fprintf(&history, `{"session_id":"dynamic-%03d","text":%q}`+"\n", id, text)
+	}
+	historyPath := filepath.Join(home, "history.jsonl")
+	if err := os.WriteFile(historyPath, []byte(history.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+
+	var sessionIndex strings.Builder
+	for i := range 600 {
+		fmt.Fprintf(&sessionIndex, `{"id":"dynamic-%03d","thread_name":"native title %04d","updated_at":"2026-08-07T01:00:00Z"}`+"\n", i%300, i)
+	}
+	sessionIndexPath := filepath.Join(home, "session_index.jsonl")
+	if err := os.WriteFile(sessionIndexPath, []byte(sessionIndex.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+
+	return home, filepath.Join(b.TempDir(), "codex-cache.json"), history.Len() + sessionIndex.Len()
 }
 
 func benchmarkCodexSession(i int, repo string) string {

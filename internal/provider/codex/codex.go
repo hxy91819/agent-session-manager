@@ -72,15 +72,18 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 
 	cachePath := p.cachePath()
 	cache := sessioncache.Load(cachePath)
+	titleCachePath := dynamicTitleCachePath(cachePath)
+	titleCache := loadDynamicTitleCache(titleCachePath)
 	keep := make(map[string]struct{}, len(files))
 	cwdChecker := cwdstatus.NewChecker()
 	seen := make(map[string]struct{}, len(files))
 	histories := make(map[string]map[string]string, len(homes))
 	threadNames := make(map[string]map[string]string, len(homes))
 	for _, home := range homes {
-		histories[home] = nonNilTitleMap(readHistoryTitles(filepath.Join(home, "history.jsonl")))
-		threadNames[home] = nonNilTitleMap(readSessionIndexTitles(filepath.Join(home, "session_index.jsonl")))
+		histories[home] = nonNilTitleMap(titleCache.read(filepath.Join(home, "history.jsonl"), dynamicTitleHistory))
+		threadNames[home] = nonNilTitleMap(titleCache.read(filepath.Join(home, "session_index.jsonl"), dynamicTitleSessionIndex))
 	}
+	_ = titleCache.save(titleCachePath)
 	parsed := make([]parsedFile, len(files))
 	misses := make([]cacheMiss, 0, len(files))
 	metadataOnly := !opts.Preview.Enabled()
@@ -144,10 +147,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		s.Metadata["source_home"] = file.Home
 		cwdChecker.Mark(&s)
 		if title := titleForID(s.ID, file.Home, homes, threadNames); title != "" {
-			s.Title = session.NormalizeTitle(title)
+			s.Title = title
 			s.Metadata["title_source"] = "session_index"
 		} else if title := titleForID(s.ID, file.Home, homes, histories); title != "" {
-			s.Title = session.NormalizeTitle(title)
+			s.Title = title
 			s.Metadata["title_source"] = "history"
 		}
 		if opts.Preview.Enabled() && s.Metadata[session.MetadataParentThreadID] == "" {
@@ -1094,64 +1097,6 @@ func isInjectedUserContext(text string) bool {
 
 func collapseWhitespace(text string) string {
 	return strings.Join(strings.Fields(text), " ")
-}
-
-type historyRecord struct {
-	SessionID string `json:"session_id"`
-	Text      string `json:"text"`
-}
-
-func readHistoryTitles(path string) map[string]string {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = f.Close() }()
-
-	titles := make(map[string]string)
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		var rec historyRecord
-		if json.Unmarshal(scanner.Bytes(), &rec) != nil {
-			continue
-		}
-		text := strings.TrimSpace(rec.Text)
-		if rec.SessionID == "" || text == "" || strings.HasPrefix(text, "$") || strings.HasPrefix(text, "/") {
-			continue
-		}
-		titles[rec.SessionID] = text
-	}
-	return titles
-}
-
-type sessionIndexRecord struct {
-	ID         string `json:"id"`
-	ThreadName string `json:"thread_name"`
-}
-
-func readSessionIndexTitles(path string) map[string]string {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = f.Close() }()
-
-	titles := make(map[string]string)
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		var rec sessionIndexRecord
-		if json.Unmarshal(scanner.Bytes(), &rec) != nil {
-			continue
-		}
-		title := strings.TrimSpace(rec.ThreadName)
-		if rec.ID == "" || title == "" {
-			continue
-		}
-		titles[rec.ID] = title
-	}
-	return titles
 }
 
 func parseTime(value string) time.Time {
