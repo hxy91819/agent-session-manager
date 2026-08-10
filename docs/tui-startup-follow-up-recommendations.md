@@ -1,6 +1,6 @@
 # TUI 启动性能遗留工作建议
 
-## 当前进展（2026-08-08）
+## 当前进展（2026-08-10）
 
 P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 review 完成。P3 最终提交链
 停在 `8fb0ae7`，真实冷启动 `3.950→4.139 s`（`+4.78%`，低于 5% 保留门槛），热启动
@@ -8,16 +8,19 @@ P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 revi
 两类不可逆哈希及 last-week 的 311 条 evidence/聚合哈希一致。完整数据和 raw path 见
 性能基线文档 P3 节。
 
-当前没有已批准或已定义的 P4。P3 land 后的下一步应先重新采集 post-P3 provider/stage
-分解并建立跨版本趋势，再由新的真实关键路径决定是否立项；不得沿用 P3 前的成本排序
-直接实施其他 provider 优化。候选顺序为：
+P3 已通过 PR #46 land，进展状态修正已通过 PR #47 land；当前 `origin/master` 为
+`ac783c6`。P4 已获准启动，定义为“post-P3 重基线与跨版本启动性能趋势”。P4 必须先
+重新采集 post-P3 provider/stage 冷热分解并建立固定趋势证据，再由新的真实关键路径
+决定是否继续实现；不得沿用 P3 前的成本排序，也不得把 P3 after 当作 P4 base。执行
+顺序为：
 
-1. post-P3 重基线与跨版本启动趋势；
-2. 仅在达到门槛时评估 Claude、CodeBuddy 或 Cursor 的 provider-owned fast path；
-3. 仅在同步优化基本耗尽且 pre-TUI p95 仍影响体验时，单独评估异步 TUI 首屏。
+1. 独立采集 post-P3 重基线与跨版本启动趋势；
+2. 仅在新的真实关键路径达到统一门槛时，在同一 P4 中实施对应的最小
+   provider-owned 优化；
+3. 门槛不成立时，以测量、趋势基础设施、文档和否决结论结束 P4。
 
-因此本轮进展状态是“P3 已通过 PR #46 land，后续性能实现未启动”。下文保留 P0 启动前
-的历史诊断、各阶段契约和有条件后续项，供下一轮重新立项时复用。
+因此本轮进展状态是“P3 已 land，P4 已获准但尚未采样或实现”。下文保留 P0 启动前的
+历史诊断、各阶段契约和有条件后续项，供 P4 复用。
 
 ## P0 启动前的历史结论
 
@@ -169,6 +172,31 @@ runner 中，冷启动中位数 `3.950→4.139 s`（`+4.78%`），热启动 `78.
 evidence 哈希与聚合哈希也完全一致。两轮 autoreview 的三项安全 finding 均增加失败
 回归并修复；完整 raw path、无效 live-run 说明、cache/RSS 取舍、cross-agent matrix 和
 命令见性能基线文档 P3 节。P3 决定保留并停止，不进入其他 provider 或后续性能项。
+
+### 5. P4：post-P3 重基线与跨版本启动性能趋势（已批准，未开始）
+
+P4 从当前 `origin/master@ac783c6` 创建独立分支和 worktree。开始前完整阅读根
+`AGENTS.md`、本文档和 `docs/tui-startup-performance-baseline.md`；不得复用 P3 after，
+也不得在采集独立 base 前修改生产实现。
+
+第一阶段只做测量与趋势基础设施：重新采集完整启动、各 provider 和关键 stage 的冷热
+分解，在固定 runner 上保存可重复的 benchmark/benchstat 趋势，并记录 fixture session
+数、实际读取 bytes、cache bytes、峰值 RSS、provider error、session/project/provider
+数量与两类不可逆哈希。真实启动采样至少冷 10 次、热态分别预热 2 次后 20 次；周报还要
+比较 evidence 哈希和去除 evidence/previews 后的聚合哈希。所有正确性验证必须在计时外
+完成，不能只比较耗时。
+
+只有新的真实关键路径达到统一门槛，且预期收益足以覆盖实现、cache 和内存复杂度时，
+才允许在同一 P4 中实现对应的最小 provider-owned 优化。不得默认扩展 Claude、CodeBuddy
+或 Cursor；门槛不成立时不写生产 fast path，只提交测量、趋势基础设施、文档和明确的
+否决结论。任何实现都须重新采集同机独立 base/after，并完成 focused tests、公共行为
+E2E、`behavior-e2e-validation`、`cross-agent-pr-review`、autoreview、race、provider
+performance contract、lint、全量测试、build 和 pre-commit。
+
+P4 不进入异步 TUI 首屏，不抽象通用 JSONL incremental parser，不顺带优化未达门槛的
+provider，也不降低可见 session、title 或 report evidence 契约。完成后更新本文档和
+性能基线文档，记录命令、样本数、raw 临时路径、cache/RSS 取舍、哈希与保留或否决结论；
+未经另行授权不得推送或合并远端。
 
 ### 每个优化项的统一执行门槛
 

@@ -1022,3 +1022,24 @@ benchmark 和 public contract，再设计 provider-owned 优化；不得直接�
 最终 `go test -race ./...`、focused provider/CLI、provider performance contract、lint、
 全量测试、build 和 pre-commit 全部通过。P3 决定保留，并按范围要求停止，不进入其他
 provider 或后续性能项。
+
+## P4：post-P3 重基线与跨版本启动性能趋势
+
+状态（2026-08-10）：已获准，尚未开始采样或实现。P4 必须从
+`origin/master@ac783c6` 独立采集 post-P3 base，不得把本文件中的 P3 after 当作新 base，
+也不得在 base 和 provider/stage 冷热分解完成前修改生产实现。
+
+交付边界如下：
+
+- 固定 runner 的跨版本 benchmark/benchstat 趋势，以及完整启动、provider 和关键 stage
+  的冷热分解；
+- 真实冷启动至少 10 次、热态分别预热 2 次后至少 20 次，并记录 cache bytes、峰值 RSS、
+  实际读取 bytes 和 provider error；
+- session/project/provider 数量、两类不可逆哈希、周报 evidence 哈希与聚合哈希；
+- 只有新的真实关键路径达到统一门槛时，才实现对应的最小 provider-owned 优化并重新做
+  独立 A/B；否则以趋势基础设施和否决结论结束；
+- 完成 focused tests、公共行为 E2E、behavior E2E、cross-agent review、autoreview 和
+  完整仓库门禁；不进入异步 TUI、通用 JSONL 抽象或未达门槛的 provider 优化。
+
+本节目前不记录任何 P4 性能数字；后续只能追加实际采集的 commit、命令、样本、raw 临时
+路径、统计、资源取舍、正确性哈希和最终决策。未经另行授权不得推送或合并远端。
