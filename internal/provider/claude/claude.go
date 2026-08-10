@@ -426,6 +426,9 @@ func decodeClaudeMetadataRecord(line []byte) (rawRecord, claudeMessage, bool) {
 			}
 			message = value
 		default:
+			if isClaudeRecordKeyCaseVariant(key) {
+				return false
+			}
 			return json.Valid(value)
 		}
 		return true
@@ -450,12 +453,65 @@ func decodeClaudeMetadataRecord(line []byte) (rawRecord, claudeMessage, bool) {
 		case "model":
 			return json.Unmarshal(value, &msg.Model) == nil
 		default:
+			if isClaudeMessageKeyCaseVariant(key) {
+				return false
+			}
 			return json.Valid(value)
 		}
 	}) {
 		return rawRecord{}, claudeMessage{}, false
 	}
 	return rec, msg, true
+}
+
+func isClaudeRecordKeyCaseVariant(key string) bool {
+	first := foldedASCIIKeyByte(key)
+	switch len(key) {
+	case len("cwd"):
+		return first == 'c' && strings.EqualFold(key, "cwd")
+	case len("type"):
+		return first == 't' && strings.EqualFold(key, "type")
+	case len("title"):
+		return first == 't' && strings.EqualFold(key, "title")
+	case len("isMeta"):
+		return first == 'i' && strings.EqualFold(key, "isMeta")
+	case len("summary"):
+		return (first == 's' && strings.EqualFold(key, "summary")) ||
+			(first == 'm' && strings.EqualFold(key, "message"))
+	case len("sessionId"):
+		return (first == 's' && strings.EqualFold(key, "sessionId")) ||
+			(first == 't' && strings.EqualFold(key, "timestamp")) ||
+			(first == 'g' && strings.EqualFold(key, "gitBranch"))
+	case len("entrypoint"):
+		return first == 'e' && strings.EqualFold(key, "entrypoint")
+	case len("promptSource"):
+		return first == 'p' && strings.EqualFold(key, "promptSource")
+	default:
+		return false
+	}
+}
+
+func isClaudeMessageKeyCaseVariant(key string) bool {
+	first := foldedASCIIKeyByte(key)
+	switch len(key) {
+	case len("role"):
+		return first == 'r' && strings.EqualFold(key, "role")
+	case len("model"):
+		return first == 'm' && strings.EqualFold(key, "model")
+	default:
+		return false
+	}
+}
+
+func foldedASCIIKeyByte(key string) byte {
+	if key == "" {
+		return 0
+	}
+	first := key[0]
+	if first >= 'A' && first <= 'Z' {
+		return first + ('a' - 'A')
+	}
+	return first
 }
 
 func scanJSONObject(data []byte, visit func(key string, value []byte) bool) bool {

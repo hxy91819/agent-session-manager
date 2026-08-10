@@ -102,6 +102,11 @@ func TestMetadataParseMatchesFullParseAcrossProducerFieldOrders(t *testing.T) {
 			body: `{"type":"assistant","sessionId":"message-comma","cwd":"/repo","message":{"role":"assistant",}}
 `,
 		},
+		{
+			name: "case variant struct fields fall back",
+			body: `{"TYPE":"user","sessionID":"case-variant","CWD":"/repo","Timestamp":"2026-06-13T01:00:00Z","Message":{"Role":"user","Content":"case title"}}
+`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
