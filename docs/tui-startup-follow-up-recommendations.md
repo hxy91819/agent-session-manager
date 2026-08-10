@@ -16,8 +16,9 @@ metadata fast path。固定窗口真实冷启动 `2.967→2.386 s`（`-19.58%`�
 last-week 的 185 条 evidence/聚合哈希一致。完整资源、raw path、review 与 cross-agent
 matrix 见性能基线文档 P4 节。
 
-因此当前进展状态是“P0-P4 已完成，P4 保留且停止；没有已批准的 P5”。下文保留 P0
-启动前的历史诊断、各阶段契约和有条件后续项，供未来重新分解时复用。
+P4 已通过 PR #48 land。用户随后授权继续完成剩余优化项并逐阶段 PR 留痕；P5 从
+`origin/master@8163c48` 独立开始，当前只评估 Claude ordinary discovery 的 bounded cold
+cache-miss parsing。后续候选仍须逐项重新建立门槛，不能因这项授权跳过测量或合并阶段。
 
 ## P0 启动前的历史结论
 
@@ -185,8 +186,35 @@ report hashes；所有真实 JSON 与隔离 cache 在计时外删除，只持久
 最终 fixture wall `-33.44%`、B/op `-27.95%`，输入 bytes 不变；固定窗口真实冷启动
 `-19.58%`，热启动 `+1.42%` 且低于 5% 门槛，cache `+1.54%`，RSS 无实质增长。behavior E2E、
 cross-agent review、autoreview、race、provider performance contract、lint、全量测试与
-build 均通过。P4 保留并停止，没有进入异步 TUI、未达门槛 provider 或 P5；未经另行授权
-不得推送或合并远端。
+build 均通过。P4 保留并已通过 PR #48 land；该 PR 的最终 Windows CI 又补齐 `.exe`、
+零时长和 POSIX 权限断言的跨平台测试边界。P4 没有顺带进入异步 TUI 或未达门槛 provider。
+
+### 6. P5：Claude cold cache miss 有界并行解析（进行中）
+
+P5 从 P4 merge commit `8163c48` 独立采集 post-P4 base，没有复用 P4 after。无诊断公共
+base 的冷启动 median/p95 为 `2.518/2.584 s`（n=10），热启动 median/p95 为
+`35.040/46.997 ms`（预热 2，n=20）；513 sessions、74 projects、0 provider error 和两类
+不可逆哈希在冷热间一致。Claude-only cold median 为 `2.129 s`；聚合 stage 中 327 个候选、
+132,804,931 source bytes 的 `primary_parse` median 为 `2419.483 ms`，占 Claude provider
+total `99.35%`，因此进入实现的门槛成立。
+
+P5 只允许并行 Claude ordinary discovery 的 primary cache misses。文件枚举、cache
+Get/Put/Keep/Save、newest-first duplicate-ID 去重、cwd status 和最终 session 组装继续串行；
+`Preview.Enabled()` 的 report/full parse 路径不在本项并行，以保持 evidence 与内存边界。
+默认 worker 必须由 1/2/4/8/16 sweep、真实 RSS 和公共 p95 一起决定，不能直接照搬 Codex。
+
+最低覆盖：serial/parallel normalized parity，包含大小混合 transcript、invalid file、重复
+ID、newest-first、limit、cold/warm cache、metadata-only/full cache 切换和 report evidence；
+公共 CLI 冷热 JSON、project grouping、missing-cwd resume safety；race；独立真实 10 cold/
+20 warm A/B、cache/RSS/read bytes、provider/stage、session/project/provider/error 哈希和
+last-week evidence/聚合哈希。完成 review、门禁、文档和独立 PR 后停止，再从已合并主线
+评估下一项。
+
+P5 base raw output：
+
+- `/tmp/asm-tui-startup-p5-20260810/base-public/`；
+- `/tmp/asm-tui-startup-p5-20260810/base-diagnostics/`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-mixed-base.txt`。
 
 ### 每个优化项的统一执行门槛
 

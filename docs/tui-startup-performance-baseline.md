@@ -112,6 +112,7 @@ go test -run '^$' -bench . -benchmem \
 | P2：Codex metadata 快路径 | `a433aab` | 真实冷启动 `-28.68%`；交替热测无显著变化 | 混合 rollout `-94.70%`、B/op `-96.54%`；实际输入 bytes 不变 | 保留；report 继续完整解析，P3 未开始 |
 | P3：Codex dynamic title index | `8fb0ae7` | 真实热启动 `-43.17%`；冷启动 `+4.78%` | 混合 title index `-59.81%`、无变化热态 source bytes `-93.75%` | 保留；范围停在 P3 |
 | P4：post-P3 trend + Claude metadata fast path | `af3c5ac` | 真实冷启动 `-19.58%`；热启动 `+1.42%` | 混合 transcript `-33.44%`、B/op `-27.95%`；输入 bytes 不变 | 保留；P4 完成 |
+| P5：Claude bounded cold cache misses | `8163c48` base | 冷启动 base `2.518 s`，Claude-only `2.129 s` | cold primary parse 占 provider `99.35%` | 门槛成立；实现进行中 |
 
 ## 阶段 E：Shared title policy
 
@@ -1187,4 +1188,36 @@ decoder。一次 Flush finding 是对 Go if initializer 求值顺序的误判，
 
 最终 focused tests、公共 E2E、runner unit tests、`go test -race ./...`、provider performance
 contract、golangci-lint、`go test ./...` 和 build 全部通过；pre-commit 结果见最终提交记录。
-P4 决定保留 Claude fast path 和趋势基础设施，并按范围要求停止；未推送或合并远端。
+P4 决定保留 Claude fast path 和趋势基础设施，并已通过 PR #48 land。
+
+## P5：Claude cold cache miss 有界并行解析
+
+### 独立 post-P4 base 与实施门槛
+
+P5 从 P4 merge commit `8163c48` 独立开始。公共 runner 冷 10、热预热 2 后 20 的结果为：
+
+| 场景 | median | mean | p95 |
+|---|---:|---:|---:|
+| 冷启动 | 2.518277 s | 2.514104 s | 2.583882 s |
+| 热启动 | 35.040 ms | 36.262 ms | 46.997 ms |
+
+公共 base 为 513 sessions、74 projects、0 provider error；provider counts 为 Claude 177、
+CodeBuddy 65、Codex 75、Cursor 53、Kimi 23、Kiro 58、ZCode 62。session set SHA-256 为
+`843f63842b0ae6e6882645474203e76d5358233ee38be7efb96fb7a654679f07`，project set
+SHA-256 为 `dbb93a1e4ca60aaf469a44c90bd8b305a77a155600c9c9f37ddcc1314c6cebf7`。
+last-week 为 87 sessions、24 projects、185 条 evidence；evidence SHA-256 为
+`849897e95cbd197979ce9f6440621ef3273a7ab1e15f5f50595053f9460b6b02`，聚合 SHA-256 为
+`59aafb3921185e9a26d68d4ad590377216c0f940dc891095b6c50ba08dc5aa20`。
+
+provider-qualified base 的 Claude cold median 为 `2.129122 s`；诊断模式下 327 个候选、
+132,804,931 source bytes 的 `primary_parse` median/p95 为 `2419.483/2471.069 ms`，占
+Claude provider total `99.35%`。完整 public cold p95 仍超过 2.5 秒，且关键路径由大量独立
+per-session cache misses 构成，因此 P5 的实现门槛成立。P5 只评估 ordinary discovery 的
+provider-owned bounded concurrency；report/full-preview 保持串行。
+
+独立资源 base 的 cold/warm RSS median 为 `36,078/19,276 KiB`；read/pread bytes median 为
+`319,604,750/5,156,853`。raw output：
+
+- `/tmp/asm-tui-startup-p5-20260810/base-public/`；
+- `/tmp/asm-tui-startup-p5-20260810/base-diagnostics/`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-mixed-base.txt`。
