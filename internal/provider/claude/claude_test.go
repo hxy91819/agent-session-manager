@@ -87,6 +87,11 @@ func TestMetadataParseMatchesFullParseAcrossProducerFieldOrders(t *testing.T) {
 {"type":"title","title":"fallback title","sessionId":"fallback"}
 `,
 		},
+		{
+			name: "malformed duplicate message falls back",
+			body: `{"type":"assistant","sessionId":"duplicate","cwd":"/repo","message":{"content":[1 2]},"message":{"role":"assistant","model":"claude-sonnet-4"}}
+`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

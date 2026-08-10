@@ -421,6 +421,9 @@ func decodeClaudeMetadataRecord(line []byte) (rawRecord, claudeMessage, bool) {
 		case "isMeta":
 			return json.Unmarshal(value, &rec.IsMeta) == nil
 		case "message":
+			if len(message) != 0 && !json.Valid(message) {
+				return false
+			}
 			message = value
 		default:
 			return json.Valid(value)
