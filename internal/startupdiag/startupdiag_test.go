@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -43,7 +44,11 @@ func TestBeginAndFlushAggregateWithoutSessionData(t *testing.T) {
 		got[0].Count != 3 || got[0].Bytes != 1334 || got[0].Nanos < 0 {
 		t.Fatalf("event = %#v", got[0])
 	}
-	if gotInfo, err := os.Stat(path); err != nil || gotInfo.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v, err = %v", gotInfo.Mode().Perm(), err)
+	gotInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && gotInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v", gotInfo.Mode().Perm())
 	}
 }
