@@ -36,6 +36,17 @@ import sys
 cache = pathlib.Path(os.environ["XDG_CACHE_HOME"])
 cache.mkdir(parents=True, exist_ok=True)
 (cache / "marker").write_text("cached", encoding="utf-8")
+if len(sys.argv) > 1 and sys.argv[1] == "report":
+    print(json.dumps({
+        "totals": {"sessions": 1, "projects": 1, "providers": {"codex": 1}},
+        "sessions": [{
+            "provider": "codex", "id": "session-a",
+            "evidence": [{"at": "2026-08-09T00:00:00Z", "source": "codex:user", "text": "work"}],
+            "previews": [{"text": "work"}],
+        }],
+        "projects": [{"cwd": "/fixture/project", "count": 1}],
+    }))
+    raise SystemExit(0)
 if "--json" in sys.argv:
     print(json.dumps({
         "sessions": [
@@ -85,6 +96,8 @@ raise SystemExit(1)
                 "3",
                 "--diagnostics",
                 "--provider-breakdown",
+                "--report-period",
+                "last-week",
             ],
             check=False,
             text=True,
@@ -106,6 +119,8 @@ raise SystemExit(1)
             "openclaw", "opencode", "zcode",
         })
         self.assertTrue((output / "benchstat.txt").is_file())
+        self.assertEqual(summary["report_correctness"]["evidence"], 1)
+        self.assertEqual(len(summary["report_correctness"]["evidence_sha256"]), 64)
         self.assertFalse(any(output.rglob("marker")))
         self.assertFalse(any(path.name.endswith("raw.json") for path in output.rglob("*")))
 

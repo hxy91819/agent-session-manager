@@ -125,6 +125,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=0,
         help="Separate aggregate read/pread syscall-byte samples per cold/warm mode. Default: 0.",
     )
+    parser.add_argument(
+        "--report-period",
+        default="",
+        help="Also hash report evidence and aggregate output for this period, for example last-week.",
+    )
     return parser.parse_args(argv)
 
 
@@ -202,6 +207,10 @@ def probe_command(binary: Path, since_days: int, provider: str | None = None) ->
 
 def json_command(binary: Path, since_days: int) -> list[str]:
     return [str(binary), "--since-days", str(since_days), "--json"]
+
+
+def report_command(binary: Path, period: str) -> list[str]:
+    return [str(binary), "report", "--period", period]
 
 
 def isolated_env(cache_dir: Path, diagnostic_file: Path | None = None) -> dict[str, str]:
@@ -357,6 +366,27 @@ def run_json(binary: Path, since_days: int, cache_dir: Path) -> dict[str, Any]:
     return payload
 
 
+def run_report(binary: Path, period: str, cache_dir: Path) -> dict[str, Any]:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        report_command(binary, period),
+        env=isolated_env(cache_dir),
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise BenchmarkError("asm report failed during correctness verification")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise BenchmarkError("asm report returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise BenchmarkError("asm report root must be an object")
+    return payload
+
+
 def canonical_hash(rows: Sequence[Sequence[Any]]) -> str:
     digest = hashlib.sha256()
     for row in sorted(tuple(item) for item in rows):
@@ -395,6 +425,63 @@ def aggregate_correctness(payload: dict[str, Any]) -> dict[str, Any]:
         "providers": dict(sorted(provider_counts.items())),
         "session_set_sha256": canonical_hash(session_rows),
         "project_set_sha256": canonical_hash(project_rows),
+    }
+
+
+def strip_report_evidence(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: strip_report_evidence(item)
+            for key, item in value.items()
+            if key not in {"evidence", "previews"}
+        }
+    if isinstance(value, list):
+        return [strip_report_evidence(item) for item in value]
+    return value
+
+
+def aggregate_report_correctness(payload: dict[str, Any], period: str) -> dict[str, Any]:
+    sessions = payload.get("sessions")
+    projects = payload.get("projects")
+    totals = payload.get("totals")
+    if not isinstance(sessions, list) or not isinstance(projects, list) or not isinstance(totals, dict):
+        raise BenchmarkError("asm report must contain sessions, projects, and totals")
+    evidence_rows: list[tuple[str, str, str, str, str]] = []
+    for item in sessions:
+        if not isinstance(item, dict):
+            raise BenchmarkError("asm report session must be an object")
+        provider = item.get("provider")
+        session_id = item.get("id")
+        if not isinstance(provider, str) or not isinstance(session_id, str):
+            raise BenchmarkError("asm report session lacks provider or id")
+        evidence = item.get("evidence") or []
+        if not isinstance(evidence, list):
+            raise BenchmarkError("asm report evidence must be an array")
+        for row in evidence:
+            if not isinstance(row, dict):
+                raise BenchmarkError("asm report evidence row must be an object")
+            evidence_rows.append(
+                (
+                    provider,
+                    session_id,
+                    str(row.get("at") or ""),
+                    str(row.get("source") or ""),
+                    str(row.get("text") or ""),
+                )
+            )
+    aggregate = strip_report_evidence(payload)
+    aggregate_encoded = json.dumps(
+        aggregate, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode()
+    return {
+        "period": period,
+        "sessions": len(sessions),
+        "projects": len(projects),
+        "evidence": len(evidence_rows),
+        "providers": totals.get("providers") or {},
+        "unverified_sessions": totals.get("unverified_sessions") or 0,
+        "evidence_sha256": canonical_hash(evidence_rows),
+        "aggregate_without_evidence_sha256": hashlib.sha256(aggregate_encoded).hexdigest(),
     }
 
 
@@ -537,6 +624,19 @@ def markdown_report(summary: dict[str, Any]) -> str:
                 f"{resources['syscall_read_bytes']['warm']['median']:.0f} bytes"
             )
         lines.append("")
+    if summary.get("report_correctness"):
+        report = summary["report_correctness"]
+        lines.extend(
+            [
+                "## Report 正确性哈希",
+                "",
+                f"- Period: `{report['period']}`",
+                f"- Sessions/projects/evidence: {report['sessions']}/{report['projects']}/{report['evidence']}",
+                f"- Evidence SHA-256: `{report['evidence_sha256']}`",
+                f"- Aggregate SHA-256: `{report['aggregate_without_evidence_sha256']}`",
+                "",
+            ]
+        )
     if summary["diagnostics"]:
         lines.extend(["## Provider 诊断阶段", ""])
         for mode in ("cold", "warm"):
@@ -648,6 +748,12 @@ def run_benchmark(args: argparse.Namespace, binary: Path, output_dir: Path) -> d
         warm_correctness = aggregate_correctness(
             run_json(binary, args.since_days, verify_cache)
         )
+        report_correctness = None
+        if args.report_period:
+            report_correctness = aggregate_report_correctness(
+                run_report(binary, args.report_period, temp_root / "report"),
+                args.report_period,
+            )
 
     matches = cold_correctness == warm_correctness
     summary: dict[str, Any] = {
@@ -685,6 +791,8 @@ def run_benchmark(args: argparse.Namespace, binary: Path, output_dir: Path) -> d
             diagnostics_root,
             {"cold": args.cold_runs, "warm": args.warm_runs},
         )
+    if report_correctness is not None:
+        summary["report_correctness"] = report_correctness
     if args.provider_breakdown:
         provider_breakdown: dict[str, Any] = {}
         with tempfile.TemporaryDirectory(prefix="asm-real-startup-providers-") as temp:
