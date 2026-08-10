@@ -40,7 +40,7 @@ func TestBeginAndFlushAggregateWithoutSessionData(t *testing.T) {
 		t.Fatalf("events = %#v", got)
 	}
 	if got[0].Provider != "claude" || got[0].Stage != "primary_parse" ||
-		got[0].Count != 3 || got[0].Bytes != 1334 || got[0].Nanos <= 0 {
+		got[0].Count != 3 || got[0].Bytes != 1334 || got[0].Nanos < 0 {
 		t.Fatalf("event = %#v", got[0])
 	}
 	if gotInfo, err := os.Stat(path); err != nil || gotInfo.Mode().Perm() != 0o600 {

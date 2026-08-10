@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,7 +41,11 @@ func (e asmTestEnv) Run(t testing.TB, args ...string) (string, error) {
 
 func (e asmTestEnv) Build(t testing.TB) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "asm")
+	binaryName := "asm"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), binaryName)
 	cmd := exec.Command("go", "build", "-o", binary, "./cmd/asm")
 	cmd.Dir = ".."
 	cmd.Env = e.commandEnv(t)
