@@ -327,6 +327,46 @@ func TestDiscoverDeduplicatesSessionIDByNewestFile(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkipsClaudeSubagentTranscripts(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(filepath.Join(project, "subagents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	mainID := "11111111-2222-4333-8444-555555555555"
+	mainPath := filepath.Join(project, mainID+".jsonl")
+	directSubagentPath := filepath.Join(project, "agent-abcdef1234567890.jsonl")
+	nestedSubagentPath := filepath.Join(project, "subagents", "agent-fedcba0987654321.jsonl")
+	ambiguousPath := filepath.Join(project, "custom-main.jsonl")
+	writeClaudeSession(t, mainPath, mainID, repo, "main title")
+	writeClaudeSession(t, directSubagentPath, mainID, repo, "direct subagent title")
+	writeClaudeSession(t, nestedSubagentPath, mainID, repo, "nested subagent title")
+	writeClaudeSession(t, ambiguousPath, "custom-main", repo, "ambiguous main title")
+
+	base := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
+	for index, path := range []string{mainPath, ambiguousPath, nestedSubagentPath, directSubagentPath} {
+		at := base.Add(time.Duration(index) * time.Minute)
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("sessions = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].ID != "custom-main" || got[0].Path != ambiguousPath || got[0].Title != "ambiguous main title" {
+		t.Fatalf("ambiguous top-level session = %#v", got[0])
+	}
+	if got[1].ID != mainID || got[1].Path != mainPath || got[1].Title != "main title" {
+		t.Fatalf("main session = %#v", got[1])
+	}
+}
+
 func TestDiscoverMergesExtraHomesAndDeduplicatesByNewestID(t *testing.T) {
 	defaultHome := t.TempDir()
 	extraHome := t.TempDir()
