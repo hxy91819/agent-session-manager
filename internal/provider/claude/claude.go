@@ -26,6 +26,8 @@ const (
 	previewReadErrorNote     = "the Claude transcript could not be read completely while collecting report evidence"
 	oversizedRecordEdgeBytes = 64 * 1024
 	oversizedTextEdgeBytes   = 4 * 1024
+	metadataParseCacheKey    = "_asm_claude_parse_mode"
+	metadataParseCacheValue  = "metadata"
 )
 
 type Provider struct {
@@ -76,10 +78,21 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			ModTime:  file.ModTime,
 		}
 		s, ok := cache.Get(id)
+		if ok && opts.Preview.Enabled() && s.Metadata[metadataParseCacheKey] == metadataParseCacheValue {
+			ok = false
+		}
 		if !ok {
 			finishPrimaryParse := startupdiag.Begin(Name, "primary_parse")
 			var err error
-			s, err = parseSessionFile(file.Path)
+			if opts.Preview.Enabled() {
+				s, err = parseSessionFile(file.Path)
+			} else {
+				s, err = parseSessionMetadataFile(file.Path)
+				if s.Metadata == nil {
+					s.Metadata = make(map[string]string)
+				}
+				s.Metadata[metadataParseCacheKey] = metadataParseCacheValue
+			}
 			finishPrimaryParse(1, file.Size)
 			if err != nil || s.ID == "" || s.CWD == "" {
 				continue
@@ -89,6 +102,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if s.ID == "" || s.CWD == "" {
 			continue
 		}
+		delete(s.Metadata, metadataParseCacheKey)
 		keep[sessioncache.Key(Name, file.Path)] = struct{}{}
 		if _, ok := seen[s.ID]; ok {
 			continue
@@ -287,14 +301,43 @@ func parseSessionFile(path string) (session.Session, error) {
 	return parseSession(f)
 }
 
+func parseSessionMetadataFile(path string) (session.Session, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return session.Session{}, err
+	}
+	defer func() { _ = f.Close() }()
+	return parseSessionMetadata(f)
+}
+
 func parseSession(r io.Reader) (session.Session, error) {
+	return parseSessionMode(r, false)
+}
+
+func parseSessionMetadata(r io.Reader) (session.Session, error) {
+	return parseSessionMode(r, true)
+}
+
+func parseSessionMode(r io.Reader, metadataOnly bool) (session.Session, error) {
 	out := session.Session{Metadata: make(map[string]string)}
 	var lastUserTitle string
 
 	oversized, err := readClaudeRecords(r, func(line []byte) bool {
 		var rec rawRecord
-		if json.Unmarshal(line, &rec) != nil {
-			return true
+		var msg claudeMessage
+		if metadataOnly {
+			var ok bool
+			rec, msg, ok = decodeClaudeMetadataRecord(line)
+			if !ok && json.Unmarshal(line, &rec) == nil {
+				msg = parseMessage(rec.Message)
+			} else if !ok {
+				return true
+			}
+		} else {
+			if json.Unmarshal(line, &rec) != nil {
+				return true
+			}
+			msg = parseMessage(rec.Message)
 		}
 		if rec.SessionID != "" {
 			out.ID = rec.SessionID
@@ -329,7 +372,6 @@ func parseSession(r io.Reader) (session.Session, error) {
 			return true
 		}
 
-		msg := parseMessage(rec.Message)
 		if msg.Model != "" {
 			out.Metadata["model"] = msg.Model
 		}
@@ -351,6 +393,197 @@ func parseSession(r io.Reader) (session.Session, error) {
 		out.Metadata["title_source"] = "user"
 	}
 	return out, nil
+}
+
+func decodeClaudeMetadataRecord(line []byte) (rawRecord, claudeMessage, bool) {
+	var rec rawRecord
+	var message []byte
+	ok := scanJSONObject(line, func(key string, value []byte) bool {
+		switch key {
+		case "type":
+			return json.Unmarshal(value, &rec.Type) == nil
+		case "sessionId":
+			return json.Unmarshal(value, &rec.SessionID) == nil
+		case "cwd":
+			return json.Unmarshal(value, &rec.CWD) == nil
+		case "timestamp":
+			return json.Unmarshal(value, &rec.Timestamp) == nil
+		case "summary":
+			return json.Unmarshal(value, &rec.Summary) == nil
+		case "title":
+			return json.Unmarshal(value, &rec.Title) == nil
+		case "gitBranch":
+			return json.Unmarshal(value, &rec.GitBranch) == nil
+		case "entrypoint":
+			return json.Unmarshal(value, &rec.Entrypoint) == nil
+		case "promptSource":
+			return json.Unmarshal(value, &rec.PromptSource) == nil
+		case "isMeta":
+			return json.Unmarshal(value, &rec.IsMeta) == nil
+		case "message":
+			message = value
+		default:
+			return json.Valid(value)
+		}
+		return true
+	})
+	if !ok {
+		return rawRecord{}, claudeMessage{}, false
+	}
+	var msg claudeMessage
+	if len(message) == 0 {
+		return rec, msg, true
+	}
+	if rec.Type == "user" && !rec.IsMeta {
+		if json.Unmarshal(message, &msg) != nil {
+			return rawRecord{}, claudeMessage{}, false
+		}
+		return rec, msg, true
+	}
+	if !scanJSONObject(message, func(key string, value []byte) bool {
+		switch key {
+		case "role":
+			return json.Unmarshal(value, &msg.Role) == nil
+		case "model":
+			return json.Unmarshal(value, &msg.Model) == nil
+		default:
+			return json.Valid(value)
+		}
+	}) {
+		return rawRecord{}, claudeMessage{}, false
+	}
+	return rec, msg, true
+}
+
+func scanJSONObject(data []byte, visit func(key string, value []byte) bool) bool {
+	index := skipJSONSpace(data, 0)
+	if index >= len(data) || data[index] != '{' {
+		return false
+	}
+	index++
+	for {
+		index = skipJSONSpace(data, index)
+		if index >= len(data) {
+			return false
+		}
+		if data[index] == '}' {
+			return skipJSONSpace(data, index+1) == len(data)
+		}
+		keyStart := index
+		keyEnd, ok := scanJSONString(data, index)
+		if !ok {
+			return false
+		}
+		var key string
+		if json.Unmarshal(data[keyStart:keyEnd], &key) != nil {
+			return false
+		}
+		index = skipJSONSpace(data, keyEnd)
+		if index >= len(data) || data[index] != ':' {
+			return false
+		}
+		valueStart := skipJSONSpace(data, index+1)
+		valueEnd, ok := scanJSONValue(data, valueStart)
+		if !ok || !visit(key, data[valueStart:valueEnd]) {
+			return false
+		}
+		index = skipJSONSpace(data, valueEnd)
+		if index >= len(data) {
+			return false
+		}
+		switch data[index] {
+		case ',':
+			index++
+		case '}':
+			return skipJSONSpace(data, index+1) == len(data)
+		default:
+			return false
+		}
+	}
+}
+
+func skipJSONSpace(data []byte, index int) int {
+	for index < len(data) {
+		switch data[index] {
+		case ' ', '\t', '\r', '\n':
+			index++
+		default:
+			return index
+		}
+	}
+	return index
+}
+
+func scanJSONString(data []byte, index int) (int, bool) {
+	if index >= len(data) || data[index] != '"' {
+		return 0, false
+	}
+	for index++; index < len(data); index++ {
+		switch data[index] {
+		case '\\':
+			index++
+			if index >= len(data) {
+				return 0, false
+			}
+		case '"':
+			return index + 1, true
+		case '\n', '\r':
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func scanJSONValue(data []byte, index int) (int, bool) {
+	if index >= len(data) {
+		return 0, false
+	}
+	if data[index] == '"' {
+		return scanJSONString(data, index)
+	}
+	if data[index] == '{' || data[index] == '[' {
+		stack := []byte{data[index]}
+		for index++; index < len(data); index++ {
+			switch data[index] {
+			case '"':
+				end, ok := scanJSONString(data, index)
+				if !ok {
+					return 0, false
+				}
+				index = end - 1
+			case '{', '[':
+				stack = append(stack, data[index])
+			case '}', ']':
+				open := stack[len(stack)-1]
+				if (open == '{' && data[index] != '}') || (open == '[' && data[index] != ']') {
+					return 0, false
+				}
+				stack = stack[:len(stack)-1]
+				if len(stack) == 0 {
+					return index + 1, true
+				}
+			}
+		}
+		return 0, false
+	}
+	start := index
+	for index < len(data) {
+		switch data[index] {
+		case ',', '}', ']', ' ', '\t', '\r', '\n':
+			if index == start {
+				return 0, false
+			}
+			var value any
+			return index, json.Unmarshal(data[start:index], &value) == nil
+		default:
+			index++
+		}
+	}
+	if index == start {
+		return 0, false
+	}
+	var value any
+	return index, json.Unmarshal(data[start:index], &value) == nil
 }
 
 func isNonInteractiveRecord(rec rawRecord) bool {

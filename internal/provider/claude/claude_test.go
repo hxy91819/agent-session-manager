@@ -63,6 +63,43 @@ func TestParseSessionExtractsClaudeFields(t *testing.T) {
 	}
 }
 
+func TestMetadataParseMatchesFullParseAcrossProducerFieldOrders(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "message before outer metadata",
+			body: `{"message":{"role":"assistant","model":"claude-sonnet-4","content":"spoofed \\"role\\":\\"user\\""},"type":"assistant","uuid":"a","timestamp":"2026-06-13T01:01:00Z","entrypoint":"cli","promptSource":"interactive","cwd":"/latest","sessionId":"sid","gitBranch":"main"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"real user title"}]},"timestamp":"2026-06-13T01:02:00Z","entrypoint":"cli","cwd":"/latest","sessionId":"sid","gitBranch":"main"}
+{"type":"summary","summary":"Native Claude Title","sessionId":"sid"}
+`,
+		},
+		{
+			name: "nested unknown fields and escaped content",
+			body: ` { "unknown" : [{"nested":[1,true,null,{"text":"} ] ,"}]}], "message" : {"content":[{"type":"tool_result","content":"large ignored value"}],"model":"claude-opus-4","role":"assistant"}, "sessionId":"nested", "cwd":"/repo", "timestamp":"2026-06-13T01:00:00Z", "type":"assistant" }
+{"message":{"content":"fallback title","role":"user"},"isMeta":false,"type":"user","sessionId":"nested","cwd":"/repo","timestamp":"2026-06-13T01:01:00Z"}
+`,
+		},
+		{
+			name: "uncertain message shape falls back",
+			body: `{"type":"user","message":"not-an-object","sessionId":"fallback","cwd":"/repo","timestamp":"2026-06-13T01:00:00Z"}
+{"type":"title","title":"fallback title","sessionId":"fallback"}
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			full, fullErr := parseSession(strings.NewReader(tt.body))
+			metadata, metadataErr := parseSessionMetadata(strings.NewReader(tt.body))
+			if fullErr != nil || metadataErr != nil {
+				t.Fatalf("full err=%v metadata err=%v", fullErr, metadataErr)
+			}
+			sessiontest.RequireEqual(t, []session.Session{full}, []session.Session{metadata})
+		})
+	}
+}
+
 func TestParseSessionUsesLastHumanUserTitle(t *testing.T) {
 	input := strings.NewReader(`{"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:00:00Z","isMeta":true,"message":{"role":"user","content":"ignored meta"}}
 {"type":"user","sessionId":"sid","cwd":"/repo","timestamp":"2026-06-13T01:01:00Z","message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>"}}
@@ -458,6 +495,45 @@ func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
 	})
 	if !ok {
 		t.Fatal("bounded scan pruned the historical cache entry")
+	}
+}
+
+func TestReportDiscoveryReplacesMetadataOnlyCache(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	path := filepath.Join(home, "projects", "repo", "report.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeSession(t, path, "report", repo, "report title")
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+
+	ordinary, err := provider.Discover(session.DiscoverOptions{})
+	if err != nil || len(ordinary) != 1 {
+		t.Fatalf("ordinary = %#v err=%v", ordinary, err)
+	}
+	if ordinary[0].Metadata[metadataParseCacheKey] != "" {
+		t.Fatalf("parse mode leaked from ordinary discovery: %#v", ordinary[0].Metadata)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := sessioncache.FileIdentity{Provider: Name, Path: path, Size: info.Size(), ModTime: info.ModTime()}
+	cached, ok := sessioncache.Load(cachePath).Get(id)
+	if !ok || cached.Metadata[metadataParseCacheKey] != metadataParseCacheValue {
+		t.Fatalf("ordinary cache = %#v, ok=%v", cached, ok)
+	}
+
+	preview := session.PreviewOptions{UserMessagesPerEdge: 1, MaxChars: 200, Since: time.Unix(0, 0)}
+	report, err := provider.Discover(session.DiscoverOptions{Preview: preview})
+	if err != nil || len(report) != 1 || len(report[0].Previews) != 1 {
+		t.Fatalf("report = %#v err=%v", report, err)
+	}
+	cached, ok = sessioncache.Load(cachePath).Get(id)
+	if !ok || cached.Metadata[metadataParseCacheKey] != "" {
+		t.Fatalf("report cache = %#v, ok=%v", cached, ok)
 	}
 }
 
