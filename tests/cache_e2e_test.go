@@ -24,7 +24,77 @@ type cliSession struct {
 	Provider string            `json:"provider"`
 	CWD      string            `json:"cwd"`
 	Title    string            `json:"title"`
+	Path     string            `json:"path"`
 	Metadata map[string]string `json:"metadata"`
+}
+
+func TestCLIClaudeSubagentTranscriptsDoNotReplaceMainSessions(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	root := filepath.Join(env.ProviderHome["claude"], "projects", "repo")
+	mainID := "11111111-2222-4333-8444-555555555555"
+	mainPath := filepath.Join(root, mainID+".jsonl")
+	directSubagentPath := filepath.Join(root, "agent-abcdef1234567890.jsonl")
+	nestedSubagentPath := filepath.Join(root, "subagents", "agent-fedcba0987654321.jsonl")
+	ambiguousPath := filepath.Join(root, "custom-main.jsonl")
+	base := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
+
+	writeClaudeSession(t, mainPath, mainID, repo, "main request")
+	writeClaudeSession(t, directSubagentPath, mainID, repo, "direct subagent request")
+	writeClaudeSession(t, nestedSubagentPath, mainID, repo, "nested subagent request")
+	writeClaudeSession(t, ambiguousPath, "custom-main", repo, "ambiguous main request")
+	setModTime(t, mainPath, base)
+	setModTime(t, ambiguousPath, base.Add(time.Minute))
+	setModTime(t, nestedSubagentPath, base.Add(2*time.Minute))
+	setModTime(t, directSubagentPath, base.Add(3*time.Minute))
+
+	cold := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	warm := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("Claude cold and warm output differ:\ncold=%#v\nwarm=%#v", cold, warm)
+	}
+	if len(cold.Sessions) != 2 {
+		t.Fatalf("sessions = %#v, want main and ambiguous top-level sessions", cold.Sessions)
+	}
+	main := sessionByID(t, cold, mainID)
+	if main.Title != "main request" || main.Path != mainPath {
+		t.Fatalf("main session was replaced by a subagent transcript: %#v", main)
+	}
+	ambiguous := sessionByID(t, cold, "custom-main")
+	if ambiguous.Title != "ambiguous main request" || ambiguous.Path != ambiguousPath {
+		t.Fatalf("ambiguous top-level session was hidden: %#v", ambiguous)
+	}
+
+	out, err := env.Run(t, "--since-days", "0", "--resume", mainID, "--print-exec")
+	if err != nil || !strings.Contains(out, "cd '"+repo+"' && 'claude' '--resume' '"+mainID+"'") {
+		t.Fatalf("main resume err=%v output=%q", err, out)
+	}
+
+	out, err = env.Run(t, "report", "--start", "2026-06-13", "--end", "2026-06-14")
+	if err != nil {
+		t.Fatalf("report command: %v\n%s", err, out)
+	}
+	var report struct {
+		Sessions []struct {
+			ID       string `json:"id"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	for _, item := range report.Sessions {
+		if item.ID != mainID {
+			continue
+		}
+		if len(item.Evidence) != 1 || item.Evidence[0].Text != "main request" {
+			t.Fatalf("main report evidence came from a subagent transcript: %#v", item.Evidence)
+		}
+		return
+	}
+	t.Fatalf("main session missing from report: %#v", report.Sessions)
 }
 
 func TestCLIClaudeColdCacheWorkloadPreservesOrderingGroupingAndResumeSafety(t *testing.T) {

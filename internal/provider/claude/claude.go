@@ -318,9 +318,15 @@ func collectJSONL(home, root string, opts session.DiscoverOptions) ([]fileInfo, 
 			return nil
 		}
 		if d.IsDir() {
+			if isClaudeSubagentDirectory(root, path) {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".jsonl" {
+			return nil
+		}
+		if isClaudeSubagentTranscript(root, path) {
 			return nil
 		}
 		info, err := d.Info()
@@ -337,6 +343,36 @@ func collectJSONL(home, root string, opts session.DiscoverOptions) ([]fileInfo, 
 		return nil, err
 	}
 	return files, nil
+}
+
+func isClaudeSubagentTranscript(root, path string) bool {
+	// Current Claude stores child transcripts below subagents/, while older
+	// versions wrote agent-* beside the parent. Neither path is a resumable main session.
+	if strings.HasPrefix(filepath.Base(path), "agent-") {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	for index := 1; index+1 < len(parts); index++ {
+		if parts[index] == "subagents" {
+			return true
+		}
+	}
+	return false
+}
+
+func isClaudeSubagentDirectory(root, path string) bool {
+	if filepath.Base(path) != "subagents" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(filepath.Clean(rel), string(filepath.Separator))
 }
 
 func splitHomeList(value string) []string {

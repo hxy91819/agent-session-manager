@@ -103,6 +103,64 @@ func BenchmarkDiscoverColdCacheMixedTranscriptsWorkers(b *testing.B) {
 	}
 }
 
+func BenchmarkDiscoverColdCacheWithSubagentTranscripts(b *testing.B) {
+	home := b.TempDir()
+	repo := filepath.FromSlash("/benchmark/claude-repo")
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	sizes := []int{64 << 10, 256 << 10, 1 << 20, 4 << 20}
+	var storeBytes int64
+	var mainBytes int64
+	for i := range 16 {
+		id := fmt.Sprintf("%08x-0000-4000-8000-%012x", i+1, i+1)
+		mainBody := benchmarkClaudeMixedTranscript(id, repo, "main", sizes[i%len(sizes)])
+		mainPath := filepath.Join(projectDir, id+".jsonl")
+		if err := os.WriteFile(mainPath, []byte(mainBody), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		mainBytes += int64(len(mainBody))
+
+		subagentBody := benchmarkClaudeMixedTranscript(id, repo, "subagent", sizes[(i+2)%len(sizes)])
+		subagentDir := projectDir
+		if i%2 == 0 {
+			subagentDir = filepath.Join(projectDir, "subagents")
+			if err := os.MkdirAll(subagentDir, 0o755); err != nil {
+				b.Fatal(err)
+			}
+		}
+		subagentPath := filepath.Join(subagentDir, fmt.Sprintf("agent-%016x.jsonl", i+1))
+		if err := os.WriteFile(subagentPath, []byte(subagentBody), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		storeBytes += int64(len(subagentBody))
+	}
+	storeBytes += mainBytes
+
+	cachePath := filepath.Join(b.TempDir(), "claude-cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := os.RemoveAll(filepath.Dir(cachePath)); err != nil {
+			b.Fatal(err)
+		}
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil || len(got) != 16 {
+			b.Fatalf("sessions=%d err=%v", len(got), err)
+		}
+	}
+	b.ReportMetric(float64(storeBytes), "store-bytes/op")
+	b.ReportMetric(float64(mainBytes), "main-transcript-bytes/op")
+}
+
+func benchmarkClaudeMixedTranscript(id, repo, title string, assistantBytes int) string {
+	return fmt.Sprintf(`{"type":"user","message":{"role":"user","content":%q},"timestamp":"2026-08-10T01:00:00Z","entrypoint":"cli","cwd":%q,"sessionId":%q,"gitBranch":"main"}`+"\n", title, repo, id) +
+		fmt.Sprintf(`{"message":{"role":"assistant","model":"claude-sonnet-4","content":"%s"},"type":"assistant","timestamp":"2026-08-10T01:00:01Z","entrypoint":"cli","cwd":%q,"sessionId":%q,"gitBranch":"main"}`+"\n", strings.Repeat("x", assistantBytes), repo, id) +
+		fmt.Sprintf(`{"type":"summary","summary":%q,"sessionId":%q}`+"\n", title, id)
+}
+
 func benchmarkDiscoverColdCacheMixedTranscripts(b *testing.B, workers int) {
 	home := b.TempDir()
 	repo := filepath.FromSlash("/benchmark/claude-repo")
