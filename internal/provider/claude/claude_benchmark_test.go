@@ -91,6 +91,44 @@ func BenchmarkDiscoverChangedLargeSession(b *testing.B) {
 	}
 }
 
+func BenchmarkDiscoverColdCacheMixedTranscripts(b *testing.B) {
+	home := b.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	sizes := []int{64 << 10, 256 << 10, 1 << 20, 4 << 20}
+	var inputBytes int64
+	for i := range 24 {
+		path := filepath.Join(projectDir, fmt.Sprintf("mixed-%03d.jsonl", i))
+		body := fmt.Sprintf(`{"type":"user","message":{"role":"user","content":"prompt %03d"},"timestamp":"2026-06-15T01:00:00Z","entrypoint":"cli","cwd":%q,"sessionId":"mixed-%03d","gitBranch":"main"}`+"\n", i, repo, i) +
+			fmt.Sprintf(`{"message":{"role":"assistant","model":"claude-sonnet-4","content":"%s"},"type":"assistant","timestamp":"2026-06-15T01:00:01Z","entrypoint":"cli","cwd":%q,"sessionId":"mixed-%03d","gitBranch":"main"}`+"\n", strings.Repeat("x", sizes[i%len(sizes)]), repo, i) +
+			fmt.Sprintf(`{"type":"summary","summary":"Native Claude Title %03d","sessionId":"mixed-%03d"}`+"\n", i, i)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		inputBytes += int64(len(body))
+	}
+	cachePath := filepath.Join(b.TempDir(), "cache.json")
+	provider := Provider{Home: home, CachePath: cachePath}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := os.RemoveAll(filepath.Dir(cachePath)); err != nil {
+			b.Fatal(err)
+		}
+		got, err := provider.Discover(session.DiscoverOptions{})
+		if err != nil || len(got) != 24 {
+			b.Fatalf("sessions=%d err=%v", len(got), err)
+		}
+	}
+	b.ReportMetric(float64(inputBytes), "transcript-bytes/op")
+}
+
 func makeBenchmarkClaudeStore(b *testing.B) (string, string) {
 	b.Helper()
 	home := b.TempDir()

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,7 +41,11 @@ func (e asmTestEnv) Run(t testing.TB, args ...string) (string, error) {
 
 func (e asmTestEnv) Build(t testing.TB) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "asm")
+	binaryName := "asm"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), binaryName)
 	cmd := exec.Command("go", "build", "-o", binary, "./cmd/asm")
 	cmd.Dir = ".."
 	cmd.Env = e.commandEnv(t)
@@ -67,7 +72,7 @@ func (e asmTestEnv) commandEnv(t testing.TB) []string {
 		"OPENCODE_HOME": {}, "OPENCODE_DATA_HOME": {}, "OPENCODE_DATA_DIR": {},
 		"CODEBUDDY_HOME": {}, "CURSOR_HOME": {}, "OPENCLAW_STATE_DIR": {},
 		"OPENCLAW_HOME": {}, "ZCODE_HOME": {}, "ASM_CODEX_EXTRA_HOMES": {},
-		"ASM_CLAUDE_EXTRA_HOMES": {},
+		"ASM_CLAUDE_EXTRA_HOMES": {}, "ASM_STARTUP_DIAG_FILE": {},
 	}
 	env := make([]string, 0, len(os.Environ())+len(controlled))
 	for _, item := range os.Environ() {

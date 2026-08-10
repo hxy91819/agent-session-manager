@@ -1,6 +1,6 @@
 # TUI 启动性能遗留工作建议
 
-## 当前进展（2026-08-08）
+## 当前进展（2026-08-10）
 
 P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 review 完成。P3 最终提交链
 停在 `8fb0ae7`，真实冷启动 `3.950→4.139 s`（`+4.78%`，低于 5% 保留门槛），热启动
@@ -8,16 +8,16 @@ P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 revi
 两类不可逆哈希及 last-week 的 311 条 evidence/聚合哈希一致。完整数据和 raw path 见
 性能基线文档 P3 节。
 
-当前没有已批准或已定义的 P4。P3 land 后的下一步应先重新采集 post-P3 provider/stage
-分解并建立跨版本趋势，再由新的真实关键路径决定是否立项；不得沿用 P3 前的成本排序
-直接实施其他 provider 优化。候选顺序为：
+P3 已通过 PR #46 land，进展状态修正已通过 PR #47 land；`origin/master@ac783c6` 是
+P4 的独立生产 base。P4 已完成 post-P3 provider/stage 重基线、固定跨版本趋势 runner，
+并由新数据确认 Claude cold primary parse 达到统一门槛；最终实施最小 Claude-owned
+metadata fast path。固定窗口真实冷启动 `2.967→2.386 s`（`-19.58%`），热启动 `+1.42%`
+且低于 5% 门槛；504 sessions、74 projects、provider counts、0 error、两类不可逆哈希和
+last-week 的 185 条 evidence/聚合哈希一致。完整资源、raw path、review 与 cross-agent
+matrix 见性能基线文档 P4 节。
 
-1. post-P3 重基线与跨版本启动趋势；
-2. 仅在达到门槛时评估 Claude、CodeBuddy 或 Cursor 的 provider-owned fast path；
-3. 仅在同步优化基本耗尽且 pre-TUI p95 仍影响体验时，单独评估异步 TUI 首屏。
-
-因此本轮进展状态是“P3 已通过 PR #46 land，后续性能实现未启动”。下文保留 P0 启动前
-的历史诊断、各阶段契约和有条件后续项，供下一轮重新立项时复用。
+因此当前进展状态是“P0-P4 已完成，P4 保留且停止；没有已批准的 P5”。下文保留 P0
+启动前的历史诊断、各阶段契约和有条件后续项，供未来重新分解时复用。
 
 ## P0 启动前的历史结论
 
@@ -169,6 +169,24 @@ runner 中，冷启动中位数 `3.950→4.139 s`（`+4.78%`），热启动 `78.
 evidence 哈希与聚合哈希也完全一致。两轮 autoreview 的三项安全 finding 均增加失败
 回归并修复；完整 raw path、无效 live-run 说明、cache/RSS 取舍、cross-agent matrix 和
 命令见性能基线文档 P3 节。P3 决定保留并停止，不进入其他 provider 或后续性能项。
+
+### 5. P4：post-P3 重基线与跨版本启动性能趋势（已完成）
+
+P4 从 `origin/master@ac783c6` 独立采集，没有复用 P3 after。固定 runner 现在输出完整
+冷/热、逐 provider、关键 stage、benchstat trend、cache/RSS/syscall bytes、聚合正确性和
+report hashes；所有真实 JSON 与隔离 cache 在计时外删除，只持久化聚合值。
+
+新 base 确认 Claude 冷 primary parse 读取 332 个候选、132,505,191 bytes，中位数约
+2.98 秒，占 Claude provider total 99.46%，而完整冷启动约 2.97 秒；实施门槛成立。
+普通 discovery 的 Claude-owned scanner 保守验证完整 JSON，但跳过 assistant content 的
+深度 decode；report 遇到 metadata-only cache 会重做 full parse。CodeBuddy、Cursor 和
+其他 provider 未达门槛或触发不可达，本项未扩范围、未创建共享 parser。
+
+最终 fixture wall `-33.44%`、B/op `-27.95%`，输入 bytes 不变；固定窗口真实冷启动
+`-19.58%`，热启动 `+1.42%` 且低于 5% 门槛，cache `+1.54%`，RSS 无实质增长。behavior E2E、
+cross-agent review、autoreview、race、provider performance contract、lint、全量测试与
+build 均通过。P4 保留并停止，没有进入异步 TUI、未达门槛 provider 或 P5；未经另行授权
+不得推送或合并远端。
 
 ### 每个优化项的统一执行门槛
 

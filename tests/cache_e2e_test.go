@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -316,6 +317,97 @@ func TestCLIReportAfterWarmDiscoveryKeepsCodexEvidence(t *testing.T) {
 		len(report.Sessions[0].Evidence) != 2 || report.Sessions[0].Evidence[0].Text != "first report request" ||
 		report.Sessions[0].Evidence[1].Text != "second report request" {
 		t.Fatalf("report payload = %#v", report)
+	}
+}
+
+func TestCLIReportAfterWarmDiscoveryKeepsClaudeEvidence(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	path := filepath.Join(env.ProviderHome["claude"], "projects", "repo", "report-after-discovery.jsonl")
+	writeFile(t, path, `{"type":"user","message":{"role":"user","content":"first Claude request"},"timestamp":"2026-06-13T01:00:00Z","entrypoint":"cli","cwd":`+jsonString(repo)+`,"sessionId":"claude-report","gitBranch":"main"}
+{"message":{"role":"assistant","model":"claude-sonnet-4","content":"`+strings.Repeat("assistant-payload-", 32*1024)+`"},"type":"assistant","timestamp":"2026-06-13T01:00:01Z","entrypoint":"cli","cwd":`+jsonString(repo)+`,"sessionId":"claude-report","gitBranch":"main"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"second Claude request"}]},"timestamp":"2026-06-13T01:00:02Z","entrypoint":"cli","cwd":`+jsonString(repo)+`,"sessionId":"claude-report","gitBranch":"main"}
+{"type":"summary","summary":"Native Claude report title","sessionId":"claude-report"}
+`)
+
+	cold := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	warm := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("Claude cold and warm output differ:\ncold=%#v\nwarm=%#v", cold, warm)
+	}
+	got := sessionByID(t, warm, "claude-report")
+	if got.Title != "Native Claude report title" || got.CWD != repo ||
+		got.Metadata["model"] != "claude-sonnet-4" || got.Metadata["git_branch"] != "main" ||
+		got.Metadata["title_source"] != "summary" {
+		t.Fatalf("warm session = %#v", got)
+	}
+	if _, leaked := got.Metadata["_asm_claude_parse_mode"]; leaked {
+		t.Fatalf("internal parse mode leaked into public JSON: %#v", got.Metadata)
+	}
+
+	out, err := env.Run(t, "report", "--start", "2026-06-13", "--end", "2026-06-14", "--preview-max-chars", "2000")
+	if err != nil {
+		t.Fatalf("report command: %v\n%s", err, out)
+	}
+	var report struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+			Projects int `json:"projects"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID            string `json:"id"`
+			EvidenceCount int    `json:"evidence_count"`
+			Evidence      []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if report.Totals.Sessions != 1 || report.Totals.Projects != 1 || len(report.Sessions) != 1 ||
+		report.Sessions[0].ID != "claude-report" || report.Sessions[0].EvidenceCount != 2 ||
+		len(report.Sessions[0].Evidence) != 2 || report.Sessions[0].Evidence[0].Text != "first Claude request" ||
+		report.Sessions[0].Evidence[1].Text != "second Claude request" {
+		t.Fatalf("report payload = %#v", report)
+	}
+}
+
+func TestCLIMissingSessionProbeFlushesAggregateStartupDiagnostics(t *testing.T) {
+	env := newASMTestEnv(t)
+	binary := env.Build(t)
+	diagnosticPath := filepath.Join(t.TempDir(), "startup-diagnostics.json")
+	cmd := exec.Command(binary, "--resume", "__asm_real_startup_probe_missing__")
+	cmd.Dir = ".."
+	cmd.Env = append(env.commandEnv(t), "ASM_STARTUP_DIAG_FILE="+diagnosticPath)
+	out, err := cmd.CombinedOutput()
+	if err == nil || strings.TrimSpace(string(out)) != "session not found: __asm_real_startup_probe_missing__" {
+		t.Fatalf("probe err=%v output=%q", err, out)
+	}
+	data, err := os.ReadFile(diagnosticPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []struct {
+		Provider string `json:"provider"`
+		Stage    string `json:"stage"`
+		Nanos    int64  `json:"nanos"`
+		Count    int64  `json:"count"`
+		Bytes    int64  `json:"bytes"`
+	}
+	if err := json.Unmarshal(data, &events); err != nil {
+		t.Fatalf("invalid diagnostics: %v\n%s", err, data)
+	}
+	providers := make(map[string]bool)
+	for _, event := range events {
+		if event.Stage == "provider_total" && event.Nanos >= 0 {
+			providers[event.Provider] = true
+		}
+	}
+	for _, provider := range []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode"} {
+		if !providers[provider] {
+			t.Fatalf("missing provider_total for %s: %#v", provider, events)
+		}
 	}
 }
 

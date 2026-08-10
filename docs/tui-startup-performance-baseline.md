@@ -111,6 +111,7 @@ go test -run '^$' -bench . -benchmem \
 | H：Codex 增量解析 | `eeeee26` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
 | P2：Codex metadata 快路径 | `a433aab` | 真实冷启动 `-28.68%`；交替热测无显著变化 | 混合 rollout `-94.70%`、B/op `-96.54%`；实际输入 bytes 不变 | 保留；report 继续完整解析，P3 未开始 |
 | P3：Codex dynamic title index | `8fb0ae7` | 真实热启动 `-43.17%`；冷启动 `+4.78%` | 混合 title index `-59.81%`、无变化热态 source bytes `-93.75%` | 保留；范围停在 P3 |
+| P4：post-P3 trend + Claude metadata fast path | `af3c5ac` | 真实冷启动 `-19.58%`；热启动 `+1.42%` | 混合 transcript `-33.44%`、B/op `-27.95%`；输入 bytes 不变 | 保留；P4 完成 |
 
 ## 阶段 E：Shared title policy
 
@@ -1022,3 +1023,168 @@ benchmark 和 public contract，再设计 provider-owned 优化；不得直接�
 最终 `go test -race ./...`、focused provider/CLI、provider performance contract、lint、
 全量测试、build 和 pre-commit 全部通过。P3 决定保留，并按范围要求停止，不进入其他
 provider 或后续性能项。
+
+## P4：post-P3 重基线与跨版本启动性能趋势
+
+状态（2026-08-10）：已完成并决定保留。P4 从 `origin/master@ac783c6` 独立采集
+post-P3 base；测试/benchmark 提交为 `191492b`，趋势与诊断基础设施提交为 `9a2f09e`、
+`b8a9ff9`，Claude 生产实现为 `7529a24`，review 修正为 `f4a89be`、`00b0dd8`、
+`f21e6e5`、`1d100c7`、`af3c5ac`。没有复用 P3 after，也没有进入异步 TUI、通用 JSONL parser 或
+未达门槛的 provider 优化。
+
+### post-P3 base、固定趋势 runner 与实施门槛
+
+环境继续为 Go 1.26.5、Linux `6.6.92-34.1.tl4.x86_64`、AMD EPYC 7K62、32 CPU；
+固定 benchstat 为 `golang.org/x/perf/cmd/benchstat@v0.0.0-20260709024250-82a0b07e230d`。
+公共 runner 新增逐 provider 的 provider-qualified missing-session probe、可直接跨版本
+比较的 `benchstat.txt`、独立 GNU time RSS、只聚合成功 `read`/`pread64` 返回值的 syscall
+bytes、last-week evidence/聚合哈希，以及默认关闭的 `{provider,stage,nanos,count,bytes}`
+诊断。诊断文件只含聚合值，不含路径、title、ID、cwd 或 transcript；计时、资源与正确性
+验证互相独立，所有 cache 位于临时 `XDG_CACHE_HOME`。
+
+未改 provider 生产实现前，无诊断公共 base 的冷启动中位数/p95 为
+`3.009/3.438 s`（n=10），热启动中位数/p95 为 `35.115/37.901 ms`（预热 2，n=20）。
+随后用固定快照重新采集的 provider 冷热中位数如下；完整并发冷启动约 `2.967 s`，因此
+provider 单项不能简单相加：
+
+| Provider | cold median | warm median | 结论 |
+|---|---:|---:|---|
+| Claude | 2720.4 ms | 24.40 ms | 冷路径约占完整启动 91.7%，达到实施门槛 |
+| Codex | 313.9 ms | 10.54 ms | P0-P3 后不再主导 |
+| Cursor | 173.5 ms | 31.89 ms | 未达本轮冷路径门槛 |
+| CodeBuddy | 162.7 ms | 21.41 ms | 未达本轮冷路径门槛 |
+| Kiro | 152.6 ms | 8.04 ms | 未达本轮冷路径门槛 |
+| ZCode | 10.29 ms | 10.55 ms | SQLite 路径不具备同一触发 |
+| Kimi | 7.27 ms | 7.04 ms | compact index/state，不具备同一触发 |
+| opencode | 6.29 ms | 6.11 ms | 当前窗口 0 session，不实施 |
+| OpenClaw | 6.22 ms | 5.92 ms | 当前窗口 0 session，不实施 |
+
+聚合 stage 诊断确认 Claude 冷启动枚举 332 个候选、132,505,191 source bytes；
+`primary_parse` 中位数 `2984.291 ms`，占 Claude provider total 的 `99.46%`，cache read/write
+与枚举均不是主因。热态 primary parse 仅为约 `5.36 ms`，因此 P4 只优化冷 cache miss。
+新的真实关键路径和可消除的 deep-decode 成本同时超过实现/cache/内存复杂度门槛，允许
+进入最小 Claude-owned 实现。
+
+base 与诊断 raw output：
+
+- `/tmp/asm-tui-startup-p4-20260810/base-public/`；
+- `/tmp/asm-tui-startup-p4-20260810/base-diagnostics/`；
+- `/tmp/asm-tui-startup-p4-20260810/ab-base-frozen/`。
+
+### Claude-owned metadata fast path
+
+普通 discovery 在 cache miss 时使用 Claude-owned metadata parser：它仍逐字节验证完整
+JSON object，提取所有现有 session/title/cwd/timestamp/model/entrypoint/prompt-source 字段，
+但不把已证明为非 user 的 assistant `message.content` 深度反序列化。字段顺序不作假设；
+未知值由 `json.Valid` 验证，结构不明确时回退原 `encoding/json` 完整解码。测试覆盖实际
+producer 的 `message`-before-metadata 顺序、嵌套/转义内容、duplicate message、outer/nested
+trailing comma、大小写变体 key、损坏记录和 full/metadata 等价。另对固定快照的 332 个真实 Claude 文件
+逐文件比较 normalized session，全部等价且未输出内容。
+
+metadata cache 使用 provider-private `_asm_claude_parse_mode` 标记，返回公共 JSON 前删除；
+`Preview.Enabled()` 的 report discovery 不复用 metadata-only cache，会重新执行完整 primary
+parse，再走原有 user-preview/evidence reader。因此 title、model、cwd、时间、visible
+session、项目归组、resume safety 和 report evidence 均不变；cache schema/version 不变，
+旧 cache 继续视为完整解析结果。
+
+producer-schema 混合 benchmark 包含 24 个 64 KiB/256 KiB/1 MiB/4 MiB transcript，输入
+33,437,256 bytes/op。最终 10 个 `benchtime=1x` 样本：
+
+| 指标 | Base `191492b` | Final `af3c5ac` | 变化 |
+|---|---:|---:|---:|
+| wall time | 480.9 ms | 320.1 ms | -33.44%（p=0.000） |
+| B/op | 228.7 MiB | 164.7 MiB | -27.95% |
+| allocs/op | 2.898k | 4.429k | +52.83% |
+| transcript input | 31.89 MiB | 31.89 MiB | 无变化 |
+
+alloc 次数增加来自小字段的保守逐值校验；累计 bytes 和 wall time 显著下降，真实 RSS 没有
+实质增长，因此保留该取舍。focused raw output：
+
+- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-base.txt`；
+- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-af3c5ac.txt`；
+- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-af3c5ac-benchstat.txt`。
+
+### 最终真实 A/B、资源与正确性
+
+为避免 producer 增长，正式 A/B 使用
+`/tmp/asm-tui-startup-p4-20260810/frozen-native-store`。只复制各 provider 原生 session
+store，不复制用户 asm cache；内容未修改。20 个在采集时距 30 天 cutoff 不足一天的文件
+只在任务快照内把 mtime 固定到 28 天，避免评测期间自然过期。一次未固定窗口的 final
+复测曾从 504 自然降至 503；同一时点重跑 base 也为 503，证明是时间窗口漂移而非实现
+差异，该轮不进入结论。固定后 base/final 均稳定为 504。
+
+exact base `ac783c6` 与 final `af3c5ac` 均用 `-buildvcs=false` 构建，冷各 10 次，热各
+预热 2 次后 20 次：
+
+| 场景 | Base median / p95 | Final median / p95 | benchstat |
+|---|---:|---:|---:|
+| 冷启动 | 2.967 / 3.019 s | 2.386 / 2.415 s | -19.58%（p=0.000） |
+| 热启动 | 38.49 / 39.59 ms | 39.04 / 39.86 ms | +1.42%（p=0.014，低于 5% 门槛） |
+
+cache 从 766,552 增至 778,360 bytes（+11,808 bytes，+1.54%），来自 Claude parse-mode
+标记。独立 10-sample RSS 在生产候选上冷态 base/after 中位数 `37,288/37,728 KiB`、最大值
+`41,120/40,676 KiB`；热态中位数 `19,828/19,318 KiB`、最大值 `20,244/19,708 KiB`，
+没有内存回退。3-sample syscall read bytes 冷态中位数均为 278,472,035，热态约
+5.19 MB；实现减少 deep decode，不减少输入。Claude-only 冷启动
+`2.720→2.150 s`（-20.97%）；最终 stage 诊断的 Claude primary parse 为约 2379.5 ms，
+相对 base 约 -20.3%。
+
+base/final 的 cold/warm 各自一致且跨版本逐项一致：504 sessions、74 projects、0 provider
+error；provider counts 为 Claude 182、CodeBuddy 66、Codex 59、Kiro 58、Cursor 53、
+ZCode 63、Kimi 23，opencode/OpenClaw 为 0。不可逆哈希为：
+
+- session `{provider,id}` SHA-256：
+  `ca1292595ef942161add390d6dd4c0f2957d01734b21158400630ffc531a1da9`；
+- project `{cwd,count}` SHA-256：
+  `4637fe71c146abe0f53dce752effdfbaedfa94570ccc29cee65322ea595581e3`。
+
+`asm report --period last-week` 两边均为 87 sessions、24 projects、185 条 evidence、
+3 个 unverified session；evidence SHA-256 均为
+`849897e95cbd197979ce9f6440621ef3273a7ab1e15f5f50595053f9460b6b02`，去除
+evidence/previews 后聚合 SHA-256 均为
+`61ceee0fbc9c2664d36440e764f00493fa4ad6fc5cd20cc9e09a552fff4725ca`。
+
+最终 raw output：
+
+- `/tmp/asm-tui-startup-p4-20260810/final-fixed-base/`；
+- `/tmp/asm-tui-startup-p4-20260810/final-af3c5ac-after/`；
+- `/tmp/asm-tui-startup-p4-20260810/final-af3c5ac-benchstat.txt`；
+- `/tmp/asm-tui-startup-p4-20260810/after-diagnostics-frozen/`；
+- `/tmp/asm-tui-startup-p4-20260810/ab-base-frozen/`、`ab-after-frozen/`（RSS/read bytes 与
+  provider A/B）。
+
+### 三项 review 与最终决策
+
+**Behavior E2E**：`TestCLIReportAfterWarmDiscoveryKeepsClaudeEvidence` 在 base test commit
+和 final 上均通过，锁定普通 cold/warm JSON、parse-mode 不泄漏、title/cwd/model/branch
+及两条 report evidence。`TestCLIMissingSessionProbeFlushesAggregateStartupDiagnostics` 使用
+真实二进制和九个隔离 provider home，锁定 intentional missing-session error 仍写聚合诊断。
+
+**Cross-agent assessment**：
+
+| Provider | storage/共享 primitive | 触发可达性与结论 |
+|---|---|---|
+| Claude | per-session project JSONL，assistant message 可含大 payload | affected；本项修复 |
+| Codex | per-session rollout JSONL | 机制可达但 P2 已有独立 metadata fast path；不改 |
+| CodeBuddy | project JSONL，providerData/message schema 独立 | 大 payload 可达但真实冷仅约 163 ms；未达门槛 |
+| Cursor | transcript JSONL，ID/CWD/title 规则独立 | 大 payload 可达但真实冷仅约 174 ms；未达门槛 |
+| Kiro | 小 metadata JSON + Prompt JSONL | assistant deep-decode 触发不可达 |
+| opencode | session/project/message/part 拆分 JSON | 无相同单记录 assistant payload |
+| Kimi | compact index + state JSON | 触发不可达 |
+| OpenClaw | compact sessions index | 触发不可达 |
+| ZCode | SQLite indexed query | 触发不可达 |
+
+Contributor action 只需 Claude-owned parser/cache/report 边界和趋势证据，已完成；没有确认需要
+立即建立 sibling PR 的 bug，也没有引入共享 parser abstraction。维护者后续仍须先以新的
+真实分解和 provider-schema benchmark 证明 CodeBuddy/Cursor 达到门槛。
+
+**Autoreview**：首轮指出 warm cache 的逐样本 bytes 被 benchstat 最终值覆盖，`f4a89be`
+先加失败回归后修复；后续指出 malformed duplicate `message` 和 trailing comma 与 full
+decoder 不等价，`00b0dd8`、`1d100c7` 分别补失败回归并修复；post-doc review 又指出
+大小写变体 key 与 `encoding/json` 行为不同，`af3c5ac` 增加失败回归并在命中时回退 full
+decoder。一次 Flush finding 是对 Go if initializer 求值顺序的误判，但 `f21e6e5` 将写法
+显式化并增加真实 CLI E2E。稳定 worktree 最终复审无 P0-P2 finding。
+
+最终 focused tests、公共 E2E、runner unit tests、`go test -race ./...`、provider performance
+contract、golangci-lint、`go test ./...` 和 build 全部通过；pre-commit 结果见最终提交记录。
+P4 决定保留 Claude fast path 和趋势基础设施，并按范围要求停止；未推送或合并远端。
