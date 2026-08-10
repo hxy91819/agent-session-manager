@@ -92,6 +92,16 @@ func TestMetadataParseMatchesFullParseAcrossProducerFieldOrders(t *testing.T) {
 			body: `{"type":"assistant","sessionId":"duplicate","cwd":"/repo","message":{"content":[1 2]},"message":{"role":"assistant","model":"claude-sonnet-4"}}
 `,
 		},
+		{
+			name: "outer trailing comma falls back",
+			body: `{"type":"assistant","sessionId":"outer-comma","cwd":"/repo",}
+`,
+		},
+		{
+			name: "message trailing comma falls back",
+			body: `{"type":"assistant","sessionId":"message-comma","cwd":"/repo","message":{"role":"assistant",}}
+`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

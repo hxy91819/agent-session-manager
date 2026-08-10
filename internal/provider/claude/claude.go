@@ -464,13 +464,14 @@ func scanJSONObject(data []byte, visit func(key string, value []byte) bool) bool
 		return false
 	}
 	index++
+	allowEnd := true
 	for {
 		index = skipJSONSpace(data, index)
 		if index >= len(data) {
 			return false
 		}
 		if data[index] == '}' {
-			return skipJSONSpace(data, index+1) == len(data)
+			return allowEnd && skipJSONSpace(data, index+1) == len(data)
 		}
 		keyStart := index
 		keyEnd, ok := scanJSONString(data, index)
@@ -497,6 +498,7 @@ func scanJSONObject(data []byte, visit func(key string, value []byte) bool) bool
 		switch data[index] {
 		case ',':
 			index++
+			allowEnd = false
 		case '}':
 			return skipJSONSpace(data, index+1) == len(data)
 		default:
