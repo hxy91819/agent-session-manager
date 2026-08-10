@@ -113,6 +113,7 @@ go test -run '^$' -bench . -benchmem \
 | P3：Codex dynamic title index | `8fb0ae7` | 真实热启动 `-43.17%`；冷启动 `+4.78%` | 混合 title index `-59.81%`、无变化热态 source bytes `-93.75%` | 保留；范围停在 P3 |
 | P4：post-P3 trend + Claude metadata fast path | `af3c5ac` | 真实冷启动 `-19.58%`；热启动 `+1.42%` | 混合 transcript `-33.44%`、B/op `-27.95%`；输入 bytes 不变 | 保留；P4 完成 |
 | P5：Claude bounded cold cache misses | `459b633` | 真实冷启动 `-64.71%`；热启动 `+2.82%` | 混合 transcript `-80.05%`；输入 bytes 不变 | 保留；8 worker，P5 完成 |
+| P6：跳过 Claude subagent transcripts | `94ea5a0` | 真实冷启动 `-26.55%`；热启动 `-4.57%` | 主/子代理混合 store `-34.23%`、B/op `-49.99%` | 保留；只过滤 producer 明确路径，P6 完成 |
 
 ## 阶段 E：Shared title policy
 
@@ -1350,3 +1351,104 @@ base/after public E2E、跨 provider 实际 reader 检查和 `go test -race ./..
 P5 决定保留 8 worker。after 冷 p95 已低于 0.9 秒；16 worker 的额外收益低于 5% 且内存
 代价明显，其他 provider 又未达到统一门槛。因此当前有证据支持的 post-P4 同步启动优化
 已经完成；不在本阶段进入异步 TUI、Claude append-only 或未达门槛的 sibling provider。
+
+## P6：跳过 Claude subagent transcripts
+
+### 独立 post-P5 base 与 producer 契约
+
+P6 从 P5 merge commit `304079d` 独立开始，没有复用 P5 after。固定冻结 store 的新 base
+为冷 10 次、热预热 2 次后 20 次；公共 wall median/p95 为 `0.852/0.865 s` 和
+`40.915/43.884 ms`。Claude-only cold median/p95 为 `0.771/0.792 s`；诊断中 332 个
+候选、132,505,191 bytes 的 cold `primary_parse` median 为 `826.416 ms`，占 Claude
+provider total `98.07%`，仍达到实施门槛。
+
+冻结 store 的 339 个 Claude JSONL 中，189 个文件名是主会话 UUID，146 个文件名使用
+`agent-*`，另有 4 个非 `agent-*` 文件位于 `subagents/`；后两类合计约 56.25 MiB。
+146 个 `agent-*` 文件中的 producer `sessionId` 全部指向父会话，而不是文件名。当前安装的
+Claude Code 2.1.210 自带说明明确主 transcript 的文件名（去除 `.jsonl`）就是 session ID，
+当前子代理写入 `subagents/agent-*`；冻结 store 同时证明旧版本还把 `agent-*` 直接写在
+project 目录。该 producer-persisted path 是稳定判别器，不依赖 prompt、client 名或 transcript
+内容，因此允许在解析前过滤；其他非保留前缀的顶层 JSONL 继续可见。
+
+测试提交 `2de0cac` 在 provider 和公共 CLI 上先复现失败：较新的旧式 `agent-*` 会替换父
+会话的 title/path，并让 report evidence 来自子代理。实现提交 `94ea5a0` 在枚举阶段跳过
+project 下的 `subagents/` 子树和旧式 `agent-*` 文件；cache、主文件解析、newest-first、
+limit、cwd status、resume command 和 report preview 路径均未改变。公共 E2E 同时锁定
+正常主会话、模糊顶层文件、cold/warm JSON、resume 和 report evidence。
+
+### Focused benchmark 与真实 A/B
+
+固定 benchmark store 含 16 个主 transcript 和 16 个父 ID 相同的 direct/nested subagent
+transcript；store 总计 42.52 MiB，其中主 transcript 21.26 MiB。base/after 各 10 个
+`benchtime=1x` 样本；首个 after 轮有两个明显机器噪声样本，因此紧邻重跑后形成正式结果：
+
+| 指标 | Base `2de0cac` | After `94ea5a0` | 变化 |
+|---|---:|---:|---:|
+| wall time | 86.70 ms | 57.02 ms | -34.23%（p=0.000） |
+| B/op | 219.6 MiB | 109.8 MiB | -49.99% |
+| allocs/op | 5.831k | 3.031k | -48.01% |
+| store/main bytes | 42.52/21.26 MiB | 42.52/21.26 MiB | fixture 不变 |
+
+正式公共 wall 使用同一冻结 store、base `2de0cac` 和 after `94ea5a0`，均以
+`-buildvcs=false` 构建。无诊断轮冷各 10 次、热各预热 2 次后 20 次：
+
+| 场景 | Base median / mean / p95 | After median / mean / p95 | benchstat |
+|---|---:|---:|---:|
+| 冷启动 | 0.833 / 0.837 / 0.864 s | 0.612 / 0.611 / 0.631 s | -26.55%（p=0.000） |
+| 热启动 | 39.98 / 39.90 / 41.68 ms | 38.15 / 38.28 / 40.61 ms | -4.57%（p=0.000） |
+
+独立诊断轮中，Claude-only cold median `0.771→0.483 s`（`-37.37%`），warm
+`22.94→13.63 ms`（`-40.61%`）。候选/source bytes 从 `332/132,505,191` 降至
+`182/73,534,314`；cold `primary_parse` median 从 `826.416` 降至 `559.852 ms`。
+fresh cache 从 778,360 降至 554,824 bytes（`-28.72%`）；3-sample syscall read bytes
+cold/warm median 从 `278,471,943/5,198,968` 降至 `219,501,100/4,529,094`。5-sample
+RSS cold median/max 为 `41,152/45,712→41,928/46,304 KiB`，约 `+1.9%/+1.3%`，处于
+采样波动且远低于既有约 71 MiB 上界；warm median/max 从 `19,400/19,872` 降至
+`18,180/18,916 KiB`。
+
+base/after 的 cold/warm 各自一致且跨版本逐项一致：503 sessions、74 projects、0 provider
+error；provider counts 为 Claude 182、CodeBuddy 66、Codex 59、Kiro 58、Cursor 53、
+ZCode 62、Kimi 23，opencode/OpenClaw 为 0。不可逆哈希仍为：
+
+- session `{provider,id}` SHA-256：
+  `cd57d0a88560e944bf1c9b18060fef0fbd34ef5d057bbf32f363180d8ded0ea1`；
+- project `{cwd,count}` SHA-256：
+  `b26e8b73679c67df9d83b18c799e392268771f8472ec269b944f16c12d7e4359`。
+
+额外对冻结 store 的完整 normalized sessions 做内存内比较，改变数为 0；真实快照中的主文件
+都已赢得旧 dedupe。公共失败 fixture 则锁定子代理更新更晚时仍必须选择主文件。
+`asm report --period last-week` 两边均为 87 sessions、24 projects、185 条 evidence、3 个
+unverified session；evidence SHA-256 均为
+`849897e95cbd197979ce9f6440621ef3273a7ab1e15f5f50595053f9460b6b02`，聚合 SHA-256 均为
+`2d5ce7c4a8ada9b07ae3d68af7b2a85520c23ccb78643fd1222b8aa2b1eb2f50`。
+
+raw output：
+
+- `/tmp/asm-tui-startup-p6-20260810/base-diagnostics/`；
+- `/tmp/asm-tui-startup-p6-20260810/after-final/`；
+- `/tmp/asm-tui-startup-p6-20260810/formal-base-wall/`；
+- `/tmp/asm-tui-startup-p6-20260810/formal-after-wall/`；
+- `/tmp/asm-tui-startup-p6-20260810/formal-wall-benchstat.txt`；
+- `/tmp/asm-tui-startup-p6-20260810/subagents-base.txt`；
+- `/tmp/asm-tui-startup-p6-20260810/subagents-after-final-rerun.txt`；
+- `/tmp/asm-tui-startup-p6-20260810/subagents-final-rerun-benchstat.txt`。
+
+### Cross-agent review 与最终决策
+
+| Provider | storage / subagent 语义 | 结论 |
+|---|---|---|
+| Claude | `projects/<encoded-cwd>/<session-id>.jsonl`；child 为 `subagents/agent-*` 或历史 direct `agent-*` | affected；本项修复 |
+| Cursor | `agent-transcripts/<chat-id>/<chat-id>.jsonl` | 已按目录和精确文件布局跳过 `subagents`，无 sibling 修改 |
+| Codex | 每个 rollout 有 producer-persisted 独立 ID、source 和 parent relation | 子代理是真实可见 session，套用文件名过滤会丢数据 |
+| Kimi | compact `session_index.jsonl` + per-session state | 无 Claude 路径触发 |
+| Kiro | per-session metadata JSON + companion Prompt JSONL | 不递归扫描 Claude child transcript 布局 |
+| opencode | session/project/message/part 拆分 JSON | 无 Claude 路径触发 |
+| CodeBuddy | project JSONL，但 schema 和 producer 路径独立 | 没有稳定 `agent-*` child 判别器；保持模糊文件可见 |
+| OpenClaw | per-agent compact `sessions.json` | 无 per-transcript 递归扫描 |
+| ZCode | SQLite session/message/part + persisted parent relation | 子代理由 DB 关系表达，无文件名触发 |
+
+Contributor scope 只需要 Claude-owned 枚举过滤、主会话 E2E 和性能/资源证据，已完成；没有
+确认需建立 maintainer sibling PR 的 bug，也没有引入共享过滤 abstraction。focused tests、
+完整门禁和 privacy review 见 P6 PR。P6 决定保留；post-P5 文档中的“没有下一阶段候选”由
+新 producer/store 证据推翻并由本项修正。后续仍须从 P6 合并主线独立重基线，不能直接把
+本项 after 当作下一项 base。

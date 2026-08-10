@@ -21,10 +21,16 @@ P4 已通过 PR #48 land。用户随后授权继续完成剩余优化项并逐�
 cache-miss parsing。稳定公共 A/B 冷启动 `2.401→0.847 s`（`-64.71%`），热启动
 `+2.82%` 且低于 5% 门槛；完整正确性、资源、review 与 raw path 见性能基线 P5 节。
 
-P5 after 冷 p95 已低于 0.9 秒。16 worker 相对 8 worker 的 mixed fixture 只再改善约
-4.5%，最大 RSS 却从约 72 MiB 增至 104 MiB；其他 provider 的独立 cold median 均不超过
-约 0.18 秒，未达到下一阶段统一门槛。因此当前有证据支持的 post-P4 同步启动优化已经
-完成；不凭授权跳过测量开启 P6，后续候选仍须从 P5 合并后的主线独立重基线。
+P5 after 冷 p95 已低于 0.9 秒，但 P5 合并后的独立 P6 诊断发现 Claude provider 仍把
+producer 明确标记的 `agent-*` / `subagents/` child transcripts 当作候选解析。该项已按
+独立 base、失败 E2E、producer 证据、真实 A/B 和资源门槛完成：正式冷启动
+`0.833→0.612 s`（`-26.55%`），热启动 `39.98→38.15 ms`（`-4.57%`），扫描 bytes 从
+132.5 MB 降至 73.5 MB。完整数据见性能基线 P6 节。
+
+P6 after 冷 p95 为 0.631 秒。剩余单 provider cold median 为 Claude 约 0.483 秒、Codex
+约 0.320 秒，其他 provider 不超过约 0.18 秒；Claude 已使用 metadata fast path 和 8-worker
+解析，16 worker 的既有额外收益低于 5% 且内存代价明显。因此当前有证据支持的 post-P4
+同步启动优化再次完成；后续候选仍须从 P6 合并后的主线独立重基线。
 
 ## P0 启动前的历史结论
 
@@ -233,6 +239,36 @@ P5 base raw output：
 - `/tmp/asm-tui-startup-p5-20260810/base-public/`；
 - `/tmp/asm-tui-startup-p5-20260810/base-diagnostics/`；
 - `/tmp/asm-tui-startup-p5-20260810/claude-mixed-base.txt`。
+
+### 7. P6：跳过 Claude subagent transcripts（已完成）
+
+P6 从 P5 merge commit `304079d` 独立开始。producer 和冻结 store 共同确认主 transcript
+文件名就是 session ID；当前 child transcripts 位于 `subagents/agent-*`，历史版本还会把
+`agent-*` 直接写在 project 目录。冻结 30 天窗口中，当前实现解析 332 个候选、
+132,505,191 bytes，最终却只有 182 个 Claude session；150 个 child candidates 占
+58,970,877 bytes。
+
+测试提交 `2de0cac` 先在公共 CLI 复现较新的 child transcript 替换父会话 title/path 和
+report evidence；同时证明无保留前缀的模糊顶层 JSONL 继续可见。实现 `94ea5a0` 仅在
+Claude 枚举阶段跳过 `subagents/` 和旧式 `agent-*`，不修改其他 provider、parser、cache、
+resume 或 report 契约。
+
+相同 42.52 MiB 主/子代理混合 benchmark wall `-34.23%`、B/op `-49.99%`、allocs/op
+`-48.01%`。正式公共 A/B 冷 median/p95 `0.833/0.864→0.612/0.631 s`，benchstat
+`-26.55%`；热 median/p95 `39.98/41.68→38.15/40.61 ms`，benchstat `-4.57%`。
+fresh cache `-28.72%`，cold read bytes `-21.18%`，RSS 无实质回退；503 sessions、74
+projects、provider counts、0 error、两类不可逆哈希和 last-week 的 185 条 evidence/聚合
+哈希一致。完整 normalized real-store session 改变数为 0，公共 E2E 单独锁定 child 更新
+更晚时的主会话选择。cross-agent review 确认 Cursor 已独立过滤自己的 child layout，Codex/
+ZCode 子代理是持久化独立 session，其余 provider 不具备同一触发，因此没有 sibling PR。
+
+P6 raw output：
+
+- `/tmp/asm-tui-startup-p6-20260810/base-diagnostics/`；
+- `/tmp/asm-tui-startup-p6-20260810/after-final/`；
+- `/tmp/asm-tui-startup-p6-20260810/formal-base-wall/`；
+- `/tmp/asm-tui-startup-p6-20260810/formal-after-wall/`；
+- `/tmp/asm-tui-startup-p6-20260810/subagents-final-rerun-benchstat.txt`。
 
 ### 每个优化项的统一执行门槛
 
