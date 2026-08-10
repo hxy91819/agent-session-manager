@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/cwdstatus"
@@ -26,6 +27,7 @@ const (
 	previewReadErrorNote     = "the Claude transcript could not be read completely while collecting report evidence"
 	oversizedRecordEdgeBytes = 64 * 1024
 	oversizedTextEdgeBytes   = 4 * 1024
+	defaultParseWorkers      = 8
 	metadataParseCacheKey    = "_asm_claude_parse_mode"
 	metadataParseCacheValue  = "metadata"
 )
@@ -33,6 +35,8 @@ const (
 type Provider struct {
 	Home      string
 	CachePath string
+
+	parseWorkers int
 }
 
 func New(home string) Provider {
@@ -66,11 +70,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	finishCacheRead := startupdiag.Begin(Name, "cache_read")
 	cache := sessioncache.Load(cachePath)
 	finishCacheRead(1, 0)
-	keep := make(map[string]struct{}, len(files))
-	cwdChecker := cwdstatus.NewChecker()
-	seen := make(map[string]struct{}, len(files))
-	sessions := make([]session.Session, 0, len(files))
-	for _, file := range files {
+	parsed := make([]parsedFile, len(files))
+	misses := make([]cacheMiss, 0, len(files))
+	metadataOnly := !opts.Preview.Enabled()
+	for i, file := range files {
 		id := sessioncache.FileIdentity{
 			Provider: Name,
 			Path:     file.Path,
@@ -81,23 +84,34 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		if ok && opts.Preview.Enabled() && s.Metadata[metadataParseCacheKey] == metadataParseCacheValue {
 			ok = false
 		}
-		if !ok {
-			finishPrimaryParse := startupdiag.Begin(Name, "primary_parse")
-			var err error
-			if opts.Preview.Enabled() {
-				s, err = parseSessionFile(file.Path)
-			} else {
-				s, err = parseSessionMetadataFile(file.Path)
-				if s.Metadata == nil {
-					s.Metadata = make(map[string]string)
-				}
-				s.Metadata[metadataParseCacheKey] = metadataParseCacheValue
-			}
-			finishPrimaryParse(1, file.Size)
-			if err != nil || s.ID == "" || s.CWD == "" {
-				continue
-			}
-			s = cache.Put(id, s)
+		if ok {
+			parsed[i] = parsedFile{id: id, session: s, available: true}
+			continue
+		}
+		misses = append(misses, cacheMiss{index: i, file: file, id: id, metadataOnly: metadataOnly})
+	}
+	if len(misses) > 0 {
+		finishPrimaryParse := startupdiag.Begin(Name, "primary_parse")
+		parseCacheMisses(misses, p.workerCount(metadataOnly), parsed)
+		var missBytes int64
+		for _, miss := range misses {
+			missBytes += miss.file.Size
+		}
+		finishPrimaryParse(int64(len(misses)), missBytes)
+	}
+
+	keep := make(map[string]struct{}, len(files))
+	cwdChecker := cwdstatus.NewChecker()
+	seen := make(map[string]struct{}, len(files))
+	sessions := make([]session.Session, 0, len(files))
+	for i, file := range files {
+		result := parsed[i]
+		if !result.available {
+			continue
+		}
+		s := result.session
+		if result.cacheMiss {
+			s = cache.Put(result.id, s)
 		}
 		if s.ID == "" || s.CWD == "" {
 			continue
@@ -148,6 +162,77 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	_ = cache.Save(cachePath)
 	finishCacheWrite(1, 0)
 	return sessions, nil
+}
+
+type cacheMiss struct {
+	index        int
+	file         fileInfo
+	id           sessioncache.FileIdentity
+	metadataOnly bool
+}
+
+type parsedFile struct {
+	id        sessioncache.FileIdentity
+	session   session.Session
+	available bool
+	cacheMiss bool
+}
+
+func (p Provider) workerCount(metadataOnly bool) int {
+	if !metadataOnly {
+		return 1
+	}
+	if p.parseWorkers > 0 {
+		return p.parseWorkers
+	}
+	return defaultParseWorkers
+}
+
+func parseCacheMisses(misses []cacheMiss, workers int, parsed []parsedFile) {
+	if len(misses) == 0 {
+		return
+	}
+	workers = max(1, min(workers, len(misses)))
+	jobs := make(chan int)
+	var wait sync.WaitGroup
+	wait.Add(workers)
+	for range workers {
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				miss := misses[index]
+				var s session.Session
+				var err error
+				if miss.metadataOnly {
+					s, err = parseSessionMetadataFile(miss.file.Path)
+				} else {
+					s, err = parseSessionFile(miss.file.Path)
+				}
+				if err != nil || s.ID == "" || s.CWD == "" {
+					continue
+				}
+				if miss.metadataOnly {
+					if s.Metadata == nil {
+						s.Metadata = make(map[string]string)
+					}
+					s.Metadata[metadataParseCacheKey] = metadataParseCacheValue
+				} else {
+					delete(s.Metadata, metadataParseCacheKey)
+				}
+				parsed[miss.index] = parsedFile{
+					id:        miss.id,
+					session:   s,
+					available: true,
+					cacheMiss: true,
+				}
+			}
+		}()
+	}
+	for index := range misses {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
 }
 
 func (p Provider) homes() ([]string, error) {

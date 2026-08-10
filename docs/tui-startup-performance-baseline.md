@@ -112,6 +112,7 @@ go test -run '^$' -bench . -benchmem \
 | P2：Codex metadata 快路径 | `a433aab` | 真实冷启动 `-28.68%`；交替热测无显著变化 | 混合 rollout `-94.70%`、B/op `-96.54%`；实际输入 bytes 不变 | 保留；report 继续完整解析，P3 未开始 |
 | P3：Codex dynamic title index | `8fb0ae7` | 真实热启动 `-43.17%`；冷启动 `+4.78%` | 混合 title index `-59.81%`、无变化热态 source bytes `-93.75%` | 保留；范围停在 P3 |
 | P4：post-P3 trend + Claude metadata fast path | `af3c5ac` | 真实冷启动 `-19.58%`；热启动 `+1.42%` | 混合 transcript `-33.44%`、B/op `-27.95%`；输入 bytes 不变 | 保留；P4 完成 |
+| P5：Claude bounded cold cache misses | `459b633` | 真实冷启动 `-64.71%`；热启动 `+2.82%` | 混合 transcript `-80.05%`；输入 bytes 不变 | 保留；8 worker，P5 完成 |
 
 ## 阶段 E：Shared title policy
 
@@ -1187,4 +1188,165 @@ decoder。一次 Flush finding 是对 Go if initializer 求值顺序的误判，
 
 最终 focused tests、公共 E2E、runner unit tests、`go test -race ./...`、provider performance
 contract、golangci-lint、`go test ./...` 和 build 全部通过；pre-commit 结果见最终提交记录。
-P4 决定保留 Claude fast path 和趋势基础设施，并按范围要求停止；未推送或合并远端。
+P4 决定保留 Claude fast path 和趋势基础设施，并已通过 PR #48 land。
+
+## P5：Claude cold cache miss 有界并行解析
+
+### 独立 post-P4 base 与实施门槛
+
+P5 从 P4 merge commit `8163c48` 独立开始。公共 runner 冷 10、热预热 2 后 20 的结果为：
+
+| 场景 | median | mean | p95 |
+|---|---:|---:|---:|
+| 冷启动 | 2.518277 s | 2.514104 s | 2.583882 s |
+| 热启动 | 35.040 ms | 36.262 ms | 46.997 ms |
+
+公共 base 为 513 sessions、74 projects、0 provider error；provider counts 为 Claude 177、
+CodeBuddy 65、Codex 75、Cursor 53、Kimi 23、Kiro 58、ZCode 62。session set SHA-256 为
+`843f63842b0ae6e6882645474203e76d5358233ee38be7efb96fb7a654679f07`，project set
+SHA-256 为 `dbb93a1e4ca60aaf469a44c90bd8b305a77a155600c9c9f37ddcc1314c6cebf7`。
+last-week 为 87 sessions、24 projects、185 条 evidence；evidence SHA-256 为
+`849897e95cbd197979ce9f6440621ef3273a7ab1e15f5f50595053f9460b6b02`，聚合 SHA-256 为
+`59aafb3921185e9a26d68d4ad590377216c0f940dc891095b6c50ba08dc5aa20`。
+
+provider-qualified base 的 Claude cold median 为 `2.129122 s`；诊断模式下 327 个候选、
+132,804,931 source bytes 的 `primary_parse` median/p95 为 `2419.483/2471.069 ms`，占
+Claude provider total `99.35%`。完整 public cold p95 仍超过 2.5 秒，且关键路径由大量独立
+per-session cache misses 构成，因此 P5 的实现门槛成立。P5 只评估 ordinary discovery 的
+provider-owned bounded concurrency；report/full-preview 保持串行。
+
+独立资源 base 的 cold/warm RSS median 为 `36,078/19,276 KiB`；read/pread bytes median 为
+`319,604,750/5,156,853`。raw output：
+
+- `/tmp/asm-tui-startup-p5-20260810/base-public/`；
+- `/tmp/asm-tui-startup-p5-20260810/base-diagnostics/`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-mixed-base.txt`。
+
+### 契约与实现
+
+- 公共行为与 benchmark 提交为 `8b26033`，生产实现为 `459b633`，稳定 benchmark cwd
+  修正为 `0cf970f`。base 公共合同在 `8b26033` 上通过；这是行为保持型性能优化，性能
+  缺口由独立 post-P4 base 和同输入 benchmark 证明，没有构造虚假的产品级失败；
+- 普通 discovery 先按 newest-first 顺序串行执行 cache lookup，只把独立 primary miss
+  交给最多 8 个 worker；结果按原 file index 汇总后，cache `Put/Keep/Save`、重复 ID
+  去重、cwd status、metadata 清理和最终 session 组装继续串行；
+- `Preview.Enabled()` 的 report/full parse 固定为 1 worker。metadata-only cache 遇到 report
+  仍按 P4 契约重做 full parse，随后读取 user preview/evidence；cache schema 和 version
+  不变；
+- provider 等价测试覆盖 1/8 worker cold/warm、invalid JSONL、重复 ID、newest-first、
+  limit、cache invalidation 和 metadata/full cache 切换。公共 CLI fixture 超过默认 worker
+  数，锁定 cold/warm JSON、ordering、project grouping、provider error、title/model 和
+  missing-cwd resume safety；既有 report E2E 继续锁定两条 Claude evidence。
+
+### 稳定 fixture、worker sweep 与内存
+
+最初 benchmark 把随机临时目录写入 transcript cwd，导致跨进程 input bytes 有几十字节
+漂移；`0cf970f` 改为固定、无需真实访问的 `/benchmark/claude-repo`。相同修正也应用到
+detached base `8b26033`，随后 base/after 各采 10 个 `benchtime=1x` 样本：
+
+| 指标 | Base | 8-worker after | 变化 |
+|---|---:|---:|---:|
+| wall time | 321.83 ms | 64.21 ms | -80.05%（p=0.000） |
+| transcript input | 31.89 MiB | 31.89 MiB | 全部样本相等 |
+| B/op | 164.7 MiB | 164.7 MiB | -0.01% |
+| allocs/op | 4.426k | 4.448k | +0.49% |
+
+最终 10-sample worker sweep 与独立 test-binary RSS 如下；RSS 每档 5 个样本：
+
+| Worker | sec/op | 相对 1 worker | RSS median / max |
+|---:|---:|---:|---:|
+| 1 | 311.9 ms | 基线 | 29,360 / 33,584 KiB |
+| 2 | 142.1 ms | -54.44% | 29,516 / 30,820 KiB |
+| 4 | 78.45 ms | -74.85% | 43,860 / 48,816 KiB |
+| 8 | 51.06 ms | -83.63% | 71,164 / 72,184 KiB |
+| 16 | 48.76 ms | -84.37% | 77,216 / 104,496 KiB |
+
+8 到 16 worker 只再改善约 4.5%，最大 RSS 却增加约 44.8%，且 16-worker 分布更不稳定，
+因此保留 8。raw output：
+
+- `/tmp/asm-tui-startup-p5-20260810/claude-mixed-base-stable.txt`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-mixed-after-fixed.txt`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-mixed-stable-benchstat.txt`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-worker-sweep-stable.txt`；
+- `/tmp/asm-tui-startup-p5-20260810/claude-worker-rss-stable.txt`。
+
+### 最终真实 A/B、资源与正确性
+
+正式 A/B 使用 P4 留下的同一冻结 provider store，base `8b26033` 与 after `0cf970f` 均
+以 `-buildvcs=false` 构建。首次完整资源轮各出现一个机器噪声样本，因此保留该轮的
+provider/RSS/read/report 证据，另在文件页缓存预热后重跑无诊断公共 wall 验收；冷各
+10 次、热预热 2 次后各 20 次：
+
+| 场景 | Base median / p95 | After median / p95 | benchstat |
+|---|---:|---:|---:|
+| 冷启动 | 2.401 / 2.450 s | 0.847 / 0.878 s | -64.71%（p=0.000） |
+| 热启动 | 39.37 / 41.93 ms | 40.48 / 44.22 ms | +2.82%（p=0.003，低于 5% 门槛） |
+
+Claude-qualified cold median 为 `2.226→0.806 s`。同快照 10/20 次聚合 stage 诊断中，
+332 个 miss、132,505,191 source bytes 的 cold `primary_parse` median 为
+`2374.967→806.529 ms`（约 -66.0%），provider total 为 `2393.709→821.888 ms`；输入
+数量和 bytes 不变。cache 两边均为 778,360 bytes。3-sample syscall read bytes 的 cold
+median 为 `278,472,058/278,472,030`，warm 为约 5.199 MB，差异仅为 syscall 计数噪声。
+
+真实 10-sample RSS 的 cold base/after median 为 `39,666/43,596 KiB`、最大值
+`43,520/50,056 KiB`；warm median 为 `18,778/19,486 KiB`、最大值
+`18,940/19,956 KiB`。增长低于既有 P1 约 71 MiB 的真实冷态上界，并与 cold p95 收益
+一起支持保留。
+
+base/after 的 cold/warm 各自一致且跨版本逐项一致：503 sessions、74 projects、0 provider
+error；provider counts 为 Claude 182、CodeBuddy 66、Codex 59、Kiro 58、Cursor 53、
+ZCode 62、Kimi 23，opencode/OpenClaw 为 0。不可逆哈希为：
+
+- session `{provider,id}` SHA-256：
+  `cd57d0a88560e944bf1c9b18060fef0fbd34ef5d057bbf32f363180d8ded0ea1`；
+- project `{cwd,count}` SHA-256：
+  `b26e8b73679c67df9d83b18c799e392268771f8472ec269b944f16c12d7e4359`。
+
+`asm report --period last-week` 两边均为 87 sessions、24 projects、185 条 evidence、
+3 个 unverified session；evidence SHA-256 均为
+`849897e95cbd197979ce9f6440621ef3273a7ab1e15f5f50595053f9460b6b02`，去除
+evidence/previews 后聚合 SHA-256 均为
+`2d5ce7c4a8ada9b07ae3d68af7b2a85520c23ccb78643fd1222b8aa2b1eb2f50`。
+
+正式 raw output：
+
+- `/tmp/asm-tui-startup-p5-20260810/formal-base-frozen/`；
+- `/tmp/asm-tui-startup-p5-20260810/formal-after-frozen/`；
+- `/tmp/asm-tui-startup-p5-20260810/formal-base-wall-rerun/`；
+- `/tmp/asm-tui-startup-p5-20260810/formal-after-wall-rerun/`；
+- `/tmp/asm-tui-startup-p5-20260810/formal-wall-benchstat.txt`；
+- `/tmp/asm-tui-startup-p5-20260810/formal-base-diagnostics-frozen/`；
+- `/tmp/asm-tui-startup-p5-20260810/formal-after-diagnostics-frozen/`。
+
+### 三项 review 与最终决策
+
+**Behavior E2E**：`TestCLIClaudeColdCacheWorkloadPreservesOrderingGroupingAndResumeSafety`
+在 base 和 after 均通过，证明 cold/warm 输出、排序、项目分组与 missing-cwd resume 安全
+不变；`TestCLIReportAfterWarmDiscoveryKeepsClaudeEvidence` 在 after 通过，锁定 full parse
+与 report evidence 边界。行为保持型优化没有产品级 base failure，性能 base 由独立真实
+A/B 和同输入 benchmark 提供。
+
+**Cross-agent assessment**：
+
+| Provider | primary store / 共享 primitive | 触发可达性与结论 |
+|---|---|---|
+| Claude | per-session project JSONL cache miss | affected；真实主导，本项以 8 worker 修复 |
+| Codex | per-session rollout JSONL cache miss | 已有独立 8-worker、metadata 和 incremental 路径，不重复修改 |
+| CodeBuddy | per-session project JSONL cache miss | 机制可达；当前 cold median 约 0.17 s，未达下一阶段门槛 |
+| Cursor | per-chat transcript JSONL cache miss | 机制可达；当前 cold median 约 0.18 s，未达门槛 |
+| Kiro | 小型 metadata JSON + Prompt side input | 大型 primary transcript 触发不可达；cold 约 0.16 s |
+| opencode | 小 session JSON + 拆分 project/message side input | 无同一大型 primary 触发，当前窗口无 session |
+| Kimi | compact index + state JSON | 无 sessioncache per-session transcript parse |
+| OpenClaw | compact sessions index | 无 per-session primary transcript parse |
+| ZCode | SQLite indexed queries | 无 JSONL primary parser |
+
+Contributor action 只需 Claude-owned worker、确定性、report 边界和资源证据，已完成；没有
+引入共享 parser/cache abstraction，也没有确认需立即建立 sibling PR 的数据正确性 bug。
+
+**Autoreview**：当前环境没有 `autoreview` 可执行文件，因此没有声称运行；人工 diff 审查、
+base/after public E2E、跨 provider 实际 reader 检查和 `go test -race ./...` 均未发现新的
+生产问题。
+
+P5 决定保留 8 worker。after 冷 p95 已低于 0.9 秒；16 worker 的额外收益低于 5% 且内存
+代价明显，其他 provider 又未达到统一门槛。因此当前有证据支持的 post-P4 同步启动优化
+已经完成；不在本阶段进入异步 TUI、Claude append-only 或未达门槛的 sibling provider。

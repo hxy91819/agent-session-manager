@@ -27,6 +27,61 @@ type cliSession struct {
 	Metadata map[string]string `json:"metadata"`
 }
 
+func TestCLIClaudeColdCacheWorkloadPreservesOrderingGroupingAndResumeSafety(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+	root := filepath.Join(env.ProviderHome["claude"], "projects", "repo")
+	base := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
+
+	for i := range 10 {
+		path := filepath.Join(root, fmt.Sprintf("session-%02d.jsonl", i))
+		writeClaudeColdWorkloadSession(t, path, fmt.Sprintf("session-%02d", i), repo)
+		setModTime(t, path, base.Add(time.Duration(10+i)*time.Minute))
+	}
+	duplicate := filepath.Join(root, "duplicate-old.jsonl")
+	writeClaudeColdWorkloadSession(t, duplicate, "session-00", repo)
+	setModTime(t, duplicate, base.Add(time.Minute))
+	invalid := filepath.Join(root, "invalid.jsonl")
+	writeFile(t, invalid, "not-json\n")
+	setModTime(t, invalid, base.Add(25*time.Minute))
+	missingPath := filepath.Join(root, "missing.jsonl")
+	writeClaudeColdWorkloadSession(t, missingPath, "missing", missing)
+	setModTime(t, missingPath, base.Add(30*time.Minute))
+
+	cold := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	warm := runJSONWithEnv(t, env, "--since-days", "0", "--json")
+	if !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("Claude cold and warm output differ:\ncold=%#v\nwarm=%#v", cold, warm)
+	}
+	wantIDs := []string{
+		"missing", "session-09", "session-08", "session-07", "session-06",
+		"session-05", "session-04", "session-03", "session-02", "session-01", "session-00",
+	}
+	assertSessionIDs(t, cold, wantIDs...)
+	if len(cold.ProviderErrors) != 0 {
+		t.Fatalf("provider errors = %#v, want none", cold.ProviderErrors)
+	}
+	assertProjectCount(t, cold, repo, 10)
+	assertProjectCount(t, cold, missing, 1)
+	if got := sessionByID(t, cold, "session-00"); got.Title != "Claude session-00" || got.Metadata["model"] != "claude-sonnet-4" {
+		t.Fatalf("session-00 = %#v", got)
+	}
+
+	out, err := env.Run(t, "--since-days", "0", "--resume", "missing", "--print-exec")
+	if err == nil || !strings.Contains(out, "cwd is unavailable") {
+		t.Fatalf("missing-cwd resume = %v\n%s", err, out)
+	}
+}
+
+func writeClaudeColdWorkloadSession(t testing.TB, path, id, cwd string) {
+	t.Helper()
+	writeFile(t, path, `{"type":"user","sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-08-10T01:00:00Z","message":{"role":"user","content":"request"}}
+{"type":"assistant","sessionId":`+jsonString(id)+`,"cwd":`+jsonString(cwd)+`,"timestamp":"2026-08-10T01:00:01Z","message":{"role":"assistant","model":"claude-sonnet-4","content":`+jsonString(strings.Repeat("payload-", 8*1024))+`}}
+{"type":"summary","sessionId":`+jsonString(id)+`,"summary":`+jsonString("Claude "+id)+`}
+`)
+}
+
 func TestCLICodexColdCacheWorkloadPreservesOrderingGroupingAndResumeSafety(t *testing.T) {
 	env := newASMTestEnv(t)
 	repo := t.TempDir()
