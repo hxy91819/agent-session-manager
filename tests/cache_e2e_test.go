@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -369,6 +370,44 @@ func TestCLIReportAfterWarmDiscoveryKeepsClaudeEvidence(t *testing.T) {
 		len(report.Sessions[0].Evidence) != 2 || report.Sessions[0].Evidence[0].Text != "first Claude request" ||
 		report.Sessions[0].Evidence[1].Text != "second Claude request" {
 		t.Fatalf("report payload = %#v", report)
+	}
+}
+
+func TestCLIMissingSessionProbeFlushesAggregateStartupDiagnostics(t *testing.T) {
+	env := newASMTestEnv(t)
+	binary := env.Build(t)
+	diagnosticPath := filepath.Join(t.TempDir(), "startup-diagnostics.json")
+	cmd := exec.Command(binary, "--resume", "__asm_real_startup_probe_missing__")
+	cmd.Dir = ".."
+	cmd.Env = append(env.commandEnv(t), "ASM_STARTUP_DIAG_FILE="+diagnosticPath)
+	out, err := cmd.CombinedOutput()
+	if err == nil || strings.TrimSpace(string(out)) != "session not found: __asm_real_startup_probe_missing__" {
+		t.Fatalf("probe err=%v output=%q", err, out)
+	}
+	data, err := os.ReadFile(diagnosticPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []struct {
+		Provider string `json:"provider"`
+		Stage    string `json:"stage"`
+		Nanos    int64  `json:"nanos"`
+		Count    int64  `json:"count"`
+		Bytes    int64  `json:"bytes"`
+	}
+	if err := json.Unmarshal(data, &events); err != nil {
+		t.Fatalf("invalid diagnostics: %v\n%s", err, data)
+	}
+	providers := make(map[string]bool)
+	for _, event := range events {
+		if event.Stage == "provider_total" && event.Nanos >= 0 {
+			providers[event.Provider] = true
+		}
+	}
+	for _, provider := range []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode"} {
+		if !providers[provider] {
+			t.Fatalf("missing provider_total for %s: %#v", provider, events)
+		}
 	}
 }
 

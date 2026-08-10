@@ -114,7 +114,8 @@ type output struct {
 
 func main() {
 	err := run(context.Background(), os.Args[1:])
-	if diagnosticErr := startupdiag.Flush(); err == nil && diagnosticErr != nil {
+	diagnosticErr := startupdiag.Flush()
+	if err == nil && diagnosticErr != nil {
 		err = diagnosticErr
 	}
 	if err != nil {

@@ -67,7 +67,7 @@ func (e asmTestEnv) commandEnv(t testing.TB) []string {
 		"OPENCODE_HOME": {}, "OPENCODE_DATA_HOME": {}, "OPENCODE_DATA_DIR": {},
 		"CODEBUDDY_HOME": {}, "CURSOR_HOME": {}, "OPENCLAW_STATE_DIR": {},
 		"OPENCLAW_HOME": {}, "ZCODE_HOME": {}, "ASM_CODEX_EXTRA_HOMES": {},
-		"ASM_CLAUDE_EXTRA_HOMES": {},
+		"ASM_CLAUDE_EXTRA_HOMES": {}, "ASM_STARTUP_DIAG_FILE": {},
 	}
 	env := make([]string, 0, len(os.Environ())+len(controlled))
 	for _, item := range os.Environ() {
