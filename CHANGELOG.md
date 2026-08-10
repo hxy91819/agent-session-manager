@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.8.3
+
+Changes since [v0.8.2](https://github.com/hxy91819/agent-session-manager/compare/v0.8.2...v0.8.3).
+
+### Changes
+
+- perf: skip Claude subagent transcripts during discovery ([#50](https://github.com/hxy91819/agent-session-manager/pull/50)). Thanks @hxy91819.
+- perf: parse Claude cold cache misses concurrently ([#49](https://github.com/hxy91819/agent-session-manager/pull/49)). Thanks @hxy91819.
+- perf: reduce Claude cold startup parsing ([#48](https://github.com/hxy91819/agent-session-manager/pull/48)). Thanks @hxy91819.
+- Mark TUI startup P3 landed ([#47](https://github.com/hxy91819/agent-session-manager/pull/47)). Thanks @hxy91819.
+- Incrementally parse Codex dynamic title indexes ([#46](https://github.com/hxy91819/agent-session-manager/pull/46)). Thanks @hxy91819.
+- perf: add Codex metadata fast path for TUI startup ([#45](https://github.com/hxy91819/agent-session-manager/pull/45)). Thanks @hxy91819.
+- perf: parse Codex cold cache misses concurrently ([#44](https://github.com/hxy91819/agent-session-manager/pull/44)). Thanks @hxy91819.
+- ci: establish diff-aware agent code health reporting ([#41](https://github.com/hxy91819/agent-session-manager/pull/41)). Thanks @hxy91819.
+- fix: restore Codex subagent sessions and startup cache hits ([#42](https://github.com/hxy91819/agent-session-manager/pull/42)). Thanks @hxy91819.
+- Clarify work reports with project source tags ([#43](https://github.com/hxy91819/agent-session-manager/pull/43)). Thanks @hxy91819.
+- perf: optimize TUI startup cache and Codex parsing ([#40](https://github.com/hxy91819/agent-session-manager/pull/40)). Thanks @hxy91819.
+- test: establish TUI startup optimization baselines ([#39](https://github.com/hxy91819/agent-session-manager/pull/39)). Thanks @hxy91819.
+- Add TUI agent picker for new sessions ([#38](https://github.com/hxy91819/agent-session-manager/pull/38)). Thanks @hxy91819.
+- Add Kiro CLI session provider ([#37](https://github.com/hxy91819/agent-session-manager/pull/37)). Thanks @hxy91819.
+- feat: deliver reports to local file and Telegram (`48854c1`). Thanks Mason Huang.
+- feat: add Ollama Cloud report pipeline (`a6204c5`). Thanks Mason Huang.
+
+### Contributors
+
+Thanks @hxy91819 and Mason Huang for this release.
+
 ## v0.8.2
 
 Changes since [v0.8.1](https://github.com/hxy91819/agent-session-manager/compare/v0.8.1...v0.8.2).
