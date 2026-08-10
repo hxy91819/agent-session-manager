@@ -50,9 +50,12 @@ diag = os.environ.get("ASM_STARTUP_DIAG_FILE")
 if diag:
     pathlib.Path(diag).write_text(json.dumps([
         {"provider": "codex", "stage": "provider_total", "nanos": 1000},
-        {"provider": "codex", "stage": "primary_parse", "nanos": 750},
+        {"provider": "codex", "stage": "primary_parse", "nanos": 750, "bytes": 2048},
     ]), encoding="utf-8")
-print("session not found: __asm_real_startup_probe_missing__", file=sys.stderr)
+error = "session not found: __asm_real_startup_probe_missing__"
+if "--provider" in sys.argv:
+    error += " for provider " + sys.argv[sys.argv.index("--provider") + 1]
+print(error, file=sys.stderr)
 raise SystemExit(1)
 """,
             encoding="utf-8",
@@ -81,6 +84,7 @@ raise SystemExit(1)
                 "--warm-runs",
                 "3",
                 "--diagnostics",
+                "--provider-breakdown",
             ],
             check=False,
             text=True,
@@ -97,6 +101,11 @@ raise SystemExit(1)
         self.assertEqual(len(samples["cold_ns"]), 2)
         self.assertEqual(len(samples["warm_ns"]), 3)
         self.assertIn("diagnostic_stages", summary)
+        self.assertEqual(set(summary["provider_breakdown"]), {
+            "claude", "codebuddy", "codex", "cursor", "kimi", "kiro",
+            "openclaw", "opencode", "zcode",
+        })
+        self.assertTrue((output / "benchstat.txt").is_file())
         self.assertFalse(any(output.rglob("marker")))
         self.assertFalse(any(path.name.endswith("raw.json") for path in output.rglob("*")))
 
@@ -131,6 +140,15 @@ raise SystemExit(1)
         stats = module.distribution(list(range(1, 21)))
         self.assertEqual(stats["median"], 10.5)
         self.assertEqual(stats["p95"], 19)
+
+    def test_parse_strace_read_bytes_aggregates_only_successful_reads(self) -> None:
+        module = load_module()
+        trace = """123 read(3, \"x\", 10) = 10
+124 pread64(4, \"y\", 20, 0) = 7
+125 read(5, 0x1, 10) = -1 EAGAIN (Resource temporarily unavailable)
+126 read(6, \"\", 10) = 0
+"""
+        self.assertEqual(module.parse_strace_read_bytes(trace), 17)
 
 
 if __name__ == "__main__":

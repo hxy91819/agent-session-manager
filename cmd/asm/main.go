@@ -28,6 +28,7 @@ import (
 	reportpkg "github.com/hxy91819/agent-session-manager/internal/report"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/skillinstall"
+	"github.com/hxy91819/agent-session-manager/internal/startupdiag"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
 
@@ -112,7 +113,11 @@ type output struct {
 }
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	err := run(context.Background(), os.Args[1:])
+	if diagnosticErr := startupdiag.Flush(); err == nil && diagnosticErr != nil {
+		err = diagnosticErr
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -632,7 +637,9 @@ func discoverAllWithOptions(providers []session.Provider, opts session.DiscoverO
 	for i, provider := range providers {
 		go func(i int, provider session.Provider) {
 			defer wg.Done()
+			finish := startupdiag.Begin(provider.Name(), "provider_total")
 			items, err := provider.Discover(opts)
+			finish(int64(len(items)), 0)
 			if err != nil {
 				results[i].err = err
 				return

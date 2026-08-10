@@ -16,6 +16,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/jsonlrecords"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
+	"github.com/hxy91819/agent-session-manager/internal/startupdiag"
 )
 
 const (
@@ -45,7 +46,13 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	if err != nil {
 		return nil, err
 	}
+	finishEnumerate := startupdiag.Begin(Name, "enumerate_filter")
 	files, err := collectHomeJSONL(homes, opts)
+	var sourceBytes int64
+	for _, file := range files {
+		sourceBytes += file.Size
+	}
+	finishEnumerate(int64(len(files)), sourceBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +61,9 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	}
 
 	cachePath := p.cachePath()
+	finishCacheRead := startupdiag.Begin(Name, "cache_read")
 	cache := sessioncache.Load(cachePath)
+	finishCacheRead(1, 0)
 	keep := make(map[string]struct{}, len(files))
 	cwdChecker := cwdstatus.NewChecker()
 	seen := make(map[string]struct{}, len(files))
@@ -68,8 +77,10 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		s, ok := cache.Get(id)
 		if !ok {
+			finishPrimaryParse := startupdiag.Begin(Name, "primary_parse")
 			var err error
 			s, err = parseSessionFile(file.Path)
+			finishPrimaryParse(1, file.Size)
 			if err != nil || s.ID == "" || s.CWD == "" {
 				continue
 			}
@@ -116,10 +127,12 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 		}
 		sessions = append(sessions, s)
 	}
+	finishCacheWrite := startupdiag.Begin(Name, "cache_write")
 	if shouldPruneCache(opts, len(files)) {
 		cache.Keep(keep)
 	}
 	_ = cache.Save(cachePath)
+	finishCacheWrite(1, 0)
 	return sessions, nil
 }
 

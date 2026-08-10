@@ -31,6 +31,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import statistics
 import subprocess
@@ -43,6 +44,17 @@ from typing import Any, Sequence
 
 PROBE_ID = "__asm_real_startup_probe_missing__"
 EXPECTED_PROBE_ERROR = f"session not found: {PROBE_ID}"
+PROVIDERS = (
+    "codex",
+    "claude",
+    "kimi",
+    "kiro",
+    "opencode",
+    "codebuddy",
+    "cursor",
+    "openclaw",
+    "zcode",
+)
 
 
 class BenchmarkError(RuntimeError):
@@ -93,6 +105,26 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
             "overhead and is not the public wall-time acceptance run."
         ),
     )
+    parser.add_argument(
+        "--provider-breakdown",
+        action="store_true",
+        help=(
+            "Also measure every provider through the public provider-qualified "
+            "resume boundary with the same cold/warm protocol."
+        ),
+    )
+    parser.add_argument(
+        "--resource-runs",
+        type=int,
+        default=0,
+        help="Separate GNU time peak-RSS samples per cold/warm mode. Default: 0.",
+    )
+    parser.add_argument(
+        "--read-runs",
+        type=int,
+        default=0,
+        help="Separate aggregate read/pread syscall-byte samples per cold/warm mode. Default: 0.",
+    )
     return parser.parse_args(argv)
 
 
@@ -105,6 +137,10 @@ def validate_args(args: argparse.Namespace) -> tuple[Path, Path]:
         raise BenchmarkError("--warm-runs must be at least 1")
     if args.since_days < 0:
         raise BenchmarkError("--since-days must be at least 0")
+    if args.resource_runs < 0:
+        raise BenchmarkError("--resource-runs must be at least 0")
+    if args.read_runs < 0:
+        raise BenchmarkError("--read-runs must be at least 0")
 
     binary = Path(args.asm_bin).expanduser()
     resolved = shutil.which(str(binary))
@@ -144,7 +180,17 @@ def distribution(values: Sequence[int], scale: float = 1.0) -> dict[str, float |
     }
 
 
-def probe_command(binary: Path, since_days: int) -> list[str]:
+def probe_command(binary: Path, since_days: int, provider: str | None = None) -> list[str]:
+    if provider is not None:
+        return [
+            str(binary),
+            "resume",
+            "--provider",
+            provider,
+            "--since-days",
+            str(since_days),
+            PROBE_ID,
+        ]
     return [
         str(binary),
         "--since-days",
@@ -173,11 +219,12 @@ def run_probe(
     since_days: int,
     cache_dir: Path,
     diagnostic_file: Path | None,
+    provider: str | None = None,
 ) -> int:
     cache_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter_ns()
     result = subprocess.run(
-        probe_command(binary, since_days),
+        probe_command(binary, since_days, provider),
         env=isolated_env(cache_dir, diagnostic_file),
         check=False,
         stdout=subprocess.DEVNULL,
@@ -185,14 +232,77 @@ def run_probe(
         text=True,
     )
     elapsed = time.perf_counter_ns() - started
-    if result.returncode == 0 or result.stderr.strip() != EXPECTED_PROBE_ERROR:
+    validate_probe_result(result.returncode, result.stderr, provider)
+    if diagnostic_file is not None:
+        validate_diagnostic_file(diagnostic_file)
+    return elapsed
+
+
+def validate_probe_result(returncode: int, stderr: str, provider: str | None = None) -> None:
+    expected_error = EXPECTED_PROBE_ERROR
+    if provider is not None:
+        expected_error += f" for provider {provider}"
+    if returncode == 0 or stderr.strip() != expected_error:
         raise BenchmarkError(
             "startup probe did not fail with the expected missing-session result; "
             "inspect the binary manually before trusting measurements"
         )
-    if diagnostic_file is not None:
-        validate_diagnostic_file(diagnostic_file)
-    return elapsed
+
+
+def run_rss_probe(binary: Path, since_days: int, cache_dir: Path, output: Path) -> int:
+    time_binary = shutil.which("/usr/bin/time")
+    if time_binary is None:
+        raise BenchmarkError("GNU /usr/bin/time is required for --resource-runs")
+    result = subprocess.run(
+        [time_binary, "-q", "-f", "%M", "-o", str(output), *probe_command(binary, since_days)],
+        env=isolated_env(cache_dir),
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    validate_probe_result(result.returncode, result.stderr)
+    try:
+        return int(output.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError) as exc:
+        raise BenchmarkError(f"invalid GNU time RSS output: {output}") from exc
+
+
+def parse_strace_read_bytes(text: str) -> int:
+    total = 0
+    for line in text.splitlines():
+        match = re.search(r"=\s+(-?\d+)\s*$", line)
+        if match and int(match.group(1)) > 0:
+            total += int(match.group(1))
+    return total
+
+
+def run_read_probe(binary: Path, since_days: int, cache_dir: Path, output: Path) -> int:
+    strace_binary = shutil.which("strace")
+    if strace_binary is None:
+        raise BenchmarkError("strace is required for --read-runs")
+    result = subprocess.run(
+        [
+            strace_binary,
+            "-f",
+            "-qq",
+            "-e",
+            "trace=read,pread64",
+            "-o",
+            str(output),
+            *probe_command(binary, since_days),
+        ],
+        env=isolated_env(cache_dir),
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    validate_probe_result(result.returncode, result.stderr)
+    try:
+        return parse_strace_read_bytes(output.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise BenchmarkError(f"cannot read strace output: {output}") from exc
 
 
 def directory_bytes(root: Path) -> int:
@@ -210,7 +320,7 @@ def validate_diagnostic_file(path: Path) -> None:
         raise BenchmarkError(f"invalid aggregate diagnostic file {path}: {exc}") from exc
     if not isinstance(events, list):
         raise BenchmarkError(f"diagnostic file must contain a JSON array: {path}")
-    allowed = {"provider", "stage", "nanos", "count"}
+    allowed = {"provider", "stage", "nanos", "count", "bytes"}
     for event in events:
         if not isinstance(event, dict) or not set(event).issubset(allowed):
             raise BenchmarkError(f"diagnostic file contains unsupported fields: {path}")
@@ -220,6 +330,8 @@ def validate_diagnostic_file(path: Path) -> None:
             raise BenchmarkError(f"diagnostic nanos must be a non-negative integer: {path}")
         if "count" in event and (not isinstance(event["count"], int) or event["count"] < 0):
             raise BenchmarkError(f"diagnostic count must be a non-negative integer: {path}")
+        if "bytes" in event and (not isinstance(event["bytes"], int) or event["bytes"] < 0):
+            raise BenchmarkError(f"diagnostic bytes must be a non-negative integer: {path}")
 
 
 def run_json(binary: Path, since_days: int, cache_dir: Path) -> dict[str, Any]:
@@ -319,6 +431,10 @@ def diagnostic_summary(root: Path, runs: dict[str, int]) -> dict[str, Any]:
                 run_events.get((provider, stage), {}).get("count", 0)
                 for run_events in events_by_run
             ]
+            byte_counts = [
+                run_events.get((provider, stage), {}).get("bytes", 0)
+                for run_events in events_by_run
+            ]
             shares = []
             if stage != "provider_total":
                 for index, value in enumerate(values):
@@ -331,6 +447,7 @@ def diagnostic_summary(root: Path, runs: dict[str, int]) -> dict[str, Any]:
                     "duration_ms": distribution(values, 1_000_000),
                     "count_mean": statistics.fmean(counts),
                     "count_median": statistics.median(counts),
+                    "bytes": distribution(byte_counts),
                     "share_of_provider_total_pct_median": (
                         100.0 if stage == "provider_total" else statistics.median(shares)
                     ),
@@ -385,6 +502,41 @@ def markdown_report(summary: dict[str, Any]) -> str:
             "",
         ]
     )
+    if summary.get("provider_breakdown"):
+        lines.extend(
+            [
+                "## Provider 冷热分解",
+                "",
+                "| Provider | cold median | cold p95 | warm median | warm p95 |",
+                "|---|---:|---:|---:|---:|",
+            ]
+        )
+        for provider, item in summary["provider_breakdown"].items():
+            cold_stats = item["wall_time_seconds"]["cold"]
+            warm_stats = item["wall_time_seconds"]["warm"]
+            lines.append(
+                f"| {provider} | {format_seconds(cold_stats['median'])} s | "
+                f"{format_seconds(cold_stats['p95'])} s | "
+                f"{format_seconds(warm_stats['median'])} s | "
+                f"{format_seconds(warm_stats['p95'])} s |"
+            )
+        lines.append("")
+    if summary.get("resources"):
+        lines.extend(["## 独立资源采样", ""])
+        resources = summary["resources"]
+        if "peak_rss_kib" in resources:
+            lines.append(
+                f"- Peak RSS median cold/warm: "
+                f"{resources['peak_rss_kib']['cold']['median']:.0f}/"
+                f"{resources['peak_rss_kib']['warm']['median']:.0f} KiB"
+            )
+        if "syscall_read_bytes" in resources:
+            lines.append(
+                f"- read/pread bytes median cold/warm: "
+                f"{resources['syscall_read_bytes']['cold']['median']:.0f}/"
+                f"{resources['syscall_read_bytes']['warm']['median']:.0f} bytes"
+            )
+        lines.append("")
     if summary["diagnostics"]:
         lines.extend(["## Provider 诊断阶段", ""])
         for mode in ("cold", "warm"):
@@ -392,8 +544,8 @@ def markdown_report(summary: dict[str, Any]) -> str:
                 [
                     f"### {mode}",
                     "",
-                    "| Provider | Stage | median | p95 | provider 占比 | count mean |",
-                    "|---|---|---:|---:|---:|---:|",
+                    "| Provider | Stage | median | p95 | provider 占比 | count mean | bytes median |",
+                    "|---|---|---:|---:|---:|---:|---:|",
                 ]
             )
             for row in summary["diagnostic_stages"][mode]:
@@ -404,7 +556,7 @@ def markdown_report(summary: dict[str, Any]) -> str:
                     f"| {row['provider']} | {row['stage']} | "
                     f"{duration['median']:.3f} ms | {duration['p95']:.3f} ms | "
                     f"{row['share_of_provider_total_pct_median']:.2f}% | "
-                    f"{row['count_mean']:.2f} |"
+                    f"{row['count_mean']:.2f} | {row['bytes']['median']:.0f} |"
                 )
             lines.append("")
     return "\n".join(lines)
@@ -417,11 +569,40 @@ def write_json(path: Path, value: Any) -> None:
     )
 
 
+def write_benchstat(path: Path, summary: dict[str, Any], samples: dict[str, Any]) -> None:
+    lines = [
+        f"goos: {sys.platform}",
+        f"goarch: {platform.machine()}",
+        "pkg: github.com/hxy91819/agent-session-manager/real-startup",
+        f"cpu: {platform.processor() or 'unknown'}",
+    ]
+    cpu_suffix = os.cpu_count() or 1
+    for mode in ("cold", "warm"):
+        cache_values = samples.get(f"{mode}_cache_bytes")
+        if not isinstance(cache_values, list):
+            cache_values = [samples["warm_cache_bytes"]] * len(samples[f"{mode}_ns"])
+        for elapsed, cache_bytes in zip(samples[f"{mode}_ns"], cache_values, strict=True):
+            lines.append(
+                f"BenchmarkRealStartup/{mode}-{cpu_suffix} 1 {elapsed} ns/op "
+                f"{cache_bytes} cache-bytes"
+            )
+    for provider, item in summary.get("provider_breakdown", {}).items():
+        provider_samples = item["samples"]
+        for mode in ("cold", "warm"):
+            for elapsed in provider_samples[f"{mode}_ns"]:
+                lines.append(
+                    f"BenchmarkProviderStartup/{provider}/{mode}-{cpu_suffix} "
+                    f"1 {elapsed} ns/op"
+                )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def run_benchmark(args: argparse.Namespace, binary: Path, output_dir: Path) -> dict[str, Any]:
     samples: dict[str, Any] = {
         "cold_ns": [],
         "warm_ns": [],
         "cold_cache_bytes": [],
+        "warm_cache_bytes_samples": [],
         "warm_cache_bytes": 0,
     }
     diagnostics_root = output_dir / "diagnostics"
@@ -456,6 +637,7 @@ def run_benchmark(args: argparse.Namespace, binary: Path, output_dir: Path) -> d
             )
             elapsed = run_probe(binary, args.since_days, warm_cache, diag_file)
             samples["warm_ns"].append(elapsed)
+            samples["warm_cache_bytes_samples"].append(directory_bytes(warm_cache))
             print(f"INFO: warm {index + 1}/{args.warm_runs}: {elapsed / 1e9:.3f}s")
         samples["warm_cache_bytes"] = directory_bytes(warm_cache)
 
@@ -476,6 +658,7 @@ def run_benchmark(args: argparse.Namespace, binary: Path, output_dir: Path) -> d
         "cpu_count": os.cpu_count(),
         "since_days": args.since_days,
         "diagnostics": args.diagnostics,
+        "provider_breakdown_enabled": args.provider_breakdown,
         "protocol": {
             "cold_runs": args.cold_runs,
             "warmup_runs": args.warmup_runs,
@@ -502,9 +685,103 @@ def run_benchmark(args: argparse.Namespace, binary: Path, output_dir: Path) -> d
             diagnostics_root,
             {"cold": args.cold_runs, "warm": args.warm_runs},
         )
+    if args.provider_breakdown:
+        provider_breakdown: dict[str, Any] = {}
+        with tempfile.TemporaryDirectory(prefix="asm-real-startup-providers-") as temp:
+            temp_root = Path(temp)
+            for provider in PROVIDERS:
+                provider_samples = {"cold_ns": [], "warm_ns": []}
+                for index in range(args.cold_runs):
+                    elapsed = run_probe(
+                        binary,
+                        args.since_days,
+                        temp_root / provider / "cold" / f"{index + 1:02d}",
+                        None,
+                        provider,
+                    )
+                    provider_samples["cold_ns"].append(elapsed)
+                warm_cache = temp_root / provider / "warm"
+                for _ in range(args.warmup_runs):
+                    run_probe(binary, args.since_days, warm_cache, None, provider)
+                for _ in range(args.warm_runs):
+                    provider_samples["warm_ns"].append(
+                        run_probe(binary, args.since_days, warm_cache, None, provider)
+                    )
+                provider_breakdown[provider] = {
+                    "wall_time_seconds": {
+                        "cold": distribution(provider_samples["cold_ns"], 1_000_000_000),
+                        "warm": distribution(provider_samples["warm_ns"], 1_000_000_000),
+                    },
+                    "samples": provider_samples,
+                }
+                cold_median = provider_breakdown[provider]["wall_time_seconds"]["cold"]["median"]
+                warm_median = provider_breakdown[provider]["wall_time_seconds"]["warm"]["median"]
+                print(
+                    f"INFO: provider {provider}: cold median={cold_median:.3f}s; "
+                    f"warm median={warm_median:.3f}s"
+                )
+        summary["provider_breakdown"] = provider_breakdown
+    resources: dict[str, Any] = {}
+    with tempfile.TemporaryDirectory(prefix="asm-real-startup-resources-") as temp:
+        temp_root = Path(temp)
+        if args.resource_runs:
+            rss_samples: dict[str, list[int]] = {"cold": [], "warm": []}
+            for index in range(args.resource_runs):
+                rss_samples["cold"].append(
+                    run_rss_probe(
+                        binary,
+                        args.since_days,
+                        temp_root / "rss-cold" / f"{index + 1:02d}",
+                        temp_root / f"rss-cold-{index + 1:02d}.txt",
+                    )
+                )
+            warm_cache = temp_root / "rss-warm"
+            for _ in range(args.warmup_runs):
+                run_probe(binary, args.since_days, warm_cache, None)
+            for index in range(args.resource_runs):
+                rss_samples["warm"].append(
+                    run_rss_probe(
+                        binary,
+                        args.since_days,
+                        warm_cache,
+                        temp_root / f"rss-warm-{index + 1:02d}.txt",
+                    )
+                )
+            resources["peak_rss_kib"] = {
+                mode: distribution(values) for mode, values in rss_samples.items()
+            }
+        if args.read_runs:
+            read_samples: dict[str, list[int]] = {"cold": [], "warm": []}
+            for index in range(args.read_runs):
+                read_samples["cold"].append(
+                    run_read_probe(
+                        binary,
+                        args.since_days,
+                        temp_root / "read-cold" / f"{index + 1:02d}",
+                        temp_root / f"read-cold-{index + 1:02d}.txt",
+                    )
+                )
+            warm_cache = temp_root / "read-warm"
+            for _ in range(args.warmup_runs):
+                run_probe(binary, args.since_days, warm_cache, None)
+            for index in range(args.read_runs):
+                read_samples["warm"].append(
+                    run_read_probe(
+                        binary,
+                        args.since_days,
+                        warm_cache,
+                        temp_root / f"read-warm-{index + 1:02d}.txt",
+                    )
+                )
+            resources["syscall_read_bytes"] = {
+                mode: distribution(values) for mode, values in read_samples.items()
+            }
+    if resources:
+        summary["resources"] = resources
 
     write_json(output_dir / "samples.json", samples)
     write_json(output_dir / "summary.json", summary)
+    write_benchstat(output_dir / "benchstat.txt", summary, samples)
     (output_dir / "summary.md").write_text(markdown_report(summary), encoding="utf-8")
     if not matches:
         raise BenchmarkError(
