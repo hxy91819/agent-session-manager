@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -516,6 +517,100 @@ func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
 	if !ok {
 		t.Fatal("bounded scan pruned the historical cache entry")
 	}
+}
+
+func TestDiscoverCacheMissWorkersProduceEquivalentResults(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	root := filepath.Join(home, "projects", "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
+	var changedPath string
+	for i := range 12 {
+		path := filepath.Join(root, fmt.Sprintf("session-%02d.jsonl", i))
+		if i == 0 {
+			changedPath = path
+		}
+		writeClaudeSession(t, path, fmt.Sprintf("session-%02d", i), repo, fmt.Sprintf("request %02d", i))
+		modTime := base.Add(time.Duration(10+i) * time.Minute)
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	duplicate := filepath.Join(root, "duplicate-old.jsonl")
+	writeClaudeSession(t, duplicate, "session-01", repo, "older duplicate")
+	if err := os.Chtimes(duplicate, base.Add(time.Minute), base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	invalid := filepath.Join(root, "invalid.jsonl")
+	writeFile(t, invalid, "not-json\n")
+	if err := os.Chtimes(invalid, base.Add(25*time.Minute), base.Add(25*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	serial := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "serial.json"), parseWorkers: 1}
+	parallel := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "parallel.json"), parseWorkers: 8}
+
+	serialCold, err := serial.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelCold, err := parallel.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialCold, parallelCold)
+	if len(serialCold) != 12 {
+		t.Fatalf("sessions = %d, want 12", len(serialCold))
+	}
+
+	serialWarm, err := serial.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelWarm, err := parallel.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialCold, serialWarm)
+	sessiontest.RequireEqual(t, parallelCold, parallelWarm)
+
+	writeClaudeSession(t, changedPath, "session-00", repo, "request changed after cache warmup")
+	serialChanged, err := serial.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelChanged, err := parallel.Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialChanged, parallelChanged)
+
+	limitedOpts := session.DiscoverOptions{LimitFiles: 7}
+	limitedSerial := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "limited-serial.json"), parseWorkers: 1}
+	limitedParallel := Provider{Home: home, CachePath: filepath.Join(t.TempDir(), "limited-parallel.json"), parseWorkers: 8}
+	serialLimited, err := limitedSerial.Discover(limitedOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelLimited, err := limitedParallel.Discover(limitedOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialLimited, parallelLimited)
+
+	previewOpts := session.DiscoverOptions{Preview: session.PreviewOptions{UserMessagesPerEdge: 2}}
+	serialReport, err := serial.Discover(previewOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallelReport, err := parallel.Discover(previewOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessiontest.RequireEqual(t, serialReport, parallelReport)
 }
 
 func TestReportDiscoveryReplacesMetadataOnlyCache(t *testing.T) {

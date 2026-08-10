@@ -92,6 +92,18 @@ func BenchmarkDiscoverChangedLargeSession(b *testing.B) {
 }
 
 func BenchmarkDiscoverColdCacheMixedTranscripts(b *testing.B) {
+	benchmarkDiscoverColdCacheMixedTranscripts(b, 0)
+}
+
+func BenchmarkDiscoverColdCacheMixedTranscriptsWorkers(b *testing.B) {
+	for _, workers := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("workers-%02d", workers), func(b *testing.B) {
+			benchmarkDiscoverColdCacheMixedTranscripts(b, workers)
+		})
+	}
+}
+
+func benchmarkDiscoverColdCacheMixedTranscripts(b *testing.B, workers int) {
 	home := b.TempDir()
 	repo := filepath.Join(home, "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
@@ -114,7 +126,7 @@ func BenchmarkDiscoverColdCacheMixedTranscripts(b *testing.B) {
 		inputBytes += int64(len(body))
 	}
 	cachePath := filepath.Join(b.TempDir(), "cache.json")
-	provider := Provider{Home: home, CachePath: cachePath}
+	provider := Provider{Home: home, CachePath: cachePath, parseWorkers: workers}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
@@ -126,6 +138,7 @@ func BenchmarkDiscoverColdCacheMixedTranscripts(b *testing.B) {
 			b.Fatalf("sessions=%d err=%v", len(got), err)
 		}
 	}
+	b.ReportMetric(float64(provider.workerCount(true)), "workers")
 	b.ReportMetric(float64(inputBytes), "transcript-bytes/op")
 }
 
