@@ -105,10 +105,7 @@ func BenchmarkDiscoverColdCacheMixedTranscriptsWorkers(b *testing.B) {
 
 func benchmarkDiscoverColdCacheMixedTranscripts(b *testing.B, workers int) {
 	home := b.TempDir()
-	repo := filepath.Join(home, "repo")
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		b.Fatal(err)
-	}
+	repo := filepath.FromSlash("/benchmark/claude-repo")
 	projectDir := filepath.Join(home, "projects", "-repo")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		b.Fatal(err)
