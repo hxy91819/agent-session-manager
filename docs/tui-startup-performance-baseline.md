@@ -111,7 +111,7 @@ go test -run '^$' -bench . -benchmem \
 | H：Codex 增量解析 | `eeeee26` | ChangedLargeCodexSession 相对 G `-89.77%`；其他 CLI 最大变化 `+2.40%` | Codex changed-large `-97.64%`、bytes `-99.33%`；其他 provider/index/UI 无 5% 回退 | 保留，阶段 E-H 完成 |
 | P2：Codex metadata 快路径 | `a433aab` | 真实冷启动 `-28.68%`；交替热测无显著变化 | 混合 rollout `-94.70%`、B/op `-96.54%`；实际输入 bytes 不变 | 保留；report 继续完整解析，P3 未开始 |
 | P3：Codex dynamic title index | `8fb0ae7` | 真实热启动 `-43.17%`；冷启动 `+4.78%` | 混合 title index `-59.81%`、无变化热态 source bytes `-93.75%` | 保留；范围停在 P3 |
-| P4：post-P3 trend + Claude metadata fast path | `1d100c7` | 真实冷启动 `-19.99%`；热启动无显著变化 | 混合 transcript `-37.84%`、B/op `-27.95%`；输入 bytes 不变 | 保留；P4 完成 |
+| P4：post-P3 trend + Claude metadata fast path | `af3c5ac` | 真实冷启动 `-19.58%`；热启动 `+1.42%` | 混合 transcript `-33.44%`、B/op `-27.95%`；输入 bytes 不变 | 保留；P4 完成 |
 
 ## 阶段 E：Shared title policy
 
@@ -1029,7 +1029,7 @@ provider 或后续性能项。
 状态（2026-08-10）：已完成并决定保留。P4 从 `origin/master@ac783c6` 独立采集
 post-P3 base；测试/benchmark 提交为 `191492b`，趋势与诊断基础设施提交为 `9a2f09e`、
 `b8a9ff9`，Claude 生产实现为 `7529a24`，review 修正为 `f4a89be`、`00b0dd8`、
-`f21e6e5`、`1d100c7`。没有复用 P3 after，也没有进入异步 TUI、通用 JSONL parser 或
+`f21e6e5`、`1d100c7`、`af3c5ac`。没有复用 P3 after，也没有进入异步 TUI、通用 JSONL parser 或
 未达门槛的 provider 优化。
 
 ### post-P3 base、固定趋势 runner 与实施门槛
@@ -1078,7 +1078,7 @@ JSON object，提取所有现有 session/title/cwd/timestamp/model/entrypoint/pr
 但不把已证明为非 user 的 assistant `message.content` 深度反序列化。字段顺序不作假设；
 未知值由 `json.Valid` 验证，结构不明确时回退原 `encoding/json` 完整解码。测试覆盖实际
 producer 的 `message`-before-metadata 顺序、嵌套/转义内容、duplicate message、outer/nested
-trailing comma、损坏记录和 full/metadata 等价。另对固定快照的 332 个真实 Claude 文件
+trailing comma、大小写变体 key、损坏记录和 full/metadata 等价。另对固定快照的 332 个真实 Claude 文件
 逐文件比较 normalized session，全部等价且未输出内容。
 
 metadata cache 使用 provider-private `_asm_claude_parse_mode` 标记，返回公共 JSON 前删除；
@@ -1090,19 +1090,19 @@ session、项目归组、resume safety 和 report evidence 均不变；cache sch
 producer-schema 混合 benchmark 包含 24 个 64 KiB/256 KiB/1 MiB/4 MiB transcript，输入
 33,437,256 bytes/op。最终 10 个 `benchtime=1x` 样本：
 
-| 指标 | Base `191492b` | Final `1d100c7` | 变化 |
+| 指标 | Base `191492b` | Final `af3c5ac` | 变化 |
 |---|---:|---:|---:|
-| wall time | 480.9 ms | 298.9 ms | -37.84%（p=0.000） |
+| wall time | 480.9 ms | 320.1 ms | -33.44%（p=0.000） |
 | B/op | 228.7 MiB | 164.7 MiB | -27.95% |
-| allocs/op | 2.898k | 4.431k | +52.88% |
+| allocs/op | 2.898k | 4.429k | +52.83% |
 | transcript input | 31.89 MiB | 31.89 MiB | 无变化 |
 
 alloc 次数增加来自小字段的保守逐值校验；累计 bytes 和 wall time 显著下降，真实 RSS 没有
 实质增长，因此保留该取舍。focused raw output：
 
 - `/tmp/asm-tui-startup-p4-20260810/claude-mixed-base.txt`；
-- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-final.txt`；
-- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-final-benchstat.txt`。
+- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-af3c5ac.txt`；
+- `/tmp/asm-tui-startup-p4-20260810/claude-mixed-af3c5ac-benchstat.txt`。
 
 ### 最终真实 A/B、资源与正确性
 
@@ -1113,13 +1113,13 @@ store，不复制用户 asm cache；内容未修改。20 个在采集时距 30 �
 复测曾从 504 自然降至 503；同一时点重跑 base 也为 503，证明是时间窗口漂移而非实现
 差异，该轮不进入结论。固定后 base/final 均稳定为 504。
 
-exact base `ac783c6` 与 final `1d100c7` 均用 `-buildvcs=false` 构建，冷各 10 次，热各
+exact base `ac783c6` 与 final `af3c5ac` 均用 `-buildvcs=false` 构建，冷各 10 次，热各
 预热 2 次后 20 次：
 
 | 场景 | Base median / p95 | Final median / p95 | benchstat |
 |---|---:|---:|---:|
-| 冷启动 | 2.967 / 3.019 s | 2.374 / 2.401 s | -19.99%（p=0.000） |
-| 热启动 | 38.49 / 39.59 ms | 38.75 / 39.64 ms | 无显著变化（p=0.253） |
+| 冷启动 | 2.967 / 3.019 s | 2.386 / 2.415 s | -19.58%（p=0.000） |
+| 热启动 | 38.49 / 39.59 ms | 39.04 / 39.86 ms | +1.42%（p=0.014，低于 5% 门槛） |
 
 cache 从 766,552 增至 778,360 bytes（+11,808 bytes，+1.54%），来自 Claude parse-mode
 标记。独立 10-sample RSS 在生产候选上冷态 base/after 中位数 `37,288/37,728 KiB`、最大值
@@ -1147,8 +1147,8 @@ evidence/previews 后聚合 SHA-256 均为
 最终 raw output：
 
 - `/tmp/asm-tui-startup-p4-20260810/final-fixed-base/`；
-- `/tmp/asm-tui-startup-p4-20260810/final-fixed-after/`；
-- `/tmp/asm-tui-startup-p4-20260810/final-fixed-benchstat.txt`；
+- `/tmp/asm-tui-startup-p4-20260810/final-af3c5ac-after/`；
+- `/tmp/asm-tui-startup-p4-20260810/final-af3c5ac-benchstat.txt`；
 - `/tmp/asm-tui-startup-p4-20260810/after-diagnostics-frozen/`；
 - `/tmp/asm-tui-startup-p4-20260810/ab-base-frozen/`、`ab-after-frozen/`（RSS/read bytes 与
   provider A/B）。
@@ -1180,9 +1180,10 @@ Contributor action 只需 Claude-owned parser/cache/report 边界和趋势证据
 
 **Autoreview**：首轮指出 warm cache 的逐样本 bytes 被 benchstat 最终值覆盖，`f4a89be`
 先加失败回归后修复；后续指出 malformed duplicate `message` 和 trailing comma 与 full
-decoder 不等价，`00b0dd8`、`1d100c7` 分别补失败回归并修复。一次 Flush finding 是对 Go
-if initializer 求值顺序的误判，但 `f21e6e5` 将写法显式化并增加真实 CLI E2E。稳定 worktree
-最终复审无 P0-P2 finding。
+decoder 不等价，`00b0dd8`、`1d100c7` 分别补失败回归并修复；post-doc review 又指出
+大小写变体 key 与 `encoding/json` 行为不同，`af3c5ac` 增加失败回归并在命中时回退 full
+decoder。一次 Flush finding 是对 Go if initializer 求值顺序的误判，但 `f21e6e5` 将写法
+显式化并增加真实 CLI E2E。稳定 worktree 最终复审无 P0-P2 finding。
 
 最终 focused tests、公共 E2E、runner unit tests、`go test -race ./...`、provider performance
 contract、golangci-lint、`go test ./...` 和 build 全部通过；pre-commit 结果见最终提交记录。

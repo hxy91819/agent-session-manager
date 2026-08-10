@@ -11,10 +11,10 @@ P0-P3 已按独立 base、行为契约、真实 A/B、资源证据和三项 revi
 P3 已通过 PR #46 land，进展状态修正已通过 PR #47 land；`origin/master@ac783c6` 是
 P4 的独立生产 base。P4 已完成 post-P3 provider/stage 重基线、固定跨版本趋势 runner，
 并由新数据确认 Claude cold primary parse 达到统一门槛；最终实施最小 Claude-owned
-metadata fast path。固定窗口真实冷启动 `2.967→2.374 s`（`-19.99%`），热启动无显著
-变化；504 sessions、74 projects、provider counts、0 error、两类不可逆哈希和 last-week
-的 185 条 evidence/聚合哈希一致。完整资源、raw path、review 与 cross-agent matrix 见
-性能基线文档 P4 节。
+metadata fast path。固定窗口真实冷启动 `2.967→2.386 s`（`-19.58%`），热启动 `+1.42%`
+且低于 5% 门槛；504 sessions、74 projects、provider counts、0 error、两类不可逆哈希和
+last-week 的 185 条 evidence/聚合哈希一致。完整资源、raw path、review 与 cross-agent
+matrix 见性能基线文档 P4 节。
 
 因此当前进展状态是“P0-P4 已完成，P4 保留且停止；没有已批准的 P5”。下文保留 P0
 启动前的历史诊断、各阶段契约和有条件后续项，供未来重新分解时复用。
@@ -182,8 +182,8 @@ report hashes；所有真实 JSON 与隔离 cache 在计时外删除，只持久
 深度 decode；report 遇到 metadata-only cache 会重做 full parse。CodeBuddy、Cursor 和
 其他 provider 未达门槛或触发不可达，本项未扩范围、未创建共享 parser。
 
-最终 fixture wall `-37.84%`、B/op `-27.95%`，输入 bytes 不变；固定窗口真实冷启动
-`-19.99%`，热启动无显著变化，cache `+1.54%`，RSS 无实质增长。behavior E2E、
+最终 fixture wall `-33.44%`、B/op `-27.95%`，输入 bytes 不变；固定窗口真实冷启动
+`-19.58%`，热启动 `+1.42%` 且低于 5% 门槛，cache `+1.54%`，RSS 无实质增长。behavior E2E、
 cross-agent review、autoreview、race、provider performance contract、lint、全量测试与
 build 均通过。P4 保留并停止，没有进入异步 TUI、未达门槛 provider 或 P5；未经另行授权
 不得推送或合并远端。
