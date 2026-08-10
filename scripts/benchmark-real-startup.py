@@ -678,7 +678,8 @@ def write_benchstat(path: Path, summary: dict[str, Any], samples: dict[str, Any]
     ]
     cpu_suffix = os.cpu_count() or 1
     for mode in ("cold", "warm"):
-        cache_values = samples.get(f"{mode}_cache_bytes")
+        cache_key = "cold_cache_bytes" if mode == "cold" else "warm_cache_bytes_samples"
+        cache_values = samples.get(cache_key)
         if not isinstance(cache_values, list):
             cache_values = [samples["warm_cache_bytes"]] * len(samples[f"{mode}_ns"])
         for elapsed, cache_bytes in zip(samples[f"{mode}_ns"], cache_values, strict=True):

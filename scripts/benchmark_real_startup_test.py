@@ -165,6 +165,25 @@ raise SystemExit(1)
 """
         self.assertEqual(module.parse_strace_read_bytes(trace), 17)
 
+    def test_benchstat_uses_each_warm_cache_measurement(self) -> None:
+        module = load_module()
+        output = self.root / "benchstat.txt"
+        samples = {
+            "cold_ns": [100],
+            "warm_ns": [200, 300],
+            "cold_cache_bytes": [10],
+            "warm_cache_bytes_samples": [20, 30],
+            "warm_cache_bytes": 30,
+        }
+        module.write_benchstat(output, {}, samples)
+        warm_lines = [
+            line for line in output.read_text(encoding="utf-8").splitlines()
+            if "RealStartup/warm" in line
+        ]
+        self.assertEqual(len(warm_lines), 2)
+        self.assertIn("200 ns/op 20 cache-bytes", warm_lines[0])
+        self.assertIn("300 ns/op 30 cache-bytes", warm_lines[1])
+
 
 if __name__ == "__main__":
     unittest.main()
