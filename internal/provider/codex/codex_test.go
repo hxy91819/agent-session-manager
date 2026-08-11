@@ -835,6 +835,30 @@ func TestDiscoverExplicitHomeIgnoresExtraHomes(t *testing.T) {
 	}
 }
 
+func TestDiscoverNormalizesRelativeSourceHome(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	repo := t.TempDir()
+	relativeHome := filepath.Join("profiles", "personal")
+	sessionDir := filepath.Join(relativeHome, "sessions", "2026", "08", "11")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSession(t, filepath.Join(sessionDir, "session.jsonl"), "sid", repo)
+
+	got, err := New(relativeHome).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sessions = %#v", got)
+	}
+	want := filepath.Join(base, relativeHome)
+	if sourceHome := got[0].Metadata["source_home"]; sourceHome != want {
+		t.Fatalf("source_home = %q, want %q", sourceHome, want)
+	}
+}
+
 func TestDiscoverUsesTitleFromOtherHomeForDuplicateNewestFile(t *testing.T) {
 	defaultHome := t.TempDir()
 	extraHome := t.TempDir()
@@ -1267,6 +1291,18 @@ func TestResumeCommandUsesSessionCWD(t *testing.T) {
 	}
 	if strings.Join(spec.Args, " ") != "codex resume sid" {
 		t.Fatalf("Args = %#v", spec.Args)
+	}
+}
+
+func TestResumeCommandUsesSessionSourceHome(t *testing.T) {
+	spec := New("").ResumeCommand(session.Session{
+		ID:       "sid",
+		CWD:      "/repo",
+		Metadata: map[string]string{"source_home": "/profiles/personal"},
+	})
+
+	if got := spec.Env["CODEX_HOME"]; got != "/profiles/personal" {
+		t.Fatalf("CODEX_HOME = %q", got)
 	}
 }
 

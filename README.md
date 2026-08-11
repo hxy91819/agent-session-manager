@@ -7,7 +7,8 @@ Providers:
 
 - Codex CLI sessions stored under `$CODEX_HOME/sessions` or `~/.codex/sessions`.
   Titles prefer Codex's native `$CODEX_HOME/session_index.jsonl` thread names,
-  then fall back to `history.jsonl` and rollout user messages.
+  then fall back to `history.jsonl` and rollout user messages. Resume binds
+  `CODEX_HOME` to the selected session's source home before running `codex`.
 - Claude Code sessions stored under `$CLAUDE_HOME/projects` or
   `~/.claude/projects`. Resume runs from the original session cwd with
   `claude --resume <session-id>`.
@@ -156,6 +157,13 @@ ordering. Use `--codex-home`, `--claude-home`, `--kimi-home`, `--kiro-home`,
 `--opencode-home`, or `--zcode-home` to point at alternate provider stores. By
 default only sessions active in the last 30 days are shown.
 `--since-days 0` disables the modification-time filter.
+When `--codex-home` is omitted, `ASM_CODEX_EXTRA_HOMES` can contain additional
+Codex homes separated by the platform path-list separator (`:` on Unix and `;`
+on Windows). ASM records the source home for each discovered Codex session and
+uses it automatically for resume. This selects the source home's authentication
+and configuration while still launching the standard `codex` command; shell
+wrappers and their extra arguments are not replayed. An explicit
+`--codex-profile` continues to override the selected home's default profile.
 Automated and one-shot sessions are hidden when their provider exposes a
 reliable non-interactive marker. Pass `--include-non-interactive` to include
 them in JSON output or the TUI.

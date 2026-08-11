@@ -63,9 +63,10 @@ type RuntimeError struct {
 }
 
 type ExecSpec struct {
-	Dir               string   `json:"dir"`
-	Args              []string `json:"args"`
-	UnsupportedReason string   `json:"unsupported_reason,omitempty"`
+	Dir               string            `json:"dir"`
+	Args              []string          `json:"args"`
+	Env               map[string]string `json:"env,omitempty"`
+	UnsupportedReason string            `json:"unsupported_reason,omitempty"`
 }
 
 type Provider interface {

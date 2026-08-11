@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -258,7 +259,7 @@ func parseCacheMisses(misses []cacheMiss, workers int, parsed []parsedFile) {
 
 func (p Provider) homes() ([]string, error) {
 	if p.Home != "" {
-		return []string{p.Home}, nil
+		return absoluteHomes([]string{p.Home})
 	}
 	home := os.Getenv("CODEX_HOME")
 	if home == "" {
@@ -268,7 +269,19 @@ func (p Provider) homes() ([]string, error) {
 		}
 		home = filepath.Join(userHome, ".codex")
 	}
-	return append([]string{home}, splitHomeList(os.Getenv("ASM_CODEX_EXTRA_HOMES"))...), nil
+	return absoluteHomes(append([]string{home}, splitHomeList(os.Getenv("ASM_CODEX_EXTRA_HOMES"))...))
+}
+
+func absoluteHomes(homes []string) ([]string, error) {
+	out := make([]string, 0, len(homes))
+	for _, home := range homes {
+		absolute, err := filepath.Abs(home)
+		if err != nil {
+			return nil, fmt.Errorf("resolve Codex home %q: %w", home, err)
+		}
+		out = append(out, filepath.Clean(absolute))
+	}
+	return out, nil
 }
 
 func shouldPruneCache(opts session.DiscoverOptions, fileCount int) bool {
@@ -292,9 +305,14 @@ func (p Provider) ResumeCommand(s session.Session) session.ExecSpec {
 		args = append(args, "--profile", p.Profile)
 	}
 	args = append(args, s.ID)
+	var env map[string]string
+	if sourceHome := strings.TrimSpace(s.Metadata["source_home"]); sourceHome != "" {
+		env = map[string]string{"CODEX_HOME": sourceHome}
+	}
 	return session.ExecSpec{
 		Dir:  s.CWD,
 		Args: args,
+		Env:  env,
 	}
 }
 

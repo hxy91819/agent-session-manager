@@ -64,23 +64,57 @@ func TestCLIIndexesSearchesAndPrintsResumeCommand(t *testing.T) {
 	}
 
 	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--resume", "openclaw-session", "--print-exec")
-	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'env' 'CODEX_HOME=`+home+`' 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 
 	cmd = runCommand(t, "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--since-days", "0", "--resume", "openclaw-session", "--print-exec")
-	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'env' 'CODEX_HOME=`+home+`' 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
 		t.Fatalf("unexpected profiled resume command: %s", cmd)
 	}
 
 	cmd = runCommand(t, "resume", "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--provider", "codex", "--print-exec", "openclaw-session")
-	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' 'openclaw-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'env' 'CODEX_HOME=`+home+`' 'codex' 'resume' 'openclaw-session'`) {
 		t.Fatalf("unexpected resume subcommand: %s", cmd)
 	}
 
 	cmd = runCommand(t, "resume", "--codex-home", home, "--codex-profile", "ollama-cloud", "--claude-home", claudeHome, "--since-days", "0", "--provider", "codex", "--print-exec", "openclaw-session")
-	if !strings.Contains(cmd, `cd '`+repo+`' && 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'env' 'CODEX_HOME=`+home+`' 'codex' 'resume' '--profile' 'ollama-cloud' 'openclaw-session'`) {
 		t.Fatalf("unexpected profiled resume subcommand: %s", cmd)
+	}
+}
+
+func TestCLICodexResumePrintsDiscoveredSourceHome(t *testing.T) {
+	env := newASMTestEnv(t)
+	defaultHome := env.ProviderHome["codex"]
+	extraHome := filepath.Join(t.TempDir(), "extra codex home")
+	defaultRepo := t.TempDir()
+	extraRepo := t.TempDir()
+
+	writeSession(t, filepath.Join(defaultHome, "sessions", "2026", "08", "11", "default.jsonl"), "default-session", defaultRepo)
+	writeSession(t, filepath.Join(extraHome, "sessions", "2026", "08", "11", "extra.jsonl"), "extra-session", extraRepo)
+
+	binary := env.Build(t)
+	extraEnv := map[string]string{"ASM_CODEX_EXTRA_HOMES": extraHome}
+
+	out, err := env.RunBinaryWithEnv(t, binary, extraEnv,
+		"--since-days", "0", "--resume", "default-session", "--print-exec")
+	if err != nil {
+		t.Fatalf("resume default Codex session: %v\n%s", err, out)
+	}
+	want := "cd '" + defaultRepo + "' && 'env' 'CODEX_HOME=" + defaultHome + "' 'codex' 'resume' 'default-session'\n"
+	if out != want {
+		t.Fatalf("default resume command = %q, want %q", out, want)
+	}
+
+	out, err = env.RunBinaryWithEnv(t, binary, extraEnv,
+		"resume", "--provider", "codex", "--codex-profile", "ollama-cloud", "--since-days", "0", "--print-exec", "extra-session")
+	if err != nil {
+		t.Fatalf("resume extra-home Codex session: %v\n%s", err, out)
+	}
+	want = "cd '" + extraRepo + "' && 'env' 'CODEX_HOME=" + extraHome + "' 'codex' 'resume' '--profile' 'ollama-cloud' 'extra-session'\n"
+	if out != want {
+		t.Fatalf("extra-home resume command = %q, want %q", out, want)
 	}
 }
 
@@ -146,7 +180,7 @@ func TestCLIKeepsCodexSubagentSeparateFromInheritedParentHistory(t *testing.T) {
 	}
 
 	cmd := runCommand(t, "--codex-home", home, "--claude-home", claudeHome, "--since-days", "0", "--resume", "child", "--print-exec")
-	if !strings.Contains(cmd, `cd '`+childWorktree+`' && 'codex' 'resume' 'child'`) {
+	if !strings.Contains(cmd, `cd '`+childWorktree+`' && 'env' 'CODEX_HOME=`+home+`' 'codex' 'resume' 'child'`) {
 		t.Fatalf("unexpected child resume command: %s", cmd)
 	}
 
