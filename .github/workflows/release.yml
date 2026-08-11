@@ -63,6 +63,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate release target
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if [[ ! "${VERSION}" =~ ${version_pattern} ]]; then
+            echo "Invalid semantic version: ${VERSION}" >&2
+            exit 1
+          fi
+
+          target_commit="$(git rev-parse "${TARGET_REF}^{commit}")"
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            git fetch --force --no-tags origin \
+              "refs/tags/${VERSION}:refs/tags/${VERSION}"
+            published_commit="$(git rev-parse "refs/tags/${VERSION}^{commit}")"
+            if [[ "${published_commit}" != "${target_commit}" ]]; then
+              echo "Existing release tag targets ${published_commit}; expected ${target_commit}" >&2
+              exit 1
+            fi
+          fi
+          echo "TARGET_COMMIT=${target_commit}" >> "${GITHUB_ENV}"
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -135,6 +157,65 @@ jobs:
             echo "Release ${VERSION} already exists; updating notes and uploading artifacts with --clobber."
             gh release edit "${VERSION}" --title "${VERSION}" --notes-file release-notes.md
           else
-            gh release create "${VERSION}" --title "${VERSION}" --notes-file release-notes.md
+            gh release create "${VERSION}" \
+              --target "${TARGET_COMMIT}" \
+              --title "${VERSION}" \
+              --notes-file release-notes.md
           fi
           gh release upload "${VERSION}" dist/*.tar.gz dist/*.zip dist/sha256sums.txt --clobber
+
+      - name: Verify published release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read -r is_draft is_prerelease < <(
+            gh release view "${VERSION}" \
+              --json isDraft,isPrerelease \
+              --jq '[.isDraft, .isPrerelease] | @tsv'
+          )
+          if [[ "${is_draft}" != "false" || "${is_prerelease}" != "false" ]]; then
+            echo "Release ${VERSION} is not a final published release" >&2
+            exit 1
+          fi
+
+          expected_archives=(
+            "asm_${VERSION}_darwin_amd64.tar.gz"
+            "asm_${VERSION}_darwin_arm64.tar.gz"
+            "asm_${VERSION}_linux_amd64.tar.gz"
+            "asm_${VERSION}_linux_arm64.tar.gz"
+            "asm_${VERSION}_windows_amd64.zip"
+            "asm_${VERSION}_windows_arm64.zip"
+            "asm_skills_${VERSION}.zip"
+          )
+          expected_assets=(
+            "${expected_archives[@]}"
+            "sha256sums.txt"
+          )
+          printf '%s\n' "${expected_archives[@]}" | LC_ALL=C sort > expected-checksummed-assets.txt
+          printf '%s\n' "${expected_assets[@]}" | LC_ALL=C sort > expected-assets.txt
+          gh release view "${VERSION}" \
+            --json assets \
+            --jq '.assets[].name' | LC_ALL=C sort > published-assets.txt
+          if ! diff -u expected-assets.txt published-assets.txt; then
+            echo "Release ${VERSION} has an unexpected asset set" >&2
+            exit 1
+          fi
+
+          git fetch --force --no-tags origin \
+            "refs/tags/${VERSION}:refs/tags/${VERSION}"
+          published_commit="$(git rev-parse "refs/tags/${VERSION}^{commit}")"
+          if [[ "${published_commit}" != "${TARGET_COMMIT}" ]]; then
+            echo "Release tag targets ${published_commit}; expected ${TARGET_COMMIT}" >&2
+            exit 1
+          fi
+
+          mkdir release-verification
+          gh release download "${VERSION}" --dir release-verification
+          (
+            cd release-verification
+            awk '{ name = $2; sub(/^\.\//, "", name); print name }' sha256sums.txt \
+              | LC_ALL=C sort > ../checksummed-assets.txt
+            sha256sum -c sha256sums.txt
+          )
+          diff -u expected-checksummed-assets.txt checksummed-assets.txt
