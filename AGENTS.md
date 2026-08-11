@@ -270,6 +270,15 @@ consume normalized sessions.
   `ResumeCommand` as the future-compatible `zcode --resume <session-id>` from
   the original cwd, and document that resume is effectively unsupported today.
 
+## Report Generation Rules
+
+- Use the default Ollama adapter for real report generation, prompt iteration,
+  smoke tests, and manual validation. Never invoke the real CodeBuddy CLI or
+  service for repository work.
+- Keep existing CodeBuddy compatibility code and deterministic fake test
+  coverage unless the task explicitly changes product support; fake fixtures
+  do not authorize a real CodeBuddy invocation.
+
 ## Testing Guidance
 
 Repository maintenance skills:
