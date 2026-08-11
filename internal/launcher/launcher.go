@@ -17,7 +17,7 @@ func Run(ctx context.Context, spec session.ExecSpec, printOnly bool) error {
 	if len(spec.Args) == 0 {
 		return fmt.Errorf("empty command")
 	}
-	if !printOnly {
+	if !printOnly && spec.Dir != "" {
 		info, err := os.Stat(spec.Dir)
 		if err != nil {
 			return fmt.Errorf("resume cwd unavailable: %s: %w", spec.Dir, err)
@@ -27,15 +27,22 @@ func Run(ctx context.Context, spec session.ExecSpec, printOnly bool) error {
 		}
 	}
 	if printOnly {
-		fmt.Printf("cd %s &&", shellQuote(spec.Dir))
-		for _, arg := range spec.Args {
-			fmt.Printf(" %s", shellQuote(arg))
+		if spec.Dir != "" {
+			fmt.Printf("cd %s &&", shellQuote(spec.Dir))
+		}
+		for i, arg := range spec.Args {
+			if spec.Dir != "" || i > 0 {
+				fmt.Print(" ")
+			}
+			fmt.Print(shellQuote(arg))
 		}
 		fmt.Println()
 		return nil
 	}
 	cmd := exec.CommandContext(ctx, spec.Args[0], spec.Args[1:]...)
-	cmd.Dir = spec.Dir
+	if spec.Dir != "" {
+		cmd.Dir = spec.Dir
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -61,6 +61,24 @@ func TestRunPrintExecUsesShellSafeQuoting(t *testing.T) {
 	}
 }
 
+func TestRunPrintExecWithoutWorkingDirectory(t *testing.T) {
+	var out bytes.Buffer
+	restore := captureStdout(t, &out)
+
+	err := Run(context.Background(), session.ExecSpec{
+		Args: []string{"herdr", "agent", "focus", "w1:p2"},
+	}, true)
+	if err != nil {
+		restore()
+		t.Fatal(err)
+	}
+	restore()
+
+	if got := out.String(); got != "'herdr' 'agent' 'focus' 'w1:p2'\n" {
+		t.Fatalf("command = %q", got)
+	}
+}
+
 func captureStdout(t *testing.T, out *bytes.Buffer) func() {
 	t.Helper()
 	original := os.Stdout

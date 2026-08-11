@@ -56,10 +56,25 @@ func (e asmTestEnv) Build(t testing.TB) string {
 }
 
 func (e asmTestEnv) RunBinary(t testing.TB, binary string, args ...string) (string, error) {
+	return e.RunBinaryWithEnv(t, binary, nil, args...)
+}
+
+func (e asmTestEnv) RunBinaryWithEnv(t testing.TB, binary string, extra map[string]string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = ".."
 	cmd.Env = e.commandEnv(t)
+	for key, value := range extra {
+		filtered := cmd.Env[:0]
+		for _, item := range cmd.Env {
+			itemKey, _, _ := strings.Cut(item, "=")
+			if itemKey != key {
+				filtered = append(filtered, item)
+			}
+		}
+		cmd.Env = filtered
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -77,7 +92,8 @@ func (e asmTestEnv) commandEnv(t testing.TB) []string {
 	env := make([]string, 0, len(os.Environ())+len(controlled))
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
-		if _, ok := controlled[key]; !ok {
+		_, controlledKey := controlled[key]
+		if !controlledKey && !strings.HasPrefix(key, "HERDR_") && !strings.HasPrefix(key, "ASM_FAKE_") {
 			env = append(env, item)
 		}
 	}

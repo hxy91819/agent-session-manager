@@ -866,6 +866,59 @@ func TestModelDoesNotSelectMissingCWDSession(t *testing.T) {
 	}
 }
 
+func TestModelSelectsLiveHerdrSessionWithMissingCWD(t *testing.T) {
+	m := New([]session.Session{{
+		ID:        "live",
+		Provider:  "codex",
+		CWD:       "/repo/missing",
+		UpdatedAt: time.Now(),
+		Metadata:  map[string]string{"cwd_missing": "true"},
+		RuntimeLocations: []session.RuntimeLocation{{
+			Runtime: "herdr", WorkspaceID: "w7", TabID: "w7:t3", PaneID: "w7:p9", AgentStatus: "working",
+		}},
+	}})
+
+	view := m.sessionsView(14, 96)
+	for _, want := range []string{"H codex", "runtime: herdr w7 / w7:t3 / w7:p9 · working"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	selected, ok := next.(Model).Selected()
+	if !ok || selected.Session.ID != "live" {
+		t.Fatalf("selection = %#v, ok=%v", selected, ok)
+	}
+}
+
+func TestModelHerdrRuntimeDetailFitsViewport(t *testing.T) {
+	m := NewWithDiscovery(session.DiscoveryResult{
+		Sessions: []session.Session{{
+			ID:        "live",
+			Provider:  "codex",
+			CWD:       "/repo",
+			UpdatedAt: time.Now(),
+			RuntimeLocations: []session.RuntimeLocation{{
+				Runtime: "herdr", WorkspaceID: "workspace-with-long-name", TabID: "workspace-with-long-name:tab", PaneID: "workspace-with-long-name:pane", AgentStatus: "working",
+			}},
+		}},
+		RuntimeErrors: []session.RuntimeError{{Runtime: "herdr", Error: "temporary socket failure with a long diagnostic"}},
+	}, defaultWindowDays, defaultStepDays, nil)
+	m.width = 74
+	m.height = 12
+
+	view := m.View()
+	if got := lipgloss.Width(view); got > m.width {
+		t.Fatalf("width = %d, want <= %d\n%s", got, m.width, view)
+	}
+	if got := lipgloss.Height(view); got > m.height {
+		t.Fatalf("height = %d, want <= %d\n%s", got, m.height, view)
+	}
+	if !strings.Contains(view, "runtime errors: herdr:") {
+		t.Fatalf("view missing runtime error:\n%s", view)
+	}
+}
+
 func TestModelDoesNotSelectNewSessionForMissingCWD(t *testing.T) {
 	m := New([]session.Session{{
 		ID:        "missing",

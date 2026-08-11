@@ -11,15 +11,16 @@ const (
 )
 
 type Session struct {
-	ID        string            `json:"id"`
-	Provider  string            `json:"provider"`
-	CWD       string            `json:"cwd"`
-	Title     string            `json:"title,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
-	Path      string            `json:"path"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-	Previews  []MessagePreview  `json:"previews,omitempty"`
+	ID               string            `json:"id"`
+	Provider         string            `json:"provider"`
+	CWD              string            `json:"cwd"`
+	Title            string            `json:"title,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	Path             string            `json:"path"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+	Previews         []MessagePreview  `json:"previews,omitempty"`
+	RuntimeLocations []RuntimeLocation `json:"runtime_locations,omitempty"`
 	// Evidence is populated by report output only. It duplicates the in-window
 	// user previews under a decision-oriented name so report agents do not treat
 	// stale session titles as proof of work in the requested period.
@@ -45,6 +46,20 @@ type ProviderError struct {
 type DiscoveryResult struct {
 	Sessions       []Session
 	ProviderErrors []ProviderError
+	RuntimeErrors  []RuntimeError
+}
+
+type RuntimeLocation struct {
+	Runtime     string `json:"runtime"`
+	WorkspaceID string `json:"workspace_id"`
+	TabID       string `json:"tab_id"`
+	PaneID      string `json:"pane_id"`
+	AgentStatus string `json:"agent_status,omitempty"`
+}
+
+type RuntimeError struct {
+	Runtime string `json:"runtime"`
+	Error   string `json:"error"`
 }
 
 type ExecSpec struct {

@@ -35,6 +35,7 @@ type Model struct {
 	loading                   bool
 	loadErr                   string
 	providerErrors            []session.ProviderError
+	runtimeErrors             []session.RuntimeError
 	message                   string
 	loadMore                  LoadMoreFunc
 	selected                  *Selection
@@ -104,6 +105,7 @@ func NewWithDiscoveryOptions(result session.DiscoveryResult, opts ModelOptions) 
 	m := Model{
 		allSessions:         result.Sessions,
 		providerErrors:      result.ProviderErrors,
+		runtimeErrors:       result.RuntimeErrors,
 		sessionIdx:          1,
 		newSessionProviders: uniqueProviders(opts.NewSessionProviders),
 		sortMode:            index.SortActive,
@@ -145,6 +147,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowDays = msg.days
 		m.allSessions = msg.result.Sessions
 		m.providerErrors = msg.result.ProviderErrors
+		m.runtimeErrors = msg.result.RuntimeErrors
 		m.refresh()
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -372,6 +375,9 @@ func (m Model) View() string {
 	if len(m.providerErrors) > 0 {
 		metaParts = append(metaParts, providerErrorSummary(m.providerErrors))
 	}
+	if len(m.runtimeErrors) > 0 {
+		metaParts = append(metaParts, runtimeErrorSummary(m.runtimeErrors))
+	}
 	if m.message != "" {
 		metaParts = append(metaParts, m.message)
 	}
@@ -417,6 +423,14 @@ func providerErrorSummary(items []session.ProviderError) string {
 		parts = append(parts, item.Provider+": "+item.Error)
 	}
 	return "provider errors: " + strings.Join(parts, "; ")
+}
+
+func runtimeErrorSummary(items []session.RuntimeError) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, item.Runtime+": "+item.Error)
+	}
+	return "runtime errors: " + strings.Join(parts, "; ")
 }
 
 func renderPanel(outerWidth, contentHeight int, content string) string {
@@ -699,7 +713,9 @@ func (m Model) sessionsView(height int, width int) string {
 			title = s.ID
 		}
 		status := " "
-		if cwdUnavailable(s) {
+		if hasRuntimeLocation(s) {
+			status = "H"
+		} else if cwdUnavailable(s) {
 			status = "!"
 		}
 		line := truncate(m.sessionLine(s, status, title, width), width)
@@ -751,6 +767,10 @@ func (m Model) sessionsView(height int, width int) string {
 	}
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(detailLine("id", selected.ID, width)))
+	if len(selected.RuntimeLocations) > 0 {
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Render(detailLine("runtime", runtimeLocationDetail(selected.RuntimeLocations), width)))
+	}
 	if selected.Path != "" {
 		b.WriteByte('\n')
 		b.WriteString(mutedStyle.Render(detailLine("file", selected.Path, width)))
@@ -887,7 +907,30 @@ func fitLines(value string, height int) string {
 }
 
 func cwdUnavailable(s session.Session) bool {
+	if hasRuntimeLocation(s) {
+		return false
+	}
 	return s.Metadata["cwd_missing"] == "true" || s.Metadata["cwd_error"] != "" || s.Metadata["resume_unsupported"] != ""
+}
+
+func hasRuntimeLocation(s session.Session) bool {
+	return len(s.RuntimeLocations) > 0
+}
+
+func runtimeLocationDetail(locations []session.RuntimeLocation) string {
+	if len(locations) == 1 {
+		location := locations[0]
+		status := ""
+		if location.AgentStatus != "" {
+			status = " · " + location.AgentStatus
+		}
+		return fmt.Sprintf("%s %s / %s / %s%s", location.Runtime, location.WorkspaceID, location.TabID, location.PaneID, status)
+	}
+	panes := make([]string, 0, len(locations))
+	for _, location := range locations {
+		panes = append(panes, location.PaneID)
+	}
+	return fmt.Sprintf("herdr %d locations: %s", len(locations), strings.Join(panes, ", "))
 }
 
 func sessionCWDUnavailable(s session.Session) bool {

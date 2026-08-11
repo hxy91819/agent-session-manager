@@ -39,6 +39,20 @@ func TestFilterMatchesMetadata(t *testing.T) {
 	}
 }
 
+func TestFilterMatchesRuntimeLocation(t *testing.T) {
+	sessions := []session.Session{
+		{ID: "one", RuntimeLocations: []session.RuntimeLocation{{Runtime: "herdr", WorkspaceID: "w7", TabID: "w7:t3", PaneID: "w7:p9", AgentStatus: "working"}}},
+		{ID: "two"},
+	}
+
+	for _, query := range []string{"herdr", "w7", "w7:t3", "w7:p9", "working"} {
+		got := FilterAndSort(sessions, Query{Search: query})
+		if len(got) != 1 || got[0].ID != "one" {
+			t.Fatalf("query %q got %#v", query, got)
+		}
+	}
+}
+
 func TestFilterSearchesEveryPublicSessionField(t *testing.T) {
 	base := session.Session{
 		ID:       "id-needle",

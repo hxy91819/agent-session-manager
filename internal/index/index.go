@@ -91,5 +91,18 @@ func matches(s session.Session, needle string) bool {
 			return true
 		}
 	}
+	for _, location := range s.RuntimeLocations {
+		for _, value := range []string{
+			location.Runtime,
+			location.WorkspaceID,
+			location.TabID,
+			location.PaneID,
+			location.AgentStatus,
+		} {
+			if strings.Contains(strings.ToLower(value), needle) {
+				return true
+			}
+		}
+	}
 	return false
 }

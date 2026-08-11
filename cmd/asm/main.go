@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/hxy91819/agent-session-manager/internal/herdr"
 	"github.com/hxy91819/agent-session-manager/internal/index"
 	"github.com/hxy91819/agent-session-manager/internal/launcher"
 	"github.com/hxy91819/agent-session-manager/internal/provider/claude"
@@ -110,6 +111,7 @@ type output struct {
 	Projects       []session.Project       `json:"projects"`
 	Sessions       []session.Session       `json:"sessions"`
 	ProviderErrors []session.ProviderError `json:"provider_errors,omitempty"`
+	RuntimeErrors  []session.RuntimeError  `json:"runtime_errors,omitempty"`
 }
 
 func main() {
@@ -141,8 +143,14 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	herdrClient := herdr.NewFromEnv()
 	loadSessions := func(days int) (session.DiscoveryResult, error) {
-		result := discoverAll(providers, cfg.limit, days)
+		var result session.DiscoveryResult
+		if cfg.resumeID != "" {
+			result = discoverAll(providers, cfg.limit, days)
+		} else {
+			result = discoverAllWithRuntime(ctx, providers, cfg.limit, days, herdrClient)
+		}
 		result.Sessions = filterSessions(
 			filterVisibleSessions(result.Sessions, cfg.includeNonInteractive),
 			cfg.query,
@@ -172,7 +180,7 @@ func run(ctx context.Context, args []string) error {
 		if provider == nil {
 			return fmt.Errorf("no provider registered for %q", selected.Provider)
 		}
-		return resumeSession(ctx, provider, selected, cfg.printExec)
+		return resumeSession(ctx, provider, selected, herdrClient, cfg.printExec)
 	}
 
 	if cfg.json {
@@ -182,6 +190,7 @@ func run(ctx context.Context, args []string) error {
 			Projects:       index.GroupProjects(sessions),
 			Sessions:       sessions,
 			ProviderErrors: discovery.ProviderErrors,
+			RuntimeErrors:  discovery.RuntimeErrors,
 		})
 	}
 
@@ -202,7 +211,7 @@ func run(ctx context.Context, args []string) error {
 	if !ok {
 		return nil
 	}
-	return dispatchSelection(ctx, providers, selected, cfg.printExec)
+	return dispatchSelection(ctx, providers, selected, herdrClient, cfg.printExec)
 }
 
 func runResume(ctx context.Context, args []string) error {
@@ -211,6 +220,7 @@ func runResume(ctx context.Context, args []string) error {
 		return err
 	}
 	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	herdrClient := herdr.NewFromEnv()
 	discoveryProviders := providers
 	if cfg.provider != "" {
 		provider := providerByName(providers, cfg.provider)
@@ -238,7 +248,7 @@ func runResume(ctx context.Context, args []string) error {
 	if provider == nil {
 		return fmt.Errorf("no provider registered for %q", selected.Provider)
 	}
-	return resumeSession(ctx, provider, selected, cfg.printExec)
+	return resumeSession(ctx, provider, selected, herdrClient, cfg.printExec)
 }
 
 func runSkills(ctx context.Context, args []string) error {
@@ -627,6 +637,37 @@ func discoverAll(providers []session.Provider, limit int, sinceDays int) session
 	return discoverAllWithOptions(providers, session.DiscoverOptions{LimitFiles: limit, Since: since})
 }
 
+func discoverAllWithRuntime(ctx context.Context, providers []session.Provider, limit int, sinceDays int, herdrClient herdr.Client) session.DiscoveryResult {
+	if !herdrClient.Enabled() {
+		return discoverAll(providers, limit, sinceDays)
+	}
+	type runtimeResult struct {
+		snapshot herdr.Snapshot
+		err      error
+	}
+	runtimeCh := make(chan runtimeResult, 1)
+	go func() {
+		snapshot, err := herdrClient.Snapshot(ctx)
+		runtimeCh <- runtimeResult{snapshot: snapshot, err: err}
+	}()
+
+	discovery := discoverAll(providers, limit, sinceDays)
+	runtime := <-runtimeCh
+	return applyRuntimeSnapshot(discovery, runtime.snapshot, runtime.err)
+}
+
+func applyRuntimeSnapshot(discovery session.DiscoveryResult, snapshot herdr.Snapshot, err error) session.DiscoveryResult {
+	if err != nil {
+		discovery.RuntimeErrors = append(discovery.RuntimeErrors, session.RuntimeError{
+			Runtime: herdr.RuntimeName,
+			Error:   err.Error(),
+		})
+		return discovery
+	}
+	discovery.Sessions = snapshot.Decorate(discovery.Sessions)
+	return discovery
+}
+
 func discoverAllWithOptions(providers []session.Provider, opts session.DiscoverOptions) session.DiscoveryResult {
 	type result struct {
 		items []session.Session
@@ -846,7 +887,10 @@ func providerByName(providers []session.Provider, name string) session.Provider 
 	return nil
 }
 
-func resumeSession(ctx context.Context, provider session.Provider, selected session.Session, printOnly bool) error {
+func resumeSession(ctx context.Context, provider session.Provider, selected session.Session, herdrClient herdr.Client, printOnly bool) error {
+	if handled, err := focusHerdrSession(ctx, herdrClient, selected, printOnly); handled || err != nil {
+		return err
+	}
 	spec := provider.ResumeCommand(selected)
 	if spec.UnsupportedReason != "" {
 		return launcher.Run(ctx, spec, printOnly)
@@ -860,14 +904,44 @@ func resumeSession(ctx context.Context, provider session.Provider, selected sess
 	return launcher.Run(ctx, spec, printOnly)
 }
 
-func dispatchSelection(ctx context.Context, providers []session.Provider, selected ui.Selection, printOnly bool) error {
+func focusHerdrSession(ctx context.Context, herdrClient herdr.Client, selected session.Session, printOnly bool) (bool, error) {
+	if !herdrClient.Enabled() {
+		return false, nil
+	}
+	snapshot, err := herdrClient.Snapshot(ctx)
+	if err != nil {
+		warnHerdrFallback("discovery", err)
+		return false, nil
+	}
+	locations := snapshot.Locations(selected.Provider, selected.ID)
+	if len(locations) == 0 {
+		return false, nil
+	}
+	if len(locations) > 1 {
+		panes := make([]string, 0, len(locations))
+		for _, location := range locations {
+			panes = append(panes, location.PaneID)
+		}
+		return true, fmt.Errorf("session %s has multiple live Herdr locations: %s", selected.ID, strings.Join(panes, ", "))
+	}
+	if !printOnly {
+		fmt.Fprintln(os.Stderr, herdrFocusNotice(selected, locations[0]))
+	}
+	if err := herdrClient.Focus(ctx, locations[0].PaneID, printOnly); err != nil {
+		warnHerdrFallback("focus", err)
+		return false, nil
+	}
+	return true, nil
+}
+
+func dispatchSelection(ctx context.Context, providers []session.Provider, selected ui.Selection, herdrClient herdr.Client, printOnly bool) error {
 	provider := providerByName(providers, selected.Provider)
 	if provider == nil {
 		return fmt.Errorf("no provider registered for %q", selected.Provider)
 	}
 	switch selected.Kind {
 	case ui.SelectionResume:
-		return resumeSession(ctx, provider, selected.Session, printOnly)
+		return resumeSession(ctx, provider, selected.Session, herdrClient, printOnly)
 	case ui.SelectionNew:
 		return newSession(ctx, provider, selected.CWD, printOnly)
 	default:
@@ -885,6 +959,14 @@ func newSession(ctx context.Context, provider session.Provider, cwd string, prin
 
 func resumeNotice(selected session.Session) string {
 	return fmt.Sprintf("Starting %s session %s from %s ... this can take a few seconds.", selected.Provider, selected.ID, selected.CWD)
+}
+
+func herdrFocusNotice(selected session.Session, location session.RuntimeLocation) string {
+	return fmt.Sprintf("Focusing %s session %s in Herdr workspace %s, pane %s.", selected.Provider, selected.ID, location.WorkspaceID, location.PaneID)
+}
+
+func warnHerdrFallback(operation string, err error) {
+	fmt.Fprintf(os.Stderr, "warning: Herdr %s failed; falling back to provider resume: %v\n", operation, err)
 }
 
 func newNotice(provider string, cwd string) string {

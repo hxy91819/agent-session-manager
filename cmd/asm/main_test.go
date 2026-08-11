@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/hxy91819/agent-session-manager/internal/herdr"
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
 )
@@ -171,7 +172,7 @@ func TestDispatchSelectionPrintsNewCommand(t *testing.T) {
 			Kind:     ui.SelectionNew,
 			Provider: "codex",
 			CWD:      "/repo with spaces",
-		}, true)
+		}, herdr.Client{}, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,7 +219,7 @@ func TestTUIProviderChoiceDispatchesNewCommand(t *testing.T) {
 		err := dispatchSelection(context.Background(), []session.Provider{
 			staticProvider{name: "codex"},
 			staticProvider{name: "claude"},
-		}, selected, true)
+		}, selected, herdr.Client{}, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -283,7 +284,7 @@ func TestResumeSessionRejectsUnavailableSession(t *testing.T) {
 		ID:       "sid",
 		Provider: "cursor",
 		Metadata: map[string]string{"cwd_error": "cursor project cwd encoding is ambiguous"},
-	}, true)
+	}, herdr.Client{}, true)
 
 	if err == nil {
 		t.Fatal("expected error")

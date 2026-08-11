@@ -197,6 +197,32 @@ The provider flag disambiguates session IDs across agent providers. Report JSON
 includes a `resume_command` for each session so agents can surface copyable
 commands in follow-up sections.
 
+### Herdr integration
+
+When asm runs inside a Herdr-managed pane (`HERDR_ENV=1`), it asks the current
+Herdr server for live agents. A session with one exact native session-ID match
+is marked `H` in the TUI, and `enter` or `asm resume` focuses its existing pane
+instead of starting another copy. `--print-exec` prints the corresponding
+`herdr agent focus <pane-id>` command.
+
+The live location is also exposed by `asm --json` as
+`sessions[].runtime_locations`, with `workspace_id`, `tab_id`, `pane_id`, and
+`agent_status`. Herdr lookup failures appear in the top-level
+`runtime_errors` array without hiding provider sessions. Report JSON stays
+independent of this transient runtime state.
+
+Exact matching currently works for Codex, Claude Code, Kimi Code, opencode,
+and Cursor when their official Herdr integrations are installed. asm does not
+guess from cwd, titles, or workspace labels, so Kiro, CodeBuddy, OpenClaw, and
+ZCode continue through their normal resume behavior. If Herdr has no matching
+live session, or its CLI is temporarily unavailable, asm warns when necessary
+and falls back to the provider resume command.
+
+Provider and new-session commands launched by asm inherit the complete current
+process environment. In a Herdr pane this preserves `HERDR_ENV`,
+`HERDR_SOCKET_PATH`, `HERDR_SESSION`, and the current workspace, tab, and pane
+IDs, so the resumed agent reports back to the pane that actually hosts it.
+
 Skill install:
 
 ```sh

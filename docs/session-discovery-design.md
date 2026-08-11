@@ -68,6 +68,14 @@ External provider commands are only used for resume:
 This keeps listing independent from provider CLI startup time and makes JSON
 output and tests deterministic.
 
+When `HERDR_ENV=1`, asm also runs `herdr agent list` against the inherited
+Herdr socket while provider discovery is in progress. This is a transient
+runtime decoration, not provider discovery: only official `agent_session`
+identity records with an exact provider and native session ID are attached to
+normalized sessions, and the result is never written to the provider cache.
+The TUI and `asm --json` refresh that decoration on every discovery pass;
+report discovery intentionally does not include it.
+
 ## File-Level Parse Cache
 
 Codex, Claude, Kiro, and opencode parsing can dominate startup when stores
