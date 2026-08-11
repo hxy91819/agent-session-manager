@@ -61,6 +61,26 @@ class ReportValidatorTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_accepts_mixed_flat_and_nested_overview_items(self) -> None:
+        result = self.validate(
+            textwrap.dedent(
+                """\
+                ## 工作概览
+                1. [高投入] [ai-lab] AI 实验室研发提效工具链
+                    - 审查工具链：完成改造与多例实测；下一步：继续收敛改造范围
+                    - 生产准入文档：完成整理与状态纠错；下一步：推进合入
+                2. [中投入] [core] 单一事项：完成当前进展；下一步：继续验证
+
+                ## 后续跟进
+                - [ai-lab] 继续推进重点事项
+
+                ## 风险与阻塞
+                - [全局] 暂无明确阻塞
+                """
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_rejects_missing_misplaced_or_percentage_effort(self) -> None:
         invalid_items = (
             "1. 核心项目：持续推进",
@@ -106,6 +126,66 @@ class ReportValidatorTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
+
+    def test_rejects_invalid_nested_overview_shapes(self) -> None:
+        invalid_overviews = (
+            (
+                "single child",
+                "1. [高投入] [core] 项目\n"
+                "    - 子任务：完成当前进展\n",
+            ),
+            (
+                "parent summary",
+                "1. [高投入] [core] 项目：重复摘要\n"
+                "    - 子任务一：完成当前进展\n"
+                "    - 子任务二：完成另一项进展\n",
+            ),
+            (
+                "child effort",
+                "1. [高投入] [core] 项目\n"
+                "    - [中投入] 子任务一：完成当前进展\n"
+                "    - 子任务二：完成另一项进展\n",
+            ),
+            (
+                "child percentage",
+                "1. [高投入] [core] 项目\n"
+                "    - 子任务一：投入 50% 并完成当前进展\n"
+                "    - 子任务二：完成另一项进展\n",
+            ),
+            (
+                "wrong indentation",
+                "1. [高投入] [core] 项目\n"
+                "  - 子任务一：完成当前进展\n"
+                "  - 子任务二：完成另一项进展\n",
+            ),
+            (
+                "orphan child",
+                "    - 孤立任务：完成当前进展\n"
+                "1. [高投入] [core] 项目：完成另一项进展；下一步：继续验证\n",
+            ),
+            (
+                "deeper child",
+                "1. [高投入] [core] 项目\n"
+                "    - 子任务一：完成当前进展\n"
+                "    - 子任务二：完成另一项进展\n"
+                "        - 三级任务：不允许继续嵌套\n",
+            ),
+            (
+                "nonconsecutive numbering",
+                "1. [高投入] [core] 项目\n"
+                "    - 子任务一：完成当前进展\n"
+                "    - 子任务二：完成另一项进展\n"
+                "3. [中投入] [support] 另一项目：完成当前进展；下一步：暂无\n",
+            ),
+        )
+        for name, overview in invalid_overviews:
+            with self.subTest(name=name):
+                result = self.validate(
+                    f"## 工作概览\n{overview}\n"
+                    "## 后续跟进\n- [core] 暂无\n\n"
+                    "## 风险与阻塞\n- [全局] 暂无明确阻塞\n"
+                )
+                self.assertNotEqual(result.returncode, 0)
 
 
 class DailyReportScriptTests(unittest.TestCase):
@@ -352,6 +432,32 @@ class DailyReportScriptTests(unittest.TestCase):
                 "## 工作概览\\n"
                 f"1. [高投入] [project] Lighthouse：{progress}；下一步：完成回归验证\\n\\n"
                 "## 后续跟进\\n- [project] 完成回归验证\\n\\n"
+                "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
+            )
+            """,
+        )
+        self._write_executable(
+            "fake-hierarchy-generator",
+            """\
+            #!/usr/bin/env python3
+            import argparse
+            import os
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--prompt", required=True)
+            args = parser.parse_args()
+            Path(os.environ["FAKE_CUSTOM_PROMPT"]).write_text(
+                Path(args.prompt).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            print(
+                "## 工作概览\\n"
+                "1. [高投入] [ai-lab] AI 实验室研发提效工具链\\n"
+                "    - 审查工具链：完成改造与多例实测；下一步：继续收敛改造范围\\n"
+                "    - 生产准入文档：完成整理与状态纠错；下一步：推进合入\\n"
+                "2. [中投入] [core] 单一事项：完成当前进展；下一步：继续验证\\n\\n"
+                "## 后续跟进\\n- [ai-lab] 继续推进重点事项\\n\\n"
                 "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
             )
             """,
@@ -742,6 +848,31 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertIn("- [project] [shared-lib] 确认联合交付结果", result.stdout)
         self.assertIn("- [project] [shared-lib] 暂无明确阻塞", result.stdout)
 
+    def test_multitask_overview_survives_generation_and_validation(self) -> None:
+        result, _ = self.run_report(
+            "hierarchical-overview",
+            generator_script=self.bin_dir / "fake-hierarchy-generator",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "1. [高投入] [ai-lab] AI 实验室研发提效工具链",
+            result.stdout,
+        )
+        self.assertIn(
+            "    - 审查工具链：完成改造与多例实测",
+            result.stdout,
+        )
+        self.assertIn(
+            "    - 生产准入文档：完成整理与状态纠错",
+            result.stdout,
+        )
+        prompt = (self.root / "custom-prompt-hierarchical-overview.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("四个空格缩进", prompt)
+        self.assertIn("二级任务至少两项", prompt)
+
     def test_failed_meeting_context_uses_subject_fallback_without_coverage_risk(self) -> None:
         for status in ("partial", "unavailable"):
             with self.subTest(status=status):
@@ -953,7 +1084,9 @@ class DailyReportScriptTests(unittest.TestCase):
         report = self.root / "telegram-report.md"
         report.write_text(
             "## 工作概览\n"
-            "1. [高投入] [project] 项目：完成 `验证`；下一步：继续推进\n\n"
+            "1. [高投入] [project] 项目\n"
+            "    - 子任务一：完成 `验证`；下一步：继续推进\n"
+            "    - 子任务二：完成交付\n\n"
             "## 风险与阻塞\n"
             "- [全局] 暂无\n",
             encoding="utf-8",
@@ -995,6 +1128,8 @@ class DailyReportScriptTests(unittest.TestCase):
         self.assertIn("<b>&lt;晨会日报&gt;</b>", text_arg)
         self.assertIn("<b>工作概览</b>", text_arg)
         self.assertIn("<code>验证</code>", text_arg)
+        self.assertIn("↳ 子任务一", text_arg)
+        self.assertIn("↳ 子任务二", text_arg)
         self.assertIn("• [全局] 暂无", text_arg)
 
 

@@ -227,7 +227,9 @@ the session previews by project and topic, and returns a Chinese work report
 with a project-oriented morning-standup overview, follow-ups, and risks. Every
 overview item is labeled `[高投入]`, `[中投入]`, or `[低投入]` using relative
 signals from meeting duration, session timing, and evidence content; the labels
-are estimates rather than measured working hours.
+are estimates rather than measured working hours. A project with multiple
+independent tasks keeps one numbered overview item and expands those tasks into
+an indented child list; single-task items remain on one line.
 
 For meeting-enriched reports, install `tencent-meeting-mcp` and the lightweight
 `tencent-meeting-summary` skill, then export `TENCENT_MEETING_TOKEN`. The

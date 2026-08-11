@@ -50,12 +50,12 @@ Use `asm report` as the source of truth. Do not inspect provider-private session
 
 Write the daily report for a cross-functional morning standup attended by product managers, project managers, and engineers:
 
-1. Build a list of projects or business matters before writing. Use `cwd`/project path as the initial grouping hint. Merge technical subtasks that serve the same outcome. Split independent matters within one project when they have different deliverables, status, or next steps; give each a specific matter name instead of repeating a generic project label. Do not merge different projects merely because their technical topics are similar.
-2. Make `工作概览` matter-oriented rather than session-oriented. Use one numbered item per project or materially distinct matter, ordered by importance.
+1. Build a list of projects or business matters before writing. Use `cwd`/project path as the initial grouping hint. Merge technical subtasks that serve the same outcome. Keep one numbered top-level item for a project and represent its independent deliverables, statuses, or next steps as child tasks. Keep different projects separate unless they contribute to the same outcome.
+2. Make `工作概览` matter-oriented rather than session-oriented. Use one numbered top-level item per project or cross-project matter, ordered by importance.
    - Build a source-tag map from the contributing sessions before writing. Use the shortest human-readable project name that uniquely maps to a `cwd` in this report, normally the path basename; use `parent/name` only to disambiguate collisions.
    - Every top-level item in `工作概览`, `后续跟进`, and `风险与阻塞` must carry one or more source-project tags. Put one tag per contributing project, preserving multiple tags when an item truly merges evidence from multiple projects.
    - Tags identify evidence sources, not themes, technologies, providers, or agent names. Use `[会议]` for meeting-only items without a project path and `[全局]` for report-level coverage or “暂无明确阻塞”.
-3. Prefix every `工作概览` item with exactly one relative effort level:
+3. Prefix every numbered top-level item with exactly one relative effort level:
    - `[高投入]` means the matter was a primary, sustained focus in the report window.
    - `[中投入]` means the matter had substantive progress or discussion but was a secondary focus.
    - `[低投入]` means the matter was a brief follow-up, isolated discussion, or small supporting task.
@@ -73,22 +73,27 @@ Write the daily report for a cross-functional morning standup attended by produc
 5. Preserve concrete business scope while abstracting implementation details:
    - 核心原则：抽象实现细节，不得抽象业务范围。
    - Keep evidence-backed product names, business capabilities, affected workflows, and cleanup targets when they distinguish what was actually worked on. Do not replace them with vague labels such as “核心服务”“相关功能”“业务逻辑” or “冗余代码”.
-   - When one outcome contains multiple business targets, keep one overview item and name the targets compactly in its progress text.
+   - When one project contains tasks with distinct outcomes or next steps, keep one top-level project item and use child task bullets. Keep multiple business targets in one child when they share the same deliverable and next step.
    - For example, write “清理 IPv6 合并限速与 COS 免费套餐包两项灰度控制” instead of “清理核心服务冗余代码”.
    - Continue to abstract repository internals and low-level implementation details unless a detail is essential to a decision or blocker:
    - Do not normally include API paths, command flags, environment variables, commit hashes, PR numbers, test names, internal metric values, class names, or low-level architecture terms.
    - Translate internal English labels and tool names into their business meaning when that meaning is known. Omit parenthetical English aliases that do not help a reader decide or unblock work.
    - Replace a diagnosis such as “`/api/status` 因指标过多变慢” with “推进管理面板加载缓慢问题的定位与优化”.
    - Translate low-level causes into the affected user or delivery behavior. If the cause is required to unblock work, state it briefly after the concrete symptom or status.
-6. Keep each overview item on one Markdown line. Use “`[投入等级] [项目标签] 项目/事项：进展；下一步：计划`”; when multiple projects contribute, write consecutive tags such as “`[Lightpower] [lightginkgo]`”. Allow the progress portion to contain two to three short sentences when one sentence would pack distinct facts into an abstract summary. Every item must include “下一步”; use “下一步：暂无” for completed minor matters. Aim for about 140 Chinese characters and never exceed 180 characters per item; split independent matters or retain only the standup-relevant results when needed. Do not enumerate internal delivery stages such as PR1/PR2/PR3.
+6. Choose the overview shape from the number of independent tasks:
+   - For one task, use one Markdown line: “`[投入等级] [项目标签] 项目/事项：进展；下一步：计划`”. When multiple projects contribute, write consecutive tags such as “`[Lightpower] [lightginkgo]`”.
+   - For two or more tasks, write a project-only numbered parent with the effort and source tags, then four-space-indented “`- 任务：进展；下一步：计划`” bullets. Child tasks inherit the parent tags. Add a child next step when the evidence supports one.
+   - Use one child level and at least two child bullets. Split by distinct outcomes or next steps, not by session, pull request, test, or internal delivery stage such as PR1/PR2/PR3.
+   - Keep each flat item or child task on one line. Allow two to three short progress sentences when one sentence would hide distinct facts. Aim for about 140 Chinese characters and never exceed 180 characters per line; retain only standup-relevant results when needed.
 7. Merge meeting decisions into the related project item. When meetings exist, ensure at least one overview item reflects meaningful meeting work; group routine meetings instead of listing every title.
 8. Preserve uncertainty for title-only meetings with “据会议名称推测”, but omit them when the inference adds no useful standup context.
 9. Fold completed progress into the corresponding `工作概览` item; do not create a separate `完成事项` section. Apply the same audience-friendly abstraction to `后续跟进` and `风险与阻塞`. Summarize the decision needed or user-visible impact instead of the underlying mechanism. Include technical detail only when someone needs that exact detail to make a decision or unblock work.
 10. Keep a daily standup report concise: normally no more than about 1,200 Chinese characters excluding headings. Remove background explanations, exhaustive evidence coverage, and details already implied by a higher-level status.
 11. Before answering, silently verify:
-   - every overview item begins with exactly one valid effort level and contains no effort percentage;
+   - every numbered overview item begins with exactly one valid effort level and the whole overview contains no effort percentage;
    - every top-level item has all and only its source-project tags, including multiple tags for merged evidence;
-   - technical subtasks for one outcome have been merged, while independent deliverables have not been packed together merely because they share a path;
+   - projects with multiple independent tasks use one project-only parent and at least two child bullets;
+   - single-task projects stay on one line, and child tasks are not split by session or internal delivery stage;
    - different project paths have not been accidentally merged;
    - meeting work is represented when present;
    - a non-engineer can understand every overview item without explanation;
@@ -104,8 +109,10 @@ For 日报:
 
 ```markdown
 ## 工作概览
-1. [高投入] [<项目>] <事项>：<面向跨职能晨会的进展与结果>；下一步：<简短计划>
-2. [中投入] [<项目一>] [<项目二>] <事项>：<合并多个来源项目的上下文>；下一步：<简短计划>
+1. [高投入] [<项目>] <包含多个独立任务的项目或事项>
+    - <任务一>：<进展与结果>；下一步：<有证据支持的简短计划>
+    - <任务二>：<进展与结果>
+2. [中投入] [<项目一>] [<项目二>] <单一任务的事项>：<进展与结果>；下一步：<简短计划>
 
 ## 后续跟进
 - [<项目>] <仍在推进、需要确认、需要明天继续或下周继续的事项>

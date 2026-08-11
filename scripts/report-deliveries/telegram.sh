@@ -129,6 +129,9 @@ def markdown_to_telegram_html(markdown: str, title: str) -> str:
         if line.startswith("## "):
             lines.append(f"<b>{inline_markdown(line[3:].strip())}</b>")
             continue
+        if raw_line.startswith("    - "):
+            lines.append(f"↳ {inline_markdown(line[2:].strip())}")
+            continue
         if line.startswith("- "):
             lines.append(f"• {inline_markdown(line[2:].strip())}")
             continue
