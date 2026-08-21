@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
@@ -80,7 +81,7 @@ func GroupProjects(sessions []session.Session) []session.Project {
 }
 
 func matches(s session.Session, needle string) bool {
-	values := []string{s.ID, s.Provider, s.CWD, s.Title, s.Path, s.SearchContent}
+	values := []string{s.ID, s.Provider, s.CWD, s.Title, s.Path}
 	for _, v := range values {
 		if strings.Contains(strings.ToLower(v), needle) {
 			return true
@@ -88,6 +89,11 @@ func matches(s session.Session, needle string) bool {
 	}
 	for k, v := range s.Metadata {
 		if strings.Contains(strings.ToLower(k), needle) || strings.Contains(strings.ToLower(v), needle) {
+			return true
+		}
+	}
+	for _, message := range s.SearchMessages {
+		if strings.Contains(strings.ToLower(message.Text), needle) {
 			return true
 		}
 	}
@@ -105,4 +111,74 @@ func matches(s session.Session, needle string) bool {
 		}
 	}
 	return false
+}
+
+// ContentMatch is one piece of search evidence: where a matched user message
+// sits in its raw session file, when it was sent, and a bounded excerpt. The
+// offset lets agents slice the original transcript without parsing
+// provider-specific formats; the snippet spares them from reading it at all
+// when a glance at context is enough.
+type ContentMatch struct {
+	Offset  int64     `json:"offset"`
+	Snippet string    `json:"snippet"`
+	At      time.Time `json:"at,omitempty"`
+}
+
+const (
+	// MaxEvidencePerSession bounds evidence entries so one very chatty
+	// session cannot flood machine consumers.
+	MaxEvidencePerSession = 3
+	snippetContextRunes   = 80
+)
+
+// SearchEvidence returns bounded excerpts for query matches inside the
+// session's denoised user-message corpus. Field-level hits (title, cwd, id)
+// are already present in every output payload, so they produce no evidence.
+func SearchEvidence(s session.Session, query string) []ContentMatch {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return nil
+	}
+	var matches []ContentMatch
+	for _, message := range s.SearchMessages {
+		snippet := snippetAround(message.Text, needle)
+		if snippet == "" {
+			continue
+		}
+		matches = append(matches, ContentMatch{
+			Offset:  message.Offset,
+			Snippet: snippet,
+			At:      message.At,
+		})
+		if len(matches) >= MaxEvidencePerSession {
+			break
+		}
+	}
+	return matches
+}
+
+// snippetAround returns the needle with up to snippetContextRunes runes of
+// surrounding context on each side. Rune-based windows keep CJK text intact.
+func snippetAround(text, needle string) string {
+	index := strings.Index(strings.ToLower(text), needle)
+	if index < 0 {
+		return ""
+	}
+	runes := []rune(text)
+	start := utf8.RuneCountInString(text[:index]) - snippetContextRunes
+	if start < 0 {
+		start = 0
+	}
+	end := start + utf8.RuneCountInString(needle) + 2*snippetContextRunes
+	if end > len(runes) {
+		end = len(runes)
+	}
+	snippet := strings.Join(strings.Fields(string(runes[start:end])), " ")
+	if start > 0 {
+		snippet = "…" + snippet
+	}
+	if end < len(runes) {
+		snippet += "…"
+	}
+	return snippet
 }

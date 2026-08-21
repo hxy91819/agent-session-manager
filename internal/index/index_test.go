@@ -55,13 +55,15 @@ func TestFilterMatchesRuntimeLocation(t *testing.T) {
 
 func TestFilterSearchesEveryPublicSessionField(t *testing.T) {
 	base := session.Session{
-		ID:            "id-needle",
-		Provider:      "provider-needle",
-		CWD:           "/cwd-needle",
-		Title:         "title-needle",
-		Path:          "/path-needle",
-		Metadata:      map[string]string{"metadata-key-needle": "metadata-value-needle"},
-		SearchContent: "content-needle",
+		ID:       "id-needle",
+		Provider: "provider-needle",
+		CWD:      "/cwd-needle",
+		Title:    "title-needle",
+		Path:     "/path-needle",
+		Metadata: map[string]string{"metadata-key-needle": "metadata-value-needle"},
+		SearchMessages: []session.SearchMessage{
+			{Text: "content-needle"},
+		},
 	}
 	for _, query := range []string{
 		"id-needle", "provider-needle", "cwd-needle", "title-needle",
@@ -139,5 +141,48 @@ func TestGroupProjectsMixesProvidersByCWD(t *testing.T) {
 	}
 	if got[0].Sessions[0].ID != "claude" || got[0].Sessions[1].ID != "codex" {
 		t.Fatalf("unexpected session order: %#v", got[0].Sessions)
+	}
+}
+
+func TestSearchEvidenceReturnsOffsetSnippetAndTimestamp(t *testing.T) {
+	at := session.SearchMessage{
+		Text:   "前文铺垫 " + strings.Repeat("甲", 200) + " quartz-token-zz " + strings.Repeat("乙", 200),
+		Offset: 4096,
+		At:     time.Date(2026, 6, 13, 1, 3, 0, 0, time.UTC),
+	}
+	s := session.Session{
+		ID: "s1",
+		SearchMessages: []session.SearchMessage{
+			{Text: "no hit here", Offset: 12},
+			at,
+			{Text: "quartz-token-zz 再来一次 quartz-token-zz 又一次 quartz-token-zz", Offset: 9000},
+		},
+	}
+	matches := SearchEvidence(s, "quartz-token-zz")
+	if len(matches) != 2 || MaxEvidencePerSession < 2 {
+		t.Fatalf("matches = %#v", matches)
+	}
+	if matches[0].Offset != 4096 || !strings.Contains(matches[0].Snippet, "quartz-token-zz") || matches[0].At.IsZero() {
+		t.Fatalf("first evidence broken: %#v", matches[0])
+	}
+	if !strings.HasPrefix(matches[0].Snippet, "…") || !strings.HasSuffix(matches[0].Snippet, "…") {
+		t.Fatalf("long context should be ellipsized: %q", matches[0].Snippet)
+	}
+	if got := SearchEvidence(session.Session{Title: "quartz-token-zz"}, "quartz-token-zz"); got != nil {
+		t.Fatalf("title-only hit must not produce evidence: %#v", got)
+	}
+	if got := SearchEvidence(s, "  "); got != nil {
+		t.Fatalf("blank query must not produce evidence: %#v", got)
+	}
+}
+
+func TestSearchEvidenceCapsPerSession(t *testing.T) {
+	var messages []session.SearchMessage
+	for i := 0; i < MaxEvidencePerSession+5; i++ {
+		messages = append(messages, session.SearchMessage{Text: "repeat needle", Offset: int64(i * 10)})
+	}
+	matches := SearchEvidence(session.Session{SearchMessages: messages}, "needle")
+	if len(matches) != MaxEvidencePerSession {
+		t.Fatalf("evidence not capped: %d", len(matches))
 	}
 }

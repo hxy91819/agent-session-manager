@@ -87,3 +87,43 @@ func TestTruncatedStringFieldKeepsBothEdges(t *testing.T) {
 		t.Fatalf("recovered = %q ok=%v, want both edges", got, ok)
 	}
 }
+
+func TestReadWithOffsetsReportsExactRecordStarts(t *testing.T) {
+	body := "{\"a\":1}\n{\"b\":\"乙丙丁\"}\n" + "{\"big\":\"" +
+		strings.Repeat("x", 64) + "\"}\n" + "{\"tail\":true}"
+	type visit struct {
+		offset int64
+		line   string
+	}
+	var visits []visit
+	var oversizedOffsets []int64
+	_, err := ReadWithOffsets(
+		strings.NewReader(body),
+		32, // force only the {big:...} record into the oversized path
+		0,
+		func(record []byte, offset int64) bool {
+			visits = append(visits, visit{offset, string(record)})
+			return true
+		},
+		func(record OversizedRecord, offset int64) {
+			oversizedOffsets = append(oversizedOffsets, offset)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visits) != 3 || len(oversizedOffsets) != 1 {
+		t.Fatalf("visits=%v oversized=%v", visits, oversizedOffsets)
+	}
+	if visits[0].offset != 0 || visits[1].offset != 8 {
+		t.Fatalf("plain offsets: %#v", visits)
+	}
+	bigStart := int64(strings.Index(body, "{\"big\":"))
+	if oversizedOffsets[0] != bigStart {
+		t.Fatalf("oversized offset = %d, want %d", oversizedOffsets[0], bigStart)
+	}
+	tailStart := int64(strings.Index(body, "{\"tail\":"))
+	if visits[2].offset != tailStart {
+		t.Fatalf("tail offset = %d, want %d", visits[2].offset, tailStart)
+	}
+}

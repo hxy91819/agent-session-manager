@@ -1998,40 +1998,86 @@ func TestCLISearchMatchesSessionContent(t *testing.T) {
 {"type":"assistant","sessionId":"claude-scope","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:01:00Z","message":{"role":"assistant","content":[{"type":"text","text":"done quartz-budget-42 confirmed"}]}}
 `)
 
-	query := func(token string) map[string]string {
+	type sessionItem struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+		Path     string `json:"path"`
+		Matches  []struct {
+			Offset  int64  `json:"offset"`
+			Snippet string `json:"snippet"`
+			At      string `json:"at"`
+		} `json:"matches"`
+	}
+	query := func(token string) []sessionItem {
 		t.Helper()
 		out, err := env.Run(t, "--codex-home", codexHome, "--cursor-home", cursorHome, "--claude-home", claudeHome,
 			"--since-days", "0", "--json", "--query", token)
 		if err != nil {
 			t.Fatalf("query %q failed: %v\n%s", token, err, out)
 		}
-		if strings.Contains(out, `"search_content"`) {
-			t.Fatalf("JSON output leaks search_content: %s", out)
+		for _, internal := range []string{`"search_content"`, `"search_messages"`} {
+			if strings.Contains(out, internal) {
+				t.Fatalf("JSON output leaks %s: %s", internal, out)
+			}
 		}
 		var payload struct {
-			Sessions []struct {
-				ID       string `json:"id"`
-				Provider string `json:"provider"`
-			} `json:"sessions"`
+			Sessions []sessionItem `json:"sessions"`
 		}
 		if err := json.Unmarshal([]byte(out), &payload); err != nil {
 			t.Fatalf("invalid JSON for query %q: %v\n%s", token, err, out)
 		}
-		got := make(map[string]string, len(payload.Sessions))
-		for _, s := range payload.Sessions {
-			got[s.ID] = s.Provider
+		return payload.Sessions
+	}
+
+	// A content hit must carry evidence: a snippet showing the token in its
+	// message and the byte offset of that record in the raw session file, so
+	// agents can slice the original transcript without parsing its format.
+	assertEvidence := func(item sessionItem, token string) {
+		t.Helper()
+		if len(item.Matches) == 0 {
+			t.Fatalf("content hit without evidence: %#v", item)
 		}
-		return got
+		m := item.Matches[0]
+		if !strings.Contains(m.Snippet, token) {
+			t.Fatalf("snippet %q lacks token %q", m.Snippet, token)
+		}
+		if m.At == "" {
+			t.Fatalf("evidence lacks timestamp: %#v", m)
+		}
+		raw, err := os.ReadFile(item.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Offset >= int64(len(raw)) {
+			t.Fatalf("offset %d beyond %s size %d", m.Offset, item.Path, len(raw))
+		}
+		line := raw[m.Offset:]
+		if nl := strings.IndexByte(string(line), '\n'); nl >= 0 {
+			line = line[:nl]
+		}
+		if line[0] != '{' || !strings.Contains(string(line), token) {
+			t.Fatalf("offset does not point at the matching record: %q", line[:80])
+		}
 	}
 
 	got := query("quartz-budget-42")
-	if got["codex-content"] != "codex" || len(got) != 1 {
+	if len(got) != 1 || got[0].ID != "codex-content" {
 		t.Fatalf("codex content-only query matched %#v", got)
 	}
+	assertEvidence(got[0], "quartz-budget-42")
+
 	got = query("quartz-cursor-87")
-	if got["cursor-content"] != "cursor" || len(got) != 1 {
+	if len(got) != 1 || got[0].ID != "cursor-content" {
 		t.Fatalf("cursor content-only query matched %#v", got)
 	}
+	assertEvidence(got[0], "quartz-cursor-87")
+
+	// A title-only hit is already self-evident: no content evidence attached.
+	got = query("claude scope guard")
+	if len(got) != 1 || got[0].ID != "claude-scope" || len(got[0].Matches) != 0 {
+		t.Fatalf("title-only hit should carry no content evidence: %#v", got)
+	}
+
 	// Injected contexts are transcript noise, not user evidence: trap tokens
 	// inside them must never hit.
 	if got := query("secrettoken"); len(got) != 0 {

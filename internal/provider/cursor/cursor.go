@@ -372,7 +372,7 @@ func parseSession(r io.Reader) (session.Session, error) {
 	out := session.Session{Metadata: make(map[string]string)}
 	var firstUserTitle string
 	var lastUserTitle string
-	oversized, err := readCursorRecords(r, func(line []byte) bool {
+	oversized, err := readCursorRecords(r, func(line []byte, offset int64) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -389,13 +389,18 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if messageRole(rec, msg) != "user" {
 			return true
 		}
-		title := cleanTitle(unwrapUserText(messageText(msg.Content)))
+		rawText := messageText(msg.Content)
+		title := cleanTitle(unwrapUserText(rawText))
 		if title == "" {
 			return true
 		}
 		// The title keeps the first human message; search needs every denoised
 		// user message so mid-conversation asks stay findable.
-		out.SearchContent, _ = session.AppendSearchMessage(out.SearchContent, title)
+		out.SearchMessages, _ = session.AppendSearchMessage(out.SearchMessages, session.SearchMessage{
+			Text:   title,
+			At:     cursorMessageTime(rec.Timestamp, rawText),
+			Offset: offset,
+		})
 		if firstUserTitle == "" {
 			firstUserTitle = title
 		}
@@ -426,7 +431,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	defer func() { _ = f.Close() }()
 
 	var messages []session.MessagePreview
-	oversized, err := readCursorRecords(f, func(line []byte) bool {
+	oversized, err := readCursorRecords(f, func(line []byte, _ int64) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil {
 			return true
@@ -448,26 +453,26 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	return session.SelectMessagePreviews(messages, opts), oversized, err
 }
 
-func readCursorRecords(r io.Reader, visit func([]byte) bool) (int, error) {
+func readCursorRecords(r io.Reader, visit func([]byte, int64) bool) (int, error) {
 	evidenceRisk := 0
 	stopped := false
-	_, err := jsonlrecords.ReadWithOversized(
+	_, err := jsonlrecords.ReadWithOffsets(
 		r,
 		maxJSONLRecordBytes,
 		oversizedRecordEdgeBytes,
-		func(line []byte) bool {
+		func(line []byte, offset int64) bool {
 			if stopped {
 				return false
 			}
-			stopped = !visit(line)
+			stopped = !visit(line, offset)
 			return !stopped
 		},
-		func(record jsonlrecords.OversizedRecord) {
+		func(record jsonlrecords.OversizedRecord, offset int64) {
 			if stopped {
 				return
 			}
 			if recovered, timestamped, ok := recoverOversizedCursorUserRecord(record); ok {
-				stopped = !visit(recovered)
+				stopped = !visit(recovered, offset)
 				if !timestamped {
 					evidenceRisk++
 				}

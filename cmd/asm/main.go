@@ -109,9 +109,17 @@ type skillsInstallConfig struct {
 
 type output struct {
 	Projects       []session.Project       `json:"projects"`
-	Sessions       []session.Session       `json:"sessions"`
+	Sessions       []sessionJSON           `json:"sessions"`
 	ProviderErrors []session.ProviderError `json:"provider_errors,omitempty"`
 	RuntimeErrors  []session.RuntimeError  `json:"runtime_errors,omitempty"`
+}
+
+// sessionJSON flattens a session for --json output and attaches query
+// evidence under a top-level key. Evidence is a runtime view only: it is
+// never part of the on-disk cached session.
+type sessionJSON struct {
+	session.Session
+	Matches []index.ContentMatch `json:"matches,omitempty"`
 }
 
 func main() {
@@ -184,12 +192,23 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	if cfg.json {
-		sessions = session.StripSearchContent(sessions)
+		// Evidence is computed from the search corpus before it is stripped:
+		// hits show offsets and snippets, but the corpus itself never reaches
+		// machine output.
+		jsonSessions := make([]sessionJSON, 0, len(sessions))
+		for i := range sessions {
+			var matches []index.ContentMatch
+			if cfg.query != "" {
+				matches = index.SearchEvidence(sessions[i], cfg.query)
+			}
+			sessions[i].SearchMessages = nil
+			jsonSessions = append(jsonSessions, sessionJSON{Session: sessions[i], Matches: matches})
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(output{
 			Projects:       index.GroupProjects(sessions),
-			Sessions:       sessions,
+			Sessions:       jsonSessions,
 			ProviderErrors: discovery.ProviderErrors,
 			RuntimeErrors:  discovery.RuntimeErrors,
 		})
@@ -337,7 +356,7 @@ func runReport(args []string) error {
 			Before:              window.End,
 		},
 	})
-	sessions := session.StripSearchContent(withResumeCommands(filterReportSessions(discovery.Sessions, cfg)))
+	sessions := session.StripSearchCorpus(withResumeCommands(filterReportSessions(discovery.Sessions, cfg)))
 	payload := reportpkg.BuildPayloadWithLimit(window, sessions, cfg.limit)
 	payload.ProviderErrors = discovery.ProviderErrors
 	enc := json.NewEncoder(os.Stdout)

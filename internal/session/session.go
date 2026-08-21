@@ -15,13 +15,16 @@ const (
 )
 
 const (
-	// SearchMessageMaxBytes caps one user message inside SearchContent. Real
+	// SearchMessageMaxBytes caps one user message inside SearchMessages. Real
 	// prompts are short; the cap keeps pasted log dumps findable by their
 	// opening lines without letting one paste crowd out later user decisions.
 	SearchMessageMaxBytes = 4 * 1024
 	// SearchContentMaxBytes bounds the per-session searchable text so a large
 	// session store stays cheap to hold in memory and persist in the cache.
 	SearchContentMaxBytes = 32 * 1024
+	// SearchMessageMaxCount additionally bounds the message count so even
+	// tiny-message floods stay small in memory and cache.
+	SearchMessageMaxCount = 512
 )
 
 type Session struct {
@@ -43,46 +46,63 @@ type Session struct {
 	// ResumeCommand is a user-facing asm command, populated only for report
 	// output so agents can hand users a precise way back into a session.
 	ResumeCommand string `json:"resume_command,omitempty"`
-	// SearchContent is the bounded "key content" of a session: the denoised
+	// SearchMessages is the bounded "key content" of a session: the denoised
 	// text of every user-authored message (asks, corrections, and added
 	// constraints), with injected contexts and tool output already filtered
-	// by the provider. Providers build it during their primary session parse
-	// so internal/sessioncache persists it across discovery passes. It
-	// participates in query matching via internal/index but is stripped from
-	// user-facing JSON output so --json and report payloads stay lean.
-	SearchContent string `json:"search_content,omitempty"`
+	// by the provider. Each entry carries its timestamp and the byte offset
+	// of its record in the raw session file, so search consumers can both
+	// match against the text and slice the original transcript without
+	// re-parsing provider-specific formats. Providers build it during their
+	// primary session parse so internal/sessioncache persists it across
+	// discovery passes. It participates in query matching via internal/index
+	// but is stripped from user-facing JSON output so --json and report
+	// payloads stay lean.
+	SearchMessages []SearchMessage `json:"search_messages,omitempty"`
 }
 
-// AppendSearchMessage appends one denoised user message to content. The
-// message is trimmed and truncated at a rune boundary to
-// SearchMessageMaxBytes, then the joined result is capped at
-// SearchContentMaxBytes. It reports full=true once the cap is reached so
-// incremental parsers can skip further work.
-func AppendSearchMessage(content, message string) (next string, full bool) {
-	if len(content) >= SearchContentMaxBytes {
-		return content, true
-	}
-	message = truncateUTF8(strings.TrimSpace(message), SearchMessageMaxBytes)
-	if message == "" {
-		return content, len(content) >= SearchContentMaxBytes
-	}
-	if content != "" {
-		content += "\n"
-	}
-	remaining := SearchContentMaxBytes - len(content)
-	if len(message) > remaining {
-		message = truncateUTF8(message, remaining)
-	}
-	content += message
-	return content, len(content) >= SearchContentMaxBytes
+// SearchMessage is one denoised user-authored message kept for search.
+type SearchMessage struct {
+	Text   string    `json:"text"`
+	At     time.Time `json:"at,omitempty"`
+	Offset int64     `json:"offset"`
 }
 
-// StripSearchContent returns sessions with their internal search corpus
-// removed. SearchContent exists for query matching only; user-facing JSON
+// AppendSearchMessage appends one denoised user message to the search
+// corpus. The text is trimmed and truncated at a rune boundary to
+// SearchMessageMaxBytes; the corpus stops growing once it holds
+// SearchMessageMaxCount messages or SearchContentMaxBytes of text. It
+// reports full=true once either cap is reached so incremental parsers can
+// skip further work.
+func AppendSearchMessage(corpus []SearchMessage, message SearchMessage) (next []SearchMessage, full bool) {
+	if len(corpus) >= SearchMessageMaxCount || searchCorpusBytes(corpus) >= SearchContentMaxBytes {
+		return corpus, true
+	}
+	message.Text = truncateUTF8(strings.TrimSpace(message.Text), SearchMessageMaxBytes)
+	if message.Text == "" {
+		return corpus, false
+	}
+	remaining := SearchContentMaxBytes - searchCorpusBytes(corpus)
+	if len(message.Text) > remaining {
+		message.Text = truncateUTF8(message.Text, remaining)
+	}
+	corpus = append(corpus, message)
+	return corpus, len(corpus) >= SearchMessageMaxCount || searchCorpusBytes(corpus) >= SearchContentMaxBytes
+}
+
+func searchCorpusBytes(corpus []SearchMessage) int {
+	total := 0
+	for _, message := range corpus {
+		total += len(message.Text)
+	}
+	return total
+}
+
+// StripSearchCorpus returns sessions with their internal search corpus
+// removed. SearchMessages exists for query matching only; user-facing JSON
 // and report payloads must stay lean and free of transcript excerpts.
-func StripSearchContent(sessions []Session) []Session {
+func StripSearchCorpus(sessions []Session) []Session {
 	for i := range sessions {
-		sessions[i].SearchContent = ""
+		sessions[i].SearchMessages = nil
 	}
 	return sessions
 }

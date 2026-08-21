@@ -398,24 +398,42 @@ func writeCursorCacheFixture(t *testing.T, path, title string) {
 }
 
 func TestParseSessionCollectsSearchContent(t *testing.T) {
-	input := strings.NewReader(`{"role":"user","message":{"content":[{"type":"text","text":"first cursor ask quartz-cursor-a"}]}}
+	body := `{"role":"user","timestamp":"2026-06-13T01:00:00Z","message":{"content":[{"type":"text","text":"first cursor ask quartz-cursor-a"}]}}
 {"role":"assistant","message":{"content":[{"type":"text","text":"quartz-cursor-noise is not user evidence"}]}}
 {"role":"user","message":{"content":[{"type":"input_text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\nwrapped ask quartz-cursor-b\n</user_query>"}]}}
 {"role":"user","content":"<system-reminder>quartz-cursor-injected</system-reminder>"}
-`)
+`
 
-	got, err := parseSession(input)
+	got, err := parseSession(strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(got.SearchMessages) != 2 {
+		t.Fatalf("SearchMessages = %#v", got.SearchMessages)
+	}
+	texts := got.SearchMessages[0].Text + "\n" + got.SearchMessages[1].Text
 	for _, want := range []string{"quartz-cursor-a", "wrapped ask quartz-cursor-b"} {
-		if !strings.Contains(got.SearchContent, want) {
-			t.Fatalf("SearchContent missing %q: %q", want, got.SearchContent)
+		if !strings.Contains(texts, want) {
+			t.Fatalf("SearchMessages missing %q: %q", want, texts)
 		}
 	}
-	for _, noisy := range []string{"quartz-cursor-noise", "quartz-cursor-injected"} {
-		if strings.Contains(got.SearchContent, noisy) {
-			t.Fatalf("SearchContent should not contain %q: %q", noisy, got.SearchContent)
+	for _, noisy := range []string{"quartz-cursor-noise", "quartz-cursor-injected", "<user_query>"} {
+		if strings.Contains(texts, noisy) {
+			t.Fatalf("SearchMessages should not contain %q: %q", noisy, texts)
+		}
+	}
+	// Offsets are exact record coordinates; the first record starts at 0.
+	for i, marker := range []string{"first cursor ask quartz-cursor-a", "wrapped ask quartz-cursor-b"} {
+		markerIndex := strings.Index(body, marker)
+		if markerIndex < 0 {
+			t.Fatalf("fixture broken: %q", marker)
+		}
+		lineStart := int64(strings.LastIndex(body[:markerIndex], "\n") + 1)
+		if got.SearchMessages[i].Offset != lineStart {
+			t.Fatalf("message %d offset = %d, want %d", i, got.SearchMessages[i].Offset, lineStart)
+		}
+		if got.SearchMessages[i].At.IsZero() {
+			t.Fatalf("message %d lacks timestamp: %#v", i, got.SearchMessages[i])
 		}
 	}
 	if got.Title != "first cursor ask quartz-cursor-a" {

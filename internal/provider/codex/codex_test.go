@@ -1405,25 +1405,44 @@ func appendFile(t *testing.T, path, content string) {
 }
 
 func TestParseSessionCollectsSearchContent(t *testing.T) {
-	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+	body := `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
 {"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context><cwd>/repo</cwd></environment_context>"}]}}
 {"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first ask with quartz-token-a"}]}}
 {"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"quartz-token-assistant is not user evidence"}]}}
 {"timestamp":"2026-06-13T01:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"follow-up correction quartz-token-b"}]}}
-`)
+`
 
-	got, err := parseSession(input)
+	got, err := parseSession(strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(got.SearchMessages) != 2 {
+		t.Fatalf("SearchMessages = %#v", got.SearchMessages)
+	}
+	texts := got.SearchMessages[0].Text + "\n" + got.SearchMessages[1].Text
 	for _, want := range []string{"quartz-token-a", "quartz-token-b"} {
-		if !strings.Contains(got.SearchContent, want) {
-			t.Fatalf("SearchContent missing %q: %q", want, got.SearchContent)
+		if !strings.Contains(texts, want) {
+			t.Fatalf("SearchMessages missing %q: %q", want, texts)
 		}
 	}
 	for _, noisy := range []string{"environment_context", "quartz-token-assistant"} {
-		if strings.Contains(got.SearchContent, noisy) {
-			t.Fatalf("SearchContent should not contain %q: %q", noisy, got.SearchContent)
+		if strings.Contains(texts, noisy) {
+			t.Fatalf("SearchMessages should not contain %q: %q", noisy, texts)
+		}
+	}
+	// Evidence coordinates point at the start of the matching record.
+	for i, marker := range []string{"first ask with quartz-token-a", "follow-up correction quartz-token-b"} {
+		markerIndex := strings.Index(body, marker)
+		if markerIndex < 0 {
+			t.Fatalf("fixture broken: %q", marker)
+		}
+		lineStart := int64(strings.LastIndex(body[:markerIndex], "\n") + 1)
+		m := got.SearchMessages[i]
+		if m.Offset != lineStart {
+			t.Fatalf("message %d offset = %d, want record line start %d", i, m.Offset, lineStart)
+		}
+		if m.At.IsZero() {
+			t.Fatalf("message %d lacks timestamp: %#v", i, m)
 		}
 	}
 	// The title still keeps only the last human message.
@@ -1446,7 +1465,18 @@ func TestMetadataParseCollectsSameSearchContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.SearchContent != metadata.SearchContent || full.SearchContent != "first prompt\nsecond prompt" {
-		t.Fatalf("search content diverged: full=%q metadata=%q", full.SearchContent, metadata.SearchContent)
+	if len(full.SearchMessages) != 2 || len(metadata.SearchMessages) != 2 {
+		t.Fatalf("search corpus diverged: full=%#v metadata=%#v", full.SearchMessages, metadata.SearchMessages)
+	}
+	for i := range full.SearchMessages {
+		if full.SearchMessages[i] != metadata.SearchMessages[i] {
+			t.Fatalf("message %d diverged: full=%#v metadata=%#v", i, full.SearchMessages[i], metadata.SearchMessages[i])
+		}
+	}
+	if full.SearchMessages[0].Text != "first prompt" || full.SearchMessages[1].Text != "second prompt" {
+		t.Fatalf("unexpected corpus: %#v", full.SearchMessages)
+	}
+	if full.SearchMessages[0].Offset >= full.SearchMessages[1].Offset {
+		t.Fatalf("offsets out of order: %#v", full.SearchMessages)
 	}
 }

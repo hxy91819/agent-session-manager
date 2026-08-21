@@ -60,6 +60,72 @@ func ReadWithOversized(
 	}
 }
 
+// ReadWithOffsets behaves like ReadWithOversized but also reports the byte
+// offset at which each record starts in the stream. Providers use offsets as
+// durable coordinates into raw session files, letting search consumers slice
+// the original transcript without re-parsing it. The offset of a record is
+// captured before any of its lines are read, so buffer read-ahead cannot skew
+// it.
+func ReadWithOffsets(
+	r io.Reader,
+	maxRecordBytes int,
+	prefixBytes int,
+	visit func(record []byte, offset int64) bool,
+	visitOversized func(record OversizedRecord, offset int64),
+) (int, error) {
+	reader, position := NewOffsetReader(r)
+	oversizedRecords := 0
+	for {
+		offset := position()
+		record, oversizedRecord, oversized, err := readBoundedRecordWithEdges(
+			reader,
+			maxRecordBytes,
+			prefixBytes,
+		)
+		if errors.Is(err, io.EOF) {
+			return oversizedRecords, nil
+		}
+		if err != nil {
+			return oversizedRecords, err
+		}
+		if oversized {
+			oversizedRecords++
+			if visitOversized != nil {
+				visitOversized(oversizedRecord, offset)
+			}
+			continue
+		}
+		record = bytes.TrimSpace(record)
+		if len(record) != 0 && !visit(record, offset) {
+			return oversizedRecords, nil
+		}
+	}
+}
+
+type countingReader struct {
+	reader io.Reader
+	bytes  int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.reader.Read(p)
+	c.bytes += n
+	return n, err
+}
+
+// NewOffsetReader wraps r in a buffered reader and returns a position
+// callback. Called immediately before a record is read, position reports the
+// byte offset where that record starts in the underlying stream. The
+// deduction of buffered-but-unread bytes keeps the answer exact even though
+// the buffer reads ahead.
+func NewOffsetReader(r io.Reader) (reader *bufio.Reader, position func() int64) {
+	counter := &countingReader{reader: r}
+	reader = bufio.NewReader(counter)
+	return reader, func() int64 {
+		return int64(counter.bytes) - int64(reader.Buffered())
+	}
+}
+
 func readBoundedRecordWithEdges(
 	reader *bufio.Reader,
 	maxRecordBytes int,

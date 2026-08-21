@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -597,7 +596,7 @@ func parseSessionIntoMode(r io.Reader, out session.Session, metadataOnly bool) (
 	haveSessionMeta := out.ID != ""
 	stoppedAtInheritedHistory := false
 
-	visit := func(line []byte) bool {
+	visit := func(line []byte, offset int64) bool {
 		if metadataOnly && !metadataRecordNeedsFullDecode(line) {
 			return true
 		}
@@ -657,7 +656,11 @@ func parseSessionIntoMode(r io.Reader, out session.Session, metadataOnly bool) (
 					// findable after the topic has moved on.
 					out.Title = title
 					out.Metadata["title_source"] = "rollout"
-					out.SearchContent, _ = session.AppendSearchMessage(out.SearchContent, title)
+					out.SearchMessages, _ = session.AppendSearchMessage(out.SearchMessages, session.SearchMessage{
+						Text:   title,
+						At:     parseTime(rec.Timestamp),
+						Offset: offset,
+					})
 				}
 			}
 		}
@@ -755,10 +758,11 @@ func responseItemNeedsFullDecode(decoder *json.Decoder) bool {
 	return true
 }
 
-func readCodexMetadataRecords(r io.Reader, visit func([]byte) bool) (int, error) {
-	reader := bufio.NewReader(r)
+func readCodexMetadataRecords(r io.Reader, visit func([]byte, int64) bool) (int, error) {
+	reader, position := jsonlrecords.NewOffsetReader(r)
 	evidenceRisk := 0
 	for {
+		offset := position()
 		var record []byte
 		var prefix []byte
 		var suffix []byte
@@ -816,7 +820,7 @@ func readCodexMetadataRecords(r io.Reader, visit func([]byte) bool) (int, error)
 				Bytes:  totalBytes,
 			})
 			if ok {
-				if !visit(recovered) {
+				if !visit(recovered, offset) {
 					return evidenceRisk, nil
 				}
 				if !timestamped {
@@ -828,7 +832,7 @@ func readCodexMetadataRecords(r io.Reader, visit func([]byte) bool) (int, error)
 			continue
 		}
 		record = bytes.TrimSpace(record)
-		if len(record) != 0 && !visit(record) {
+		if len(record) != 0 && !visit(record, offset) {
 			return evidenceRisk, nil
 		}
 	}
@@ -903,7 +907,7 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	defer func() { _ = f.Close() }()
 
 	var messages []session.MessagePreview
-	oversized, err := readCodexRecords(f, func(line []byte) bool {
+	oversized, err := readCodexRecords(f, func(line []byte, _ int64) bool {
 		var rec rawRecord
 		if json.Unmarshal(line, &rec) != nil || rec.Type != "response_item" {
 			return true
@@ -924,26 +928,26 @@ func readUserPreviews(path string, opts session.PreviewOptions) ([]session.Messa
 	return session.SelectMessagePreviews(messages, opts), oversized, err
 }
 
-func readCodexRecords(r io.Reader, visit func([]byte) bool) (int, error) {
+func readCodexRecords(r io.Reader, visit func([]byte, int64) bool) (int, error) {
 	evidenceRisk := 0
 	stopped := false
-	_, err := jsonlrecords.ReadWithOversized(
+	_, err := jsonlrecords.ReadWithOffsets(
 		r,
 		maxJSONLRecordBytes,
 		oversizedRecordEdgeBytes,
-		func(line []byte) bool {
+		func(line []byte, offset int64) bool {
 			if stopped {
 				return false
 			}
-			stopped = !visit(line)
+			stopped = !visit(line, offset)
 			return !stopped
 		},
-		func(record jsonlrecords.OversizedRecord) {
+		func(record jsonlrecords.OversizedRecord, offset int64) {
 			if stopped {
 				return
 			}
 			if recovered, timestamped, ok := recoverOversizedCodexUserRecord(record); ok {
-				stopped = !visit(recovered)
+				stopped = !visit(recovered, offset)
 				if !timestamped {
 					evidenceRisk++
 				}
