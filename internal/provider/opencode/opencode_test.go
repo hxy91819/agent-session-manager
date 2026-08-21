@@ -1,12 +1,15 @@
 package opencode
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite" // pure-Go SQLite driver used by opencode.db fixtures
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 	"github.com/hxy91819/agent-session-manager/internal/sessioncache"
@@ -342,6 +345,275 @@ func TestDiscoverCacheLifecycleAndBoundedScanPreservesHistory(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsSessionsFromSQLiteStore(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	created := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+	updated := created.Add(3 * time.Minute)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_db",
+		Directory: repo,
+		Title:     "dsh-plugin-install 功能实现",
+		Version:   "1.18.19",
+		CreatedAt: created,
+		UpdatedAt: updated,
+	})
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_archived",
+		Directory: repo,
+		Title:     "archived away",
+		CreatedAt: created,
+		UpdatedAt: updated,
+		Archived:  updated.UnixMilli(),
+	})
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1 (archived sessions stay hidden)", len(got))
+	}
+	s := got[0]
+	if s.ID != "ses_db" || s.Provider != Name {
+		t.Fatalf("unexpected session id/provider: %#v", s)
+	}
+	if s.CWD != repo {
+		t.Fatalf("CWD = %q", s.CWD)
+	}
+	if s.Title != "dsh-plugin-install 功能实现" {
+		t.Fatalf("Title = %q", s.Title)
+	}
+	if s.Metadata["title_source"] != "session" {
+		t.Fatalf("title_source = %q", s.Metadata["title_source"])
+	}
+	if s.Metadata["version"] != "1.18.19" {
+		t.Fatalf("version = %q", s.Metadata["version"])
+	}
+	if !s.CreatedAt.Equal(created) {
+		t.Fatalf("CreatedAt = %s, want %s", s.CreatedAt, created)
+	}
+	if !s.UpdatedAt.Equal(updated) {
+		t.Fatalf("UpdatedAt = %s, want %s", s.UpdatedAt, updated)
+	}
+	wantPath := filepath.Join(home, "opencode.db")
+	if s.Path != wantPath {
+		t.Fatalf("Path = %q, want %q", s.Path, wantPath)
+	}
+}
+
+func TestDiscoverPrefersSQLiteStoreOverLegacyJSON(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	// The one-time opencode storage migration imports legacy JSON sessions into
+	// opencode.db, so when the DB exists it is authoritative: scanning both
+	// stores would surface the same session twice with divergent titles.
+	db := createOpencodeDB(t, home)
+	now := time.Now().UTC()
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_migrated",
+		Directory: repo,
+		Title:     "db title wins",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	closeDB(t, db)
+	writeOpencodeSession(t, home, "project_one", "ses_migrated", repo, `{
+  "id": "ses_migrated",
+  "projectID": "project_one",
+  "directory": `+quote(repo)+`,
+  "title": "stale json title",
+  "time": {"created": `+fmt.Sprint(now.UnixMilli())+`, "updated": `+fmt.Sprint(now.UnixMilli())+`}
+}`)
+	writeOpencodeSession(t, home, "project_one", "ses_json_only", repo, `{
+  "id": "ses_json_only",
+  "projectID": "project_one",
+  "directory": `+quote(repo)+`,
+  "title": "json-only leftover",
+  "time": {"created": `+fmt.Sprint(now.UnixMilli())+`, "updated": `+fmt.Sprint(now.UnixMilli())+`}
+}`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want exactly the DB session: %#v", len(got), got)
+	}
+	if got[0].ID != "ses_migrated" || got[0].Title != "db title wins" {
+		t.Fatalf("unexpected session: %#v", got[0])
+	}
+}
+
+func TestDiscoverDBFallsBackToProjectWorktreeAndRecordsParent(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	now := time.Now().UTC()
+	writeOpencodeDBProject(t, db, "proj_worktree", repo)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_parent",
+		ProjectID: "proj_worktree",
+		Directory: repo,
+		Title:     "parent work",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_child",
+		ProjectID: "proj_worktree",
+		ParentID:  "ses_parent",
+		Directory: "",
+		Title:     "delegated task",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	byID := make(map[string]session.Session, len(got))
+	for _, item := range got {
+		byID[item.ID] = item
+	}
+	child := byID["ses_child"]
+	if child.CWD != repo {
+		t.Fatalf("child CWD = %q, want project worktree %q", child.CWD, repo)
+	}
+	if child.Metadata[session.MetadataParentThreadID] != "ses_parent" {
+		t.Fatalf("parent_thread_id = %q", child.Metadata[session.MetadataParentThreadID])
+	}
+	if parent := byID["ses_parent"]; parent.Metadata[session.MetadataParentThreadID] != "" {
+		t.Fatalf("root session unexpectedly marked as child: %q", parent.Metadata[session.MetadataParentThreadID])
+	}
+}
+
+func TestDiscoverDBPlaceholderTitleFallsBackToFirstUserMessage(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	base := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_placeholder",
+		Directory: repo,
+		Title:     "New session - 2026-08-20T01:00:00.000Z",
+		CreatedAt: base,
+		UpdatedAt: base,
+	})
+	writeOpencodeDBMessage(t, db, "ses_placeholder", "msg_first", "user", "first prompt: search opencode sessions", base.Add(time.Minute))
+	writeOpencodeDBMessage(t, db, "ses_placeholder", "msg_second", "user", "second prompt", base.Add(2*time.Minute))
+	// A non-user message before the first real prompt must not become the title.
+	writeOpencodeDBMessage(t, db, "ses_placeholder", "msg_assistant", "assistant", "assistant text", base)
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Title != "first prompt: search opencode sessions" {
+		t.Fatalf("Title = %q", got[0].Title)
+	}
+	if got[0].Metadata["title_source"] != "first_input" {
+		t.Fatalf("title_source = %q", got[0].Metadata["title_source"])
+	}
+}
+
+func TestDiscoverDBPlaceholderTitleSurvivesWithoutUserMessages(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	base := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_empty_chat",
+		Directory: repo,
+		Title:     "New session - 2026-08-20T01:00:00.000Z",
+		CreatedAt: base,
+		UpdatedAt: base,
+	})
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Title != "New session - 2026-08-20T01:00:00.000Z" {
+		t.Fatalf("placeholder title should remain visible when nothing better exists: %#v", got)
+	}
+}
+
+func TestDiscoverDBReadsUserPreviews(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	base := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID:        "ses_preview",
+		Directory: repo,
+		Title:     "preview subject",
+		CreatedAt: base,
+		UpdatedAt: base,
+	})
+	texts := []string{"first prompt", "second prompt", "third prompt", "fourth prompt", "fifth prompt"}
+	for i, text := range texts {
+		writeOpencodeDBMessage(t, db, "ses_preview", fmt.Sprintf("msg_%d", i), "user", text, base.Add(time.Duration(i)*time.Minute))
+	}
+	writeOpencodeDBMessage(t, db, "ses_preview", "msg_tool", "assistant", "assistant reply", base.Add(9*time.Minute))
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2, MaxChars: 500},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"first prompt", "second prompt", "fourth prompt", "fifth prompt"}
+	if texts := previewTexts(got[0].Previews); strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("previews = %#v, want %#v", texts, want)
+	}
+	for _, preview := range got[0].Previews {
+		if preview.Source != "opencode:message" {
+			t.Fatalf("preview source = %q", preview.Source)
+		}
+	}
+}
+
+func TestDiscoverDBFiltersBySinceAndLimit(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	base := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID: "ses_old", Directory: repo, Title: "old",
+		CreatedAt: base, UpdatedAt: base,
+	})
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID: "ses_new", Directory: repo, Title: "new",
+		CreatedAt: base.AddDate(0, 0, 10), UpdatedAt: base.AddDate(0, 0, 10),
+	})
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Since:      base.AddDate(0, 0, 5),
+		LimitFiles: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "ses_new" {
+		t.Fatalf("since/limit = %#v", got)
+	}
+}
+
 func TestResumeCommandUsesOpencodeSessionFromSessionCWD(t *testing.T) {
 	spec := New("").ResumeCommand(session.Session{ID: "ses_one", CWD: "/repo"})
 
@@ -411,6 +683,119 @@ func writeOpencodeMessageAt(t *testing.T, home, sessionID, messageID, role, text
 	}
 	writeFile(t, filepath.Join(messageDir, messageID+".json"), `{"id":"`+messageID+`","sessionID":"`+sessionID+`","role":"`+role+`","time":{"created":`+fmt.Sprint(at.UnixMilli())+`}}`)
 	writeFile(t, filepath.Join(partDir, "part_one.json"), `{"type":"text","text":`+quote(text)+`}`)
+}
+
+// The schema mirrors the core columns of opencode's drizzle-managed
+// opencode.db (v1.18+); aux indexes/FKs are irrelevant to discovery.
+const opencodeDBSchema = `
+CREATE TABLE session (
+  id text primary key,
+  project_id text not null,
+  parent_id text,
+  slug text not null,
+  directory text not null,
+  title text not null,
+  version text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  time_archived integer
+);
+CREATE TABLE project (
+  id text primary key,
+  worktree text not null
+);
+CREATE TABLE message (
+  id text primary key,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+CREATE TABLE part (
+  id text primary key,
+  message_id text not null,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+`
+
+type opencodeDBSessionFixture struct {
+	ID        string
+	ProjectID string
+	ParentID  string
+	Directory string
+	Title     string
+	Version   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Archived  int64
+}
+
+func createOpencodeDB(t testing.TB, home string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(home, "opencode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(opencodeDBSchema); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func closeDB(t testing.TB, db *sql.DB) {
+	t.Helper()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeOpencodeDBSession(t testing.TB, db *sql.DB, item opencodeDBSessionFixture) {
+	t.Helper()
+	projectID := item.ProjectID
+	if projectID == "" {
+		projectID = "proj_" + item.ID
+	}
+	var archived any
+	if item.Archived > 0 {
+		archived = item.Archived
+	}
+	if _, err := db.Exec(`INSERT INTO session (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated, time_archived)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID, projectID, nilIfEmpty(item.ParentID), item.ID, item.Directory, item.Title, item.Version,
+		item.CreatedAt.UnixMilli(), item.UpdatedAt.UnixMilli(), archived); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeOpencodeDBProject(t testing.TB, db *sql.DB, id, worktree string) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO project (id, worktree) VALUES (?, ?)`, id, worktree); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeOpencodeDBMessage(t testing.TB, db *sql.DB, sessionID, messageID, role, text string, at time.Time) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		messageID, sessionID, at.UnixMilli(), at.UnixMilli(),
+		fmt.Sprintf(`{"role":%q,"time":{"created":%d}}`, role, at.UnixMilli())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_"+messageID, messageID, sessionID, at.UnixMilli(), at.UnixMilli(),
+		fmt.Sprintf(`{"type":"text","text":%q}`, text)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func nilIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func quote(value string) string {
