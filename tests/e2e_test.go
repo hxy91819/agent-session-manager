@@ -453,6 +453,58 @@ func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesOpencodeSQLiteStoreAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	repo := t.TempDir()
+	writeOpencodeDBStore(t, opencodeHome, "ses_opencode_db", repo, "opencode sqlite 存储发现的会话")
+	// A stale legacy JSON file with the same migrated ID must not duplicate or
+	// shadow the database record once opencode has moved to opencode.db.
+	writeFile(t, filepath.Join(opencodeHome, "storage", "session", "project_one", "ses_opencode_db.json"), `{
+  "id": "ses_opencode_db",
+  "projectID": "project_one",
+  "directory": `+jsonString(repo)+`,
+  "title": "stale json shadow",
+  "time": {"created": 1781322000000, "updated": 1781322060000}
+}`)
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--since-days", "0", "--json", "--query", "sqlite")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_opencode_db" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "opencode" {
+		t.Fatalf("provider = %q, want opencode", payload.Sessions[0].Provider)
+	}
+	if payload.Sessions[0].Title != "opencode sqlite 存储发现的会话" {
+		t.Fatalf("title = %q, want the database title, not the stale json file", payload.Sessions[0].Title)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].CWD != repo || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--since-days", "0", "--resume", "ses_opencode_db", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'opencode' '-s' 'ses_opencode_db'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
 func TestCLIIndexesCodeBuddyAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
@@ -1919,6 +1971,69 @@ func writeOpencodeSession(t testing.TB, home, projectID, id, cwd, title string) 
 `)
 	writeFile(t, filepath.Join(sessionDir, id+".json"), `{"id":`+jsonString(id)+`,"projectID":`+jsonString(projectID)+`,"directory":`+jsonString(cwd)+`,"title":`+jsonString(title)+`,"time":{"created":1781322000000,"updated":1781322060000}}
 `)
+}
+
+// writeOpencodeDBStore builds the modern (v1.18+) opencode store layout: a
+// drizzle-managed opencode.db with the core session/project/message/part
+// tables used by discovery.
+func writeOpencodeDBStore(t testing.TB, home, id, cwd, title string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(home, "opencode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.Exec(`
+CREATE TABLE session (
+  id text primary key,
+  project_id text not null,
+  parent_id text,
+  slug text not null,
+  directory text not null,
+  title text not null,
+  version text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  time_archived integer
+);
+CREATE TABLE project (
+  id text primary key,
+  worktree text not null
+);
+CREATE TABLE message (
+  id text primary key,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+CREATE TABLE part (
+  id text primary key,
+  message_id text not null,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, "proj_"+id, id, cwd, title, "1.18.19", 1781322000000, 1781322060000); err != nil {
+		t.Fatal(err)
+	}
+	msgData, _ := json.Marshal(map[string]any{"role": "user", "time": map[string]any{"created": 1781322000000}})
+	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		"msg_"+id, id, 1781322000000, 1781322000000, string(msgData)); err != nil {
+		t.Fatal(err)
+	}
+	partData, _ := json.Marshal(map[string]any{"type": "text", "text": title})
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_"+id, "msg_"+id, id, 1781322000000, 1781322000000, string(partData)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func jsonString(value string) string {

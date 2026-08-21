@@ -17,9 +17,11 @@ Providers:
 - Kiro CLI sessions stored under `$KIRO_HOME/sessions/cli` or
   `~/.kiro/sessions/cli`. Resume runs from the original session cwd with
   `kiro-cli chat --resume-id <session-id>`.
-- opencode sessions stored under `$OPENCODE_HOME/storage` or
-  `~/.local/share/opencode/storage`. Resume runs from the original session cwd
-  with `opencode -s <session-id>`.
+- opencode sessions stored in `$OPENCODE_HOME/opencode.db` or
+  `~/.local/share/opencode/opencode.db` (SQLite, opencode v1.18+), with the
+  legacy `storage/session/**.json` layout used when the database does not
+  exist. Resume runs from the original session cwd with
+  `opencode -s <session-id>`.
 - ZCode sessions stored in a SQLite database under `$ZCODE_HOME/cli/db/db.sqlite`
   or `~/.zcode/cli/db/db.sqlite`. ZCode is an Electron desktop app without a CLI
   or documented resume path, so asm treats zcode as discover-only; the reported

@@ -33,10 +33,11 @@ Current providers:
 - Kiro CLI scans `$KIRO_HOME/sessions/cli` or `~/.kiro/sessions/cli`, using
   per-session JSON metadata plus companion JSONL `Prompt` records, and resumes
   with `kiro-cli chat --resume-id <session-id>` from the original cwd.
-- opencode scans `$OPENCODE_HOME/storage` or
-  `~/.local/share/opencode/storage`, using session JSON plus project and message
-  fallback files, and resumes with `opencode -s <session-id>` from the original
-  cwd.
+- opencode reads `$OPENCODE_HOME/opencode.db` or
+  `~/.local/share/opencode/opencode.db`, the drizzle-managed SQLite store used
+  since opencode v1.18. Pre-migration stores without `opencode.db` fall back
+  to scanning `storage/session/**.json` plus project and message fallback
+  files. Resume uses `opencode -s <session-id>` from the original cwd.
 - ZCode scans `$ZCODE_HOME/cli/db/db.sqlite` or `~/.zcode/cli/db/db.sqlite`, a
   SQLite store. It reads the `session` table and falls back to the first user
   message (via the `message` and `part` tables) for titles. ZCode has no CLI or
@@ -245,13 +246,29 @@ consume normalized sessions.
 
 ## opencode Provider Notes
 
-- Treat `$OPENCODE_HOME/storage` or `~/.local/share/opencode/storage` as the
-  supported store.
-- Session JSON is the primary per-session file and should be cached with
-  `internal/sessioncache`.
-- Project worktree fallback and message title fallback are dynamic side inputs;
-  reapply them after cache hits instead of storing their derived values as the
-  cached primary parse result.
+- Modern store: `$OPENCODE_HOME/opencode.db` or
+  `~/.local/share/opencode/opencode.db` (opencode v1.18+). The one-time
+  migration imports legacy JSON sessions into the DB, so when the DB exists it
+  is authoritative — do not also scan `storage/session`, or migrated sessions
+  surface twice with stale JSON shadows.
+- DB sessions come from the `session` table: `id`, `directory` (cwd), `title`,
+  `version`, `project_id`, `parent_id`, `time_created`, and `time_updated` are
+  millisecond Unix epochs. Read read-only (`?mode=ro`) so concurrent opencode
+  writes are safe, and use `modernc.org/sqlite` (pure Go) so the release build
+  stays `CGO_ENABLED=0`. Skip archived sessions (`time_archived` set).
+- Empty `directory` falls back to `project.worktree`. Empty titles and the
+  auto-generated `New session - <timestamp>` placeholder fall back to the
+  first user message text (title_source `first_input`) via the `message` and
+  `part` tables; keep the placeholder visible when no user text exists.
+- Child sessions (`parent_id` set) must record `parent_thread_id` metadata so
+  reports can deduplicate delegated subagent work, mirroring zcode.
+- `sessioncache` is not required for the DB path because discovery reads a
+  single database with indexed queries; declare the exemption with a reason.
+- Legacy pre-migration stores: scan `storage/session/**.json` as the primary
+  per-session file, cached with `internal/sessioncache`. Project worktree
+  fallback and message title fallback are dynamic side inputs; reapply them
+  after cache hits instead of storing their derived values as the cached
+  primary parse result.
 - Keep opencode resume as `opencode -s <session-id>` from the original cwd.
 
 ## ZCode Provider Notes

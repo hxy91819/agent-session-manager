@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hxy91819/agent-session-manager/internal/session"
 )
@@ -82,4 +83,66 @@ func writeBenchmarkOpencodeSession(b *testing.B, home, projectID, sessionID, cwd
 	if err := os.WriteFile(filepath.Join(sessionDir, sessionID+".json"), []byte(body), 0o644); err != nil {
 		b.Fatal(err)
 	}
+}
+
+func BenchmarkDiscoverDBCold(b *testing.B) {
+	home := makeBenchmarkOpencodeDBStore(b)
+	provider := New(home)
+	opts := session.DiscoverOptions{}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := provider.Discover(opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) == 0 {
+			b.Fatal("expected sessions")
+		}
+	}
+}
+
+func BenchmarkDiscoverDBWithPreviews(b *testing.B) {
+	home := makeBenchmarkOpencodeDBStore(b)
+	provider := New(home)
+	opts := session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 2, MaxChars: 500},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := provider.Discover(opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) == 0 {
+			b.Fatal("expected sessions")
+		}
+	}
+}
+
+func makeBenchmarkOpencodeDBStore(b *testing.B) string {
+	b.Helper()
+	home := b.TempDir()
+	db := createOpencodeDB(b, home)
+	defer closeDB(b, db)
+
+	base := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
+	for i := range 40 {
+		sessionID := fmt.Sprintf("ses_bench_%03d", i)
+		writeOpencodeDBSession(b, db, opencodeDBSessionFixture{
+			ID:        sessionID,
+			Directory: "/repo/bench",
+			Title:     fmt.Sprintf("bench session %03d", i),
+			Version:   "1.18.19",
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
+		})
+		for j := range 8 {
+			writeOpencodeDBMessage(b, db, sessionID, fmt.Sprintf("msg_%03d_%02d", i, j), "user",
+				fmt.Sprintf("bench prompt %03d turn %02d with enough text to make sqlite parsing visible", i, j),
+				base.Add(time.Duration(i)*time.Minute+time.Duration(j)*time.Second))
+		}
+	}
+	return home
 }

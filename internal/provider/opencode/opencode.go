@@ -35,6 +35,15 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 	if err != nil {
 		return nil, err
 	}
+	// opencode v1.18+ migrates legacy storage/session JSON into opencode.db
+	// and stops writing the JSON tree, so the DB is authoritative whenever it
+	// exists; only pre-migration stores fall through to the file scan.
+	dbPath := filepath.Join(home, "opencode.db")
+	if info, err := os.Stat(dbPath); err == nil {
+		return discoverFromDB(dbPath, info.ModTime(), opts)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
 	storageRoot := filepath.Join(home, "storage")
 	files, err := collectSessionJSON(filepath.Join(storageRoot, "session"), opts)
 	if err != nil {
