@@ -227,14 +227,14 @@ func TestCLICacheColdAndWarmResultsMatchAcrossProviders(t *testing.T) {
 	if !reflect.DeepEqual(cold, warm) {
 		t.Fatalf("cold and warm output differ:\ncold=%#v\nwarm=%#v", cold, warm)
 	}
-	if len(warm.Sessions) != 6 {
-		t.Fatalf("sessions = %#v, want all six cached providers", warm.Sessions)
+	if len(warm.Sessions) != 7 {
+		t.Fatalf("sessions = %#v, want all seven cached providers", warm.Sessions)
 	}
 	providers := make(map[string]bool, len(warm.Sessions))
 	for _, item := range warm.Sessions {
 		providers[item.Provider] = true
 	}
-	for _, want := range []string{"codex", "claude", "kiro", "opencode", "codebuddy", "cursor"} {
+	for _, want := range []string{"codex", "claude", "kiro", "opencode", "codebuddy", "cursor", "pi"} {
 		if !providers[want] {
 			t.Fatalf("provider %q missing from ordered sessions %#v", want, warm.Sessions)
 		}
@@ -529,7 +529,7 @@ func TestCLIMissingSessionProbeFlushesAggregateStartupDiagnostics(t *testing.T) 
 			providers[event.Provider] = true
 		}
 	}
-	for _, provider := range []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode"} {
+	for _, provider := range []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode", "pi"} {
 		if !providers[provider] {
 			t.Fatalf("missing provider_total for %s: %#v", provider, events)
 		}
@@ -603,7 +603,7 @@ func TestCLIReportKeepsEvidenceIndependentFromNormalizedTitle(t *testing.T) {
 func TestCLITitleNormalizationAcrossProviders(t *testing.T) {
 	env := newASMTestEnv(t)
 	repo := t.TempDir()
-	providers := []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode"}
+	providers := []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor", "openclaw", "zcode", "pi"}
 	const suffix = "tail-search-token"
 
 	writeTitleNormalizationFixtures(t, env, repo, suffix)
@@ -671,6 +671,7 @@ func writeTitleNormalizationFixtures(t testing.TB, env asmTestEnv, repo string, 
 		writeOpencodeSession(t, env.ProviderHome["opencode"], "project-"+kind, "opencode-"+kind, repo, title("opencode", long))
 		writeCodeBuddySession(t, env.ProviderHome["codebuddy"], "codebuddy-"+kind, repo, title("codebuddy", long))
 		writeCursorSession(t, env.ProviderHome["cursor"], "cursor-"+kind, repo, title("cursor", long))
+		writePiNamedSession(t, env.ProviderHome["pi"], "pi-"+kind, repo, title("pi", long))
 	}
 
 	kimiNormalDir := filepath.Join(env.ProviderHome["kimi"], "sessions", "normal")
@@ -700,6 +701,7 @@ func writeCachedProviderFixtures(t testing.TB, env asmTestEnv, repo string) {
 	writeOpencodeSession(t, env.ProviderHome["opencode"], "project", "opencode", repo, "opencode title")
 	writeCodeBuddySession(t, env.ProviderHome["codebuddy"], "codebuddy", repo, "codebuddy title")
 	writeCursorSession(t, env.ProviderHome["cursor"], "cursor", repo, "cursor title")
+	writePiSession(t, env.ProviderHome["pi"], "pi", repo, "pi title")
 }
 
 func writeKiroFallbackFixture(t testing.TB, home, cwd, title string) {

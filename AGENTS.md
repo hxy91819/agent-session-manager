@@ -38,6 +38,11 @@ Current providers:
   since opencode v1.18. Pre-migration stores without `opencode.db` fall back
   to scanning `storage/session/**.json` plus project and message fallback
   files. Resume uses `opencode -s <session-id>` from the original cwd.
+- Pi scans `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`, reading
+  append-only JSONL transcripts whose first record carries the session id, cwd,
+  and creation time. Titles come from the latest `session_info` display name,
+  falling back to the first user message, and resume uses
+  `pi --session <session-id>` from the original cwd.
 - ZCode scans `$ZCODE_HOME/cli/db/db.sqlite` or `~/.zcode/cli/db/db.sqlite`, a
   SQLite store. It reads the `session` table and falls back to the first user
   message (via the `message` and `part` tables) for titles. ZCode has no CLI or
@@ -270,6 +275,31 @@ consume normalized sessions.
   after cache hits instead of storing their derived values as the cached
   primary parse result.
 - Keep opencode resume as `opencode -s <session-id>` from the original cwd.
+
+## Pi Provider Notes
+
+- Treat `$PI_CODING_AGENT_DIR` (the Pi agent directory) or `~/.pi/agent` as the
+  supported store; sessions live under `sessions/<encoded-cwd>/*.jsonl`. Pi
+  encodes the cwd into that directory name, but the header record's `cwd` is
+  authoritative; never decode directory names.
+- Each transcript is append-only JSONL. The first record must be
+  `{"type":"session", ...}` (id, cwd, RFC3339 timestamp, optional
+  `parentSession`), mirroring Pi's own session listing; later records include
+  `session_info`, `model_change`, and `message` entries.
+- Display titles come from the latest `session_info` record; an empty name
+  explicitly clears the title. Without a name, use the first real user
+  message, matching Pi's session picker. Filter injected context prefixes
+  before using message text as a title or preview.
+- Message activity time prefers the numeric per-message `timestamp` (Unix
+  milliseconds) and falls back to the record `timestamp`; only user and
+  assistant messages count toward `UpdatedAt`, as in Pi's session list.
+- One transcript file holds titles and user messages alike, so cache the full
+  per-file parse (header, latest name, first user message, last activity) with
+  `internal/sessioncache`, and re-scan the transcript for report previews and
+  cwd status on every discovery pass.
+- Keep Pi resume as `pi --session <session-id>` from the original cwd: Pi
+  resolves exact session ids in the current project's session directory before
+  falling back to a global search.
 
 ## ZCode Provider Notes
 
