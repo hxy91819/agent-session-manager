@@ -18,6 +18,7 @@ func newASMTestEnv(t testing.TB) asmTestEnv {
 	t.Helper()
 	providers := make(map[string]string)
 	for _, name := range []string{
+		"codex", "claude", "kimi", "kiro", "opencode", "codebuddy",
 		"cursor", "openclaw", "zcode", "pi", "dsh",
 	} {
 		providers[name] = t.TempDir()
