@@ -528,6 +528,33 @@ func TestDiscoverDBPlaceholderTitleFallsBackToFirstUserMessage(t *testing.T) {
 	}
 }
 
+func TestDiscoverDBSkipsSyntheticTextParts(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createOpencodeDB(t, home)
+	base := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	writeOpencodeDBSession(t, db, opencodeDBSessionFixture{
+		ID: "ses_synthetic", Directory: repo,
+		Title:     "New session - 2026-08-20T01:00:00.000Z",
+		CreatedAt: base, UpdatedAt: base,
+	})
+	writeOpencodeDBMessageWithSyntheticPart(t, db, "ses_synthetic", "msg_first", base.Add(time.Minute), "injected context", "real user prompt")
+	closeDB(t, db)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 1, MaxChars: 500},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Title != "real user prompt" {
+		t.Fatalf("synthetic part became title: %#v", got)
+	}
+	if len(got[0].Previews) != 1 || got[0].Previews[0].Text != "real user prompt" {
+		t.Fatalf("synthetic part became preview: %#v", got[0].Previews)
+	}
+}
+
 func TestDiscoverDBPlaceholderTitleSurvivesWithoutUserMessages(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
@@ -788,6 +815,29 @@ func writeOpencodeDBMessage(t testing.TB, db *sql.DB, sessionID, messageID, role
 		"part_"+messageID, messageID, sessionID, at.UnixMilli(), at.UnixMilli(),
 		fmt.Sprintf(`{"type":"text","text":%q}`, text)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func writeOpencodeDBMessageWithSyntheticPart(t testing.TB, db *sql.DB, sessionID, messageID string, at time.Time, syntheticText, userText string) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		messageID, sessionID, at.UnixMilli(), at.UnixMilli(),
+		fmt.Sprintf(`{"role":"user","time":{"created":%d}}`, at.UnixMilli())); err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []struct {
+		id        string
+		text      string
+		synthetic bool
+	}{
+		{id: "part_" + messageID + "_synthetic", text: syntheticText, synthetic: true},
+		{id: "part_" + messageID + "_user", text: userText},
+	} {
+		data := fmt.Sprintf(`{"type":"text","text":%q,"synthetic":%t}`, part.text, part.synthetic)
+		if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+			part.id, messageID, sessionID, at.UnixMilli(), at.UnixMilli(), data); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

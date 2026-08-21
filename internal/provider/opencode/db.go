@@ -279,6 +279,7 @@ SELECT json_extract(data, '$.text')
 FROM part
 WHERE message_id = ? AND session_id = ?
   AND json_extract(data, '$.type') = 'text'
+  AND COALESCE(json_extract(data, '$.synthetic'), 0) = 0
 ORDER BY time_created ASC
 LIMIT 1
 `
