@@ -1,0 +1,4 @@
+interface:
+  display_name: "Merge PR"
+  short_description: "Review and safely land an asm pull request"
+  default_prompt: "Use $merge-pr to review and squash-merge this agent-session-manager pull request at its verified head."
