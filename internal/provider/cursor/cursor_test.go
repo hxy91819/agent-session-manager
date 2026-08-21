@@ -396,3 +396,29 @@ func writeCursorCacheFixture(t *testing.T, path, title string) {
 	t.Helper()
 	writeFile(t, path, `{"role":"user","message":{"content":[{"type":"text","text":"`+title+`"}]}}`+"\n")
 }
+
+func TestParseSessionCollectsSearchContent(t *testing.T) {
+	input := strings.NewReader(`{"role":"user","message":{"content":[{"type":"text","text":"first cursor ask quartz-cursor-a"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"quartz-cursor-noise is not user evidence"}]}}
+{"role":"user","message":{"content":[{"type":"input_text","text":"<timestamp>Wednesday, Jun 24, 2026, 2:27 AM (UTC)</timestamp>\n<user_query>\nwrapped ask quartz-cursor-b\n</user_query>"}]}}
+{"role":"user","content":"<system-reminder>quartz-cursor-injected</system-reminder>"}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"quartz-cursor-a", "wrapped ask quartz-cursor-b"} {
+		if !strings.Contains(got.SearchContent, want) {
+			t.Fatalf("SearchContent missing %q: %q", want, got.SearchContent)
+		}
+	}
+	for _, noisy := range []string{"quartz-cursor-noise", "quartz-cursor-injected"} {
+		if strings.Contains(got.SearchContent, noisy) {
+			t.Fatalf("SearchContent should not contain %q: %q", noisy, got.SearchContent)
+		}
+	}
+	if got.Title != "first cursor ask quartz-cursor-a" {
+		t.Fatalf("Title = %q, want first user message", got.Title)
+	}
+}

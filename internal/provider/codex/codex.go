@@ -652,8 +652,12 @@ func parseSessionIntoMode(r io.Reader, out session.Session, metadataOnly bool) (
 			var msg responseMessage
 			if json.Unmarshal(rec.Payload, &msg) == nil && msg.Type == "message" && msg.Role == "user" {
 				if title := titleFromMessageContent(msg.Content); title != "" {
+					// The title keeps only the last human message; search needs
+					// every denoised user message so mid-conversation asks stay
+					// findable after the topic has moved on.
 					out.Title = title
 					out.Metadata["title_source"] = "rollout"
+					out.SearchContent, _ = session.AppendSearchMessage(out.SearchContent, title)
 				}
 			}
 		}

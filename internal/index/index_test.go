@@ -55,16 +55,18 @@ func TestFilterMatchesRuntimeLocation(t *testing.T) {
 
 func TestFilterSearchesEveryPublicSessionField(t *testing.T) {
 	base := session.Session{
-		ID:       "id-needle",
-		Provider: "provider-needle",
-		CWD:      "/cwd-needle",
-		Title:    "title-needle",
-		Path:     "/path-needle",
-		Metadata: map[string]string{"metadata-key-needle": "metadata-value-needle"},
+		ID:            "id-needle",
+		Provider:      "provider-needle",
+		CWD:           "/cwd-needle",
+		Title:         "title-needle",
+		Path:          "/path-needle",
+		Metadata:      map[string]string{"metadata-key-needle": "metadata-value-needle"},
+		SearchContent: "content-needle",
 	}
 	for _, query := range []string{
 		"id-needle", "provider-needle", "cwd-needle", "title-needle",
 		"path-needle", "metadata-key-needle", "metadata-value-needle",
+		"content-needle",
 	} {
 		got := FilterAndSort([]session.Session{base}, Query{Search: query})
 		if len(got) != 1 {

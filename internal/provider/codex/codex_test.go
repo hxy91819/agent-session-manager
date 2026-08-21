@@ -1403,3 +1403,50 @@ func appendFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestParseSessionCollectsSearchContent(t *testing.T) {
+	input := strings.NewReader(`{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context><cwd>/repo</cwd></environment_context>"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first ask with quartz-token-a"}]}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"quartz-token-assistant is not user evidence"}]}}
+{"timestamp":"2026-06-13T01:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"follow-up correction quartz-token-b"}]}}
+`)
+
+	got, err := parseSession(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"quartz-token-a", "quartz-token-b"} {
+		if !strings.Contains(got.SearchContent, want) {
+			t.Fatalf("SearchContent missing %q: %q", want, got.SearchContent)
+		}
+	}
+	for _, noisy := range []string{"environment_context", "quartz-token-assistant"} {
+		if strings.Contains(got.SearchContent, noisy) {
+			t.Fatalf("SearchContent should not contain %q: %q", noisy, got.SearchContent)
+		}
+	}
+	// The title still keeps only the last human message.
+	if got.Title != "follow-up correction quartz-token-b" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+}
+
+func TestMetadataParseCollectsSameSearchContent(t *testing.T) {
+	body := `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"sid","timestamp":"2026-06-13T01:00:00Z","cwd":"/repo"}}
+{"timestamp":"2026-06-13T01:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"first prompt"}]}}
+{"timestamp":"2026-06-13T01:00:02Z","type":"response_item","payload":{"type":"function_call","name":"shell"}}
+{"timestamp":"2026-06-13T01:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"second prompt"}]}}
+`
+	full, _, err := parseSessionIntoMode(strings.NewReader(body), session.Session{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _, err := parseSessionIntoMode(strings.NewReader(body), session.Session{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.SearchContent != metadata.SearchContent || full.SearchContent != "first prompt\nsecond prompt" {
+		t.Fatalf("search content diverged: full=%q metadata=%q", full.SearchContent, metadata.SearchContent)
+	}
+}

@@ -1971,3 +1971,83 @@ func writeFile(t testing.TB, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestCLISearchMatchesSessionContent(t *testing.T) {
+	env := newASMTestEnv(t)
+	codexHome := env.ProviderHome["codex"]
+	cursorHome := env.ProviderHome["cursor"]
+	claudeHome := env.ProviderHome["claude"]
+
+	repo := t.TempDir()
+	// The query token appears only in a mid-conversation user message. Later
+	// messages overwrite the rollout title, so base asm cannot match it.
+	codexRollout := filepath.Join(codexHome, "sessions", "2026", "06", "13", "rollout-content.jsonl")
+	writeFile(t, codexRollout, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"codex-content","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"codex content experiment start"}]}}
+{"timestamp":"2026-06-13T01:02:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ack"}]}}
+{"timestamp":"2026-06-13T01:03:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"mid conversation requirement quartz-budget-42"}]}}
+{"timestamp":"2026-06-13T01:04:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"最后确认一下就行"}]}}
+{"timestamp":"2026-06-13T01:05:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>secrettoken-env9</environment_context>"}]}}
+`)
+	writeCursorSessionRich(t, cursorHome, repo)
+
+	// Claude stays out of content-search scope for this experiment: an
+	// assistant message carrying the token must never make it searchable.
+	writeFile(t, filepath.Join(claudeHome, "projects", "proj", "claude-scope.jsonl"),
+		`{"type":"user","sessionId":"claude-scope","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"claude scope guard"}}
+{"type":"assistant","sessionId":"claude-scope","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:01:00Z","message":{"role":"assistant","content":[{"type":"text","text":"done quartz-budget-42 confirmed"}]}}
+`)
+
+	query := func(token string) map[string]string {
+		t.Helper()
+		out, err := env.Run(t, "--codex-home", codexHome, "--cursor-home", cursorHome, "--claude-home", claudeHome,
+			"--since-days", "0", "--json", "--query", token)
+		if err != nil {
+			t.Fatalf("query %q failed: %v\n%s", token, err, out)
+		}
+		if strings.Contains(out, `"search_content"`) {
+			t.Fatalf("JSON output leaks search_content: %s", out)
+		}
+		var payload struct {
+			Sessions []struct {
+				ID       string `json:"id"`
+				Provider string `json:"provider"`
+			} `json:"sessions"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("invalid JSON for query %q: %v\n%s", token, err, out)
+		}
+		got := make(map[string]string, len(payload.Sessions))
+		for _, s := range payload.Sessions {
+			got[s.ID] = s.Provider
+		}
+		return got
+	}
+
+	got := query("quartz-budget-42")
+	if got["codex-content"] != "codex" || len(got) != 1 {
+		t.Fatalf("codex content-only query matched %#v", got)
+	}
+	got = query("quartz-cursor-87")
+	if got["cursor-content"] != "cursor" || len(got) != 1 {
+		t.Fatalf("cursor content-only query matched %#v", got)
+	}
+	// Injected contexts are transcript noise, not user evidence: trap tokens
+	// inside them must never hit.
+	if got := query("secrettoken"); len(got) != 0 {
+		t.Fatalf("injected context must stay unsearchable, matched %#v", got)
+	}
+}
+
+func writeCursorSessionRich(t testing.TB, home, repo string) {
+	t.Helper()
+	projectKey := "project-cursor-content"
+	writeFile(t, filepath.Join(home, "projects", projectKey, "worker.log"), `[info] Getting tree structure for workspacePath=`+repo+`
+`)
+	writeFile(t, filepath.Join(home, "projects", projectKey, "agent-transcripts", "cursor-content", "cursor-content.jsonl"),
+		`{"role":"user","message":{"content":[{"type":"text","text":"cursor content experiment start"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"mid conversation requirement quartz-cursor-87"}]}}
+{"role":"user","message":{"content":"trailing confirmation"}}
+{"role":"user","message":{"content":"<system-reminder>secrettoken-cursor9</system-reminder>"}}
+`)
+}

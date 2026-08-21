@@ -393,6 +393,9 @@ func parseSession(r io.Reader) (session.Session, error) {
 		if title == "" {
 			return true
 		}
+		// The title keeps the first human message; search needs every denoised
+		// user message so mid-conversation asks stay findable.
+		out.SearchContent, _ = session.AppendSearchMessage(out.SearchContent, title)
 		if firstUserTitle == "" {
 			firstUserTitle = title
 		}

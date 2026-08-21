@@ -80,7 +80,7 @@ func GroupProjects(sessions []session.Session) []session.Project {
 }
 
 func matches(s session.Session, needle string) bool {
-	values := []string{s.ID, s.Provider, s.CWD, s.Title, s.Path}
+	values := []string{s.ID, s.Provider, s.CWD, s.Title, s.Path, s.SearchContent}
 	for _, v := range values {
 		if strings.Contains(strings.ToLower(v), needle) {
 			return true

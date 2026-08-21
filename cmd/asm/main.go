@@ -184,6 +184,7 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	if cfg.json {
+		sessions = session.StripSearchContent(sessions)
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(output{
@@ -336,7 +337,7 @@ func runReport(args []string) error {
 			Before:              window.End,
 		},
 	})
-	sessions := withResumeCommands(filterReportSessions(discovery.Sessions, cfg))
+	sessions := session.StripSearchContent(withResumeCommands(filterReportSessions(discovery.Sessions, cfg)))
 	payload := reportpkg.BuildPayloadWithLimit(window, sessions, cfg.limit)
 	payload.ProviderErrors = discovery.ProviderErrors
 	enc := json.NewEncoder(os.Stdout)

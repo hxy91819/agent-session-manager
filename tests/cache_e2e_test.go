@@ -640,8 +640,18 @@ func TestCLITitleNormalizationAcrossProviders(t *testing.T) {
 	}
 
 	truncatedSuffix := runJSONWithEnv(t, env, "--since-days", "0", "--json", "--query", suffix)
-	if len(truncatedSuffix.Sessions) != 0 {
-		t.Fatalf("truncated suffix remains searchable: %#v", truncatedSuffix.Sessions)
+	got := make(map[string]bool, len(truncatedSuffix.Sessions))
+	for _, s := range truncatedSuffix.Sessions {
+		got[s.ID] = true
+	}
+	// cursor-long is the intentional exception: its title is the first user
+	// message itself, and content search indexes the complete denoised user
+	// message, so the truncated tail stays findable as real user evidence.
+	// Every other provider keeps the suffix only in title metadata, which has
+	// never been part of the searchable user-content corpus.
+	delete(got, "cursor-long")
+	if len(got) != 0 {
+		t.Fatalf("truncated suffix searchable outside user content: %#v", truncatedSuffix.Sessions)
 	}
 }
 
