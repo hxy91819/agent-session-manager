@@ -418,12 +418,22 @@ func TestCLIIndexesPiAndPrintsResumeCommand(t *testing.T) {
 	repo := t.TempDir()
 	writePiSession(t, env.ProviderHome["pi"], "pi-session", repo, "fix openclaw with pi")
 	out, err := env.Run(t, "--since-days", "0", "--json", "--query", "pi")
-	if err != nil { t.Fatalf("json command: %v\n%s", err, out) }
-	var payload struct { Sessions []struct { ID, Provider, CWD, Title string } `json:"sessions"` }
-	if err := json.Unmarshal([]byte(out), &payload); err != nil { t.Fatalf("invalid JSON: %v\n%s", err, out) }
-	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "pi-session" || payload.Sessions[0].Provider != "pi" || payload.Sessions[0].CWD != repo || payload.Sessions[0].Title != "fix openclaw with pi" { t.Fatalf("unexpected Pi sessions: %#v", payload.Sessions) }
+	if err != nil {
+		t.Fatalf("json command: %v\n%s", err, out)
+	}
+	var payload struct {
+		Sessions []struct{ ID, Provider, CWD, Title string } `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "pi-session" || payload.Sessions[0].Provider != "pi" || payload.Sessions[0].CWD != repo || payload.Sessions[0].Title != "fix openclaw with pi" {
+		t.Fatalf("unexpected Pi sessions: %#v", payload.Sessions)
+	}
 	cmd, err := env.Run(t, "--since-days", "0", "--resume", "pi-session", "--print-exec")
-	if err != nil || !strings.Contains(cmd, `cd '`+repo+`' && 'pi' '--session' 'pi-session'`) { t.Fatalf("unexpected Pi resume: %v\n%s", err, cmd) }
+	if err != nil || !strings.Contains(cmd, `cd '`+repo+`' && 'pi' '--session' 'pi-session'`) {
+		t.Fatalf("unexpected Pi resume: %v\n%s", err, cmd)
+	}
 }
 
 func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
@@ -2169,6 +2179,20 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			t.Fatal(err)
 		}
 	}
+}
+
+func writePiNamedSession(t testing.TB, home, id, cwd, title string) {
+	t.Helper()
+	writePiSession(t, home, id, cwd, title)
+}
+
+func writePiSession(t testing.TB, home, id, cwd, title string) {
+	t.Helper()
+	dir := filepath.Join(home, "sessions", "--"+strings.ReplaceAll(id, "_", "-")+"--")
+	path := filepath.Join(dir, "2026-06-13T01-00-00-000Z_"+id+".jsonl")
+	header := `{"type":"session","version":3,"id":` + jsonString(id) + `,"timestamp":"2026-06-13T01:00:00.000Z","cwd":` + jsonString(cwd) + `}`
+	message := `{"type":"message","id":"msg-` + id + `","timestamp":"2026-06-13T01:01:00.000Z","message":{"role":"user","content":[{"type":"text","text":` + jsonString(title) + `}]}}`
+	writeFile(t, path, header+"\n"+message+"\n")
 }
 
 func writeFile(t testing.TB, path, content string) {

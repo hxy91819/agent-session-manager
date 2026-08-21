@@ -70,7 +70,6 @@ func (e asmTestEnv) commandEnv(t testing.TB) []string {
 		"KIMI_CODE_HOME": {}, "KIMI_HOME": {}, "KIRO_HOME": {},
 		"OPENCODE_HOME": {}, "OPENCODE_DATA_HOME": {}, "OPENCODE_DATA_DIR": {},
 		"CODEBUDDY_HOME": {}, "CURSOR_HOME": {}, "OPENCLAW_STATE_DIR": {},
-<<<<<<< HEAD
 		"OPENCLAW_HOME": {}, "ZCODE_HOME": {}, "PI_CODING_AGENT_DIR": {}, "DSH_HOME": {}, "ASM_CODEX_EXTRA_HOMES": {},
 		"ASM_CLAUDE_EXTRA_HOMES": {}, "ASM_STARTUP_DIAG_FILE": {},
 	}
