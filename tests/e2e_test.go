@@ -413,6 +413,19 @@ func TestCLIIndexesDshAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesPiAndPrintsResumeCommand(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	writePiSession(t, env.ProviderHome["pi"], "pi-session", repo, "fix openclaw with pi")
+	out, err := env.Run(t, "--since-days", "0", "--json", "--query", "pi")
+	if err != nil { t.Fatalf("json command: %v\n%s", err, out) }
+	var payload struct { Sessions []struct { ID, Provider, CWD, Title string } `json:"sessions"` }
+	if err := json.Unmarshal([]byte(out), &payload); err != nil { t.Fatalf("invalid JSON: %v\n%s", err, out) }
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "pi-session" || payload.Sessions[0].Provider != "pi" || payload.Sessions[0].CWD != repo || payload.Sessions[0].Title != "fix openclaw with pi" { t.Fatalf("unexpected Pi sessions: %#v", payload.Sessions) }
+	cmd, err := env.Run(t, "--since-days", "0", "--resume", "pi-session", "--print-exec")
+	if err != nil || !strings.Contains(cmd, `cd '`+repo+`' && 'pi' '--session' 'pi-session'`) { t.Fatalf("unexpected Pi resume: %v\n%s", err, cmd) }
+}
+
 func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
