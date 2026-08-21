@@ -147,6 +147,19 @@ merged into `master`. The generator reads first-parent history, resolves each
 merged PR's original GitHub author, and writes explicit `Thanks @author`
 credit. The tag workflow verifies that committed section before publishing.
 
+Release smoke verification:
+
+```sh
+tar -xzf asm_v0.9.0_linux_amd64.tar.gz
+scripts/verify-release-smoke.sh ./asm_v0.9.0_linux_amd64/asm
+```
+
+The script uses isolated temporary stores and exercises the installed binary
+through its public CLI for dsh, Pi, and opencode SQLite discovery, title
+fallbacks, report evidence, provider-scoped resume commands, and missing-cwd
+safety. It requires `jq` and `python3`; it never reads or modifies real agent
+stores.
+
 Performance controls:
 
 ```sh
