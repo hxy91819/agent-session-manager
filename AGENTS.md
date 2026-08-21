@@ -42,6 +42,14 @@ Current providers:
   message (via the `message` and `part` tables) for titles. ZCode has no CLI or
   documented resume path, so resume is a future-compatible placeholder
   (`zcode --resume <session-id>`) and the provider is effectively discover-only.
+- dsh (DeepSeek Harness) scans `$DSH_HOME/sessions` or `~/.dsh/sessions`. Each
+  session is an append-only `session.jsonl.zstd` (Zstandard, or plaintext
+  `session.jsonl` when a deployment disables compression) under
+  `<project-dir>/<session-id>/`. The first record is the session header (id,
+  cwd, `createdAt` in epoch milliseconds, `origin`, `agentPreset`); titles come
+  from the latest `session/title` event, falling back to the first human
+  `user/message`, and resume uses the documented
+  `dsh --profile tui --resume <session-id>` form.
 
 ## Development Commands
 
@@ -269,6 +277,32 @@ consume normalized sessions.
 - ZCode has no CLI or documented deep-link resume path. Keep
   `ResumeCommand` as the future-compatible `zcode --resume <session-id>` from
   the original cwd, and document that resume is effectively unsupported today.
+
+## dsh Provider Notes
+
+- Treat `$DSH_HOME/sessions` or `~/.dsh/sessions` as the supported store. Logs
+  group under human-readable `<project-dir>` directories, then per-session
+  `<session-id>` directories holding `session.jsonl.zstd` (default) or
+  `session.jsonl` (compression `none`); prefer the zstd artifact when both
+  exist.
+- The first record is the session header: `id`, `createdAt` (millisecond Unix
+  epoch), `cwd`, optional `parentSession`, `origin` (`subagent`),
+  `delegationDepth`, and `agentPreset`. Reject any `version` other than `0`
+  quietly; dsh itself refuses foreign format versions on load.
+- Decode Zstandard logs frame-by-frame tolerantly: a crash-torn final frame
+  drops only its tail, so keep the complete prefix and never reject the whole
+  session. Timestamps come from event `time` (epoch milliseconds), with the
+  file mtime as the UpdatedAt fallback.
+- Titles come from the latest `session/title` event (user renames append
+  later events, so the last valid one wins). Without a title event, use the
+  first `user/message` whose `source.kind` is `user`; dsh tags injected
+  context with a non-`user` source kind, so no text-shape heuristics are
+  needed.
+- Cache the primary log parse with `internal/sessioncache`; re-read report
+  previews and reapply cwd status on every discovery pass.
+- Keep dsh resume as the documented `dsh --profile tui --resume <session-id>`
+  from the original cwd. asm cannot verify the deployment's tui profile is
+  installed, so dsh is effectively discover-only when it is not.
 
 ## Testing Guidance
 

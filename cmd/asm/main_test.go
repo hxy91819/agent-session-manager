@@ -183,7 +183,7 @@ func TestDispatchSelectionPrintsNewCommand(t *testing.T) {
 }
 
 func TestNewSessionProviderNamesIncludesOnlyLaunchableProviders(t *testing.T) {
-	got := newSessionProviderNames(newProviders("", "", "", "", "", "", "", "", "", ""))
+	got := newSessionProviderNames(newProviders("", "", "", "", "", "", "", "", "", "", ""))
 	want := []string{"codex", "claude", "kimi", "kiro", "opencode", "codebuddy", "cursor"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("new-session providers = %#v, want %#v", got, want)
