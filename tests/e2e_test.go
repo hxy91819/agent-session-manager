@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	_ "modernc.org/sqlite"
 )
 
@@ -327,6 +329,87 @@ func TestCLIIndexesKiroAndPrintsResumeCommand(t *testing.T) {
 	}
 	if len(report.Sessions[0].Evidence) != 1 || report.Sessions[0].Evidence[0].Text != "fix openclaw with kiro" {
 		t.Fatalf("unexpected Kiro evidence: %#v", report.Sessions[0].Evidence)
+	}
+}
+
+func TestCLIIndexesDshAndPrintsResumeCommand(t *testing.T) {
+	providerArgs := []string{
+		"--codex-home", t.TempDir(),
+		"--claude-home", t.TempDir(),
+		"--kimi-home", t.TempDir(),
+		"--opencode-home", t.TempDir(),
+		"--codebuddy-home", t.TempDir(),
+		"--cursor-home", t.TempDir(),
+		"--openclaw-home", t.TempDir(),
+		"--zcode-home", t.TempDir(),
+	}
+	dshHome := t.TempDir()
+	repo := t.TempDir()
+	writeDshSession(t, dshHome, "ses_dsh", repo)
+	runDshCommand := func(extra ...string) string {
+		args := append(append([]string{}, providerArgs...), "--dsh-home", dshHome)
+		return runCommand(t, append(args, extra...)...)
+	}
+
+	out := runDshCommand("--since-days", "0", "--json", "--query", "dsh")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string            `json:"id"`
+			Provider string            `json:"provider"`
+			CWD      string            `json:"cwd"`
+			Title    string            `json:"title"`
+			Metadata map[string]string `json:"metadata"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_dsh" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	item := payload.Sessions[0]
+	if item.Provider != "dsh" || item.CWD != repo || item.Title != "investigate dsh discovery" {
+		t.Fatalf("unexpected dsh session: %#v", item)
+	}
+	if item.Metadata["title_source"] != "session_title" || item.Metadata["agent_preset"] != "standard" {
+		t.Fatalf("metadata = %#v", item.Metadata)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].CWD != repo || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runDshCommand("--since-days", "0", "--resume", "ses_dsh", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'dsh' '--profile' 'tui' '--resume' 'ses_dsh'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+
+	reportArgs := append([]string{"report"}, providerArgs...)
+	reportArgs = append(reportArgs, "--dsh-home", dshHome, "--start", "2026-06-13", "--end", "2026-06-14")
+	out = runCommand(t, reportArgs...)
+	var report struct {
+		Totals struct {
+			Sessions int `json:"sessions"`
+		} `json:"totals"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid report JSON: %v\n%s", err, out)
+	}
+	if report.Totals.Sessions != 1 || len(report.Sessions) != 1 || report.Sessions[0].ID != "ses_dsh" || report.Sessions[0].Provider != "dsh" {
+		t.Fatalf("unexpected dsh report: %#v", report)
+	}
+	if len(report.Sessions[0].Evidence) != 1 || report.Sessions[0].Evidence[0].Text != "fix openclaw with dsh" {
+		t.Fatalf("unexpected dsh evidence: %#v", report.Sessions[0].Evidence)
 	}
 }
 
@@ -1788,6 +1871,38 @@ func writeKiroSession(t testing.TB, home, id, cwd, title string) {
 `)
 	writeFile(t, filepath.Join(sessionsDir, id+".jsonl"), `{"kind":"Prompt","version":"v1","data":{"message_id":"msg-kiro","content":[{"kind":"text","data":`+jsonString(title)+`}],"meta":{"timestamp":1781312400}}}
 `)
+}
+
+// writeDshSession builds a minimal dsh session log fixture: the compressed
+// header frame plus one user prompt and one title event, under the producer's
+// <home>/sessions/<project>/<session-id>/session.jsonl.zstd layout.
+func writeDshSession(t testing.TB, home, id, cwd string) {
+	t.Helper()
+	lines := []string{
+		`{"type":"session","version":0,"id":` + jsonString(id) + `,"createdAt":1781312400000,"cwd":` + jsonString(cwd) + `,"delegationDepth":0,"agentPreset":"standard"}`,
+		`{"type":"user/message","seq":0,"time":1781312401000,"data":{"id":"m1","role":"user","content":[{"type":"text","text":"fix openclaw with dsh"}],"source":{"kind":"user"}}}`,
+		`{"type":"session/title","seq":1,"time":1781312402000,"data":{"title":"investigate dsh discovery","messageSeqs":[0],"source":{"kind":"provider"}}}`,
+	}
+	var out bytes.Buffer
+	for _, line := range lines {
+		writer, err := zstd.NewWriter(&out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(line + "\n")); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Join(home, "sessions", "--data-code-asm--", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "session.jsonl.zstd"), out.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeOpencodeSession(t testing.TB, home, projectID, id, cwd, title string) {

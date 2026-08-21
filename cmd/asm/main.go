@@ -20,6 +20,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/provider/codebuddy"
 	"github.com/hxy91819/agent-session-manager/internal/provider/codex"
 	"github.com/hxy91819/agent-session-manager/internal/provider/cursor"
+	"github.com/hxy91819/agent-session-manager/internal/provider/dsh"
 	"github.com/hxy91819/agent-session-manager/internal/provider/kimi"
 	"github.com/hxy91819/agent-session-manager/internal/provider/kiro"
 	"github.com/hxy91819/agent-session-manager/internal/provider/openclaw"
@@ -43,6 +44,7 @@ type config struct {
 	cursorHome            string
 	openclawHome          string
 	zcodeHome             string
+	dshHome               string
 	query                 string
 	sortMode              index.SortMode
 	resumeID              string
@@ -63,6 +65,7 @@ type reportConfig struct {
 	cursorHome            string
 	openclawHome          string
 	zcodeHome             string
+	dshHome               string
 	query                 string
 	sortMode              index.SortMode
 	period                string
@@ -86,6 +89,7 @@ type resumeConfig struct {
 	cursorHome    string
 	openclawHome  string
 	zcodeHome     string
+	dshHome       string
 	provider      string
 	sessionID     string
 	printExec     bool
@@ -140,7 +144,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome, cfg.dshHome)
 	loadSessions := func(days int) (session.DiscoveryResult, error) {
 		result := discoverAll(providers, cfg.limit, days)
 		result.Sessions = filterSessions(
@@ -210,7 +214,7 @@ func runResume(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome, cfg.dshHome)
 	discoveryProviders := providers
 	if cfg.provider != "" {
 		provider := providerByName(providers, cfg.provider)
@@ -310,7 +314,7 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome)
+	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome, cfg.dshHome)
 	discovery := discoverAllWithOptions(providers, session.DiscoverOptions{
 		// A report cannot safely apply its limit while collecting candidate
 		// files: sessions updated after the report window may otherwise consume
@@ -359,6 +363,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
 	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
+	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
 	fs.BoolVar(&cfg.json, "json", false, "print indexed sessions as JSON")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
@@ -400,6 +405,7 @@ func parseResumeFlags(args []string) (resumeConfig, error) {
 	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
 	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
+	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
 	fs.StringVar(&cfg.provider, "provider", "", "provider name for disambiguating session ids")
 	fs.BoolVar(&cfg.printExec, "print-exec", false, "print resume command instead of executing it")
 	fs.IntVar(&cfg.limit, "limit", 2000, "maximum session files to scan per provider")
@@ -544,6 +550,7 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
 	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
+	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
 	fs.StringVar(&sortMode, "sort", string(index.SortActive), "sort mode: active, created, project")
 	fs.IntVar(&cfg.limit, "limit", 2000, "maximum matching report sessions per provider after evidence selection; 0 includes all")
@@ -593,7 +600,7 @@ func filterVisibleSessions(items []session.Session, includeNonInteractive bool) 
 	return filtered
 }
 
-func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, zcodeHome string) []session.Provider {
+func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, zcodeHome, dshHome string) []session.Provider {
 	return []session.Provider{
 		codex.NewWithProfile(codexHome, codexProfile),
 		claude.New(claudeHome),
@@ -604,6 +611,7 @@ func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, openc
 		cursor.New(cursorHome),
 		openclaw.New(openclawHome),
 		zcode.New(zcodeHome),
+		dsh.New(dshHome),
 	}
 }
 
