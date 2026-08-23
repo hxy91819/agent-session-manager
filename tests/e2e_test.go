@@ -2340,19 +2340,106 @@ func TestCLIShowsZCodeTranscriptFromSQLite(t *testing.T) {
 	}
 }
 
-func TestCLIShowNotFoundListsUnsupportedProviders(t *testing.T) {
+func TestCLIShowNotFoundUsesMachineReadableError(t *testing.T) {
 	env := newASMTestEnv(t)
 	out, err := env.Run(t, "show", "missing_session")
 	if err == nil {
 		t.Fatalf("expected failure, got: %s", out)
 	}
-	if !strings.Contains(out, "session not found: missing_session") {
-		t.Fatalf("output = %s", out)
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	for _, name := range []string{"codex", "kimi", "kiro", "opencode"} {
-		if !strings.Contains(out, name) {
-			t.Fatalf("output should mention unsupported provider %q: %s", name, out)
+	errorJSON := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
+	if json.Unmarshal([]byte(errorJSON), &payload) != nil {
+		t.Fatalf("error output is not JSON: %s", out)
+	}
+	if payload.Error.Code != "session_not_found" || payload.Error.Message != "session not found: missing_session" {
+		t.Fatalf("unexpected show error: %#v", payload)
+	}
+}
+
+func TestCLIShowSupportsEveryRegisteredProvider(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	codexPath := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "06", "13", "show-codex.jsonl")
+	writeFile(t, codexPath, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"show-codex","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"codex prompt"}]}}
+{"timestamp":"2026-06-13T01:02:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"codex answer"}]}}
+`)
+	writeClaudeSession(t, filepath.Join(env.ProviderHome["claude"], "projects", "-repo", "show-claude.jsonl"), "show-claude", repo, "claude prompt")
+	kimiDir := filepath.Join(env.ProviderHome["kimi"], "sessions", "repo", "show-kimi")
+	writeKimiSession(t, env.ProviderHome["kimi"], kimiDir, "show-kimi", repo, "kimi title")
+	writeFile(t, filepath.Join(kimiDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","lastPrompt":"kimi prompt"}`)
+	writeKiroSession(t, env.ProviderHome["kiro"], "show-kiro", repo, "kiro prompt")
+	writeDshSession(t, env.ProviderHome["dsh"], "show-dsh", repo)
+	writePiSession(t, env.ProviderHome["pi"], "show-pi", repo, "pi prompt")
+	writeOpencodeSession(t, env.ProviderHome["opencode"], "project", "show-opencode", repo, "opencode title")
+	writeFile(t, filepath.Join(env.ProviderHome["opencode"], "storage", "message", "show-opencode", "msg.json"), `{"id":"msg","sessionID":"show-opencode","role":"user","time":{"created":1781322000000}}`)
+	writeFile(t, filepath.Join(env.ProviderHome["opencode"], "storage", "part", "msg", "part.json"), `{"type":"text","text":"opencode prompt"}`)
+	writeCodeBuddySession(t, env.ProviderHome["codebuddy"], "show-codebuddy", repo, "codebuddy title")
+	writeCursorSession(t, env.ProviderHome["cursor"], "show-cursor", repo, "cursor prompt")
+	writeOpenClawSession(t, env.ProviderHome["openclaw"], "show-openclaw", "native", "openclaw title")
+	writeZCodeSession(t, env.ProviderHome["zcode"], "show-zcode", repo, "zcode prompt")
+
+	cases := []struct{ provider, id string }{
+		{"codex", "show-codex"}, {"claude", "show-claude"}, {"kimi", "show-kimi"}, {"kiro", "show-kiro"},
+		{"opencode", "show-opencode"}, {"codebuddy", "show-codebuddy"}, {"cursor", "show-cursor"},
+		{"openclaw", "show-openclaw"}, {"zcode", "show-zcode"}, {"pi", "show-pi"}, {"dsh", "show-dsh"},
+	}
+	for _, tc := range cases {
+		out, err := env.Run(t, "show", tc.id, "--provider", tc.provider, "--full", "--format", "compact")
+		if err != nil {
+			t.Fatalf("%s show failed: %v\n%s", tc.provider, err, out)
 		}
+		var payload struct {
+			Provider string `json:"provider"`
+			ID       string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("%s output is not JSON: %v\n%s", tc.provider, err, out)
+		}
+		if payload.Provider != tc.provider || payload.ID != tc.id {
+			t.Fatalf("%s payload = %#v", tc.provider, payload)
+		}
+	}
+}
+
+func TestCLIShowSearchFormatsAndCursorArePublicContracts(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	path := filepath.Join(env.ProviderHome["claude"], "projects", "-repo", "show-options.jsonl")
+	writeFile(t, path,
+		`{"type":"user","sessionId":"show-options","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"before"}}`+"\n"+
+			`{"type":"assistant","sessionId":"show-options","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:01:00Z","message":{"role":"assistant","content":"Needle answer"}}`+"\n"+
+			`{"type":"user","sessionId":"show-options","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:02:00Z","message":{"role":"user","content":"after"}}`+"\n")
+	out := env.Run2(t, "show", "show-options", "--provider", "claude", "--grep", "needle", "--before", "1", "--after", "1", "--format", "compact")
+	var payload struct {
+		Matched  int `json:"matched_messages"`
+		Messages []struct {
+			Index        int `json:"index"`
+			MatchOffsets []struct {
+				Start int `json:"start"`
+				End   int `json:"end"`
+			} `json:"match_offsets"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid compact output: %v\n%s", err, out)
+	}
+	if payload.Matched != 1 || len(payload.Messages) != 3 || payload.Messages[1].Index != 1 || len(payload.Messages[1].MatchOffsets) != 1 {
+		t.Fatalf("search contract = %#v", payload)
+	}
+
+	out = env.Run2(t, "show", "show-options", "--provider", "claude", "--full", "--from-index", "1", "--summary", "--summary-chars", "4", "--format", "jsonl", "--fields", "id,provider,messages")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("jsonl lines = %d, want metadata plus two messages: %s", len(lines), out)
+	}
+	if !strings.Contains(lines[0], `"type":"meta"`) || !strings.Contains(lines[1], `"type":"message"`) {
+		t.Fatalf("jsonl shape = %s", out)
 	}
 }
 
