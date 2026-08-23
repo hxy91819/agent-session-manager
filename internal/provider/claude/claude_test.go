@@ -806,3 +806,23 @@ func TestReadTranscriptRejectsPathTraversalID(t *testing.T) {
 		t.Fatalf("err = %v, want ErrSessionNotFound", err)
 	}
 }
+
+func TestReadTranscriptFallsBackToUserMessageTitle(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_title.jsonl"), `{"type":"user","sessionId":"sess_title","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"fix the login bug"}}
+{"type":"assistant","sessionId":"sess_title","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"assistant","content":"on it"}}
+`)
+
+	got, err := New(home).ReadTranscript("sess_title")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Session.Title != "fix the login bug" {
+		t.Fatalf("title = %q, want user message fallback", got.Session.Title)
+	}
+}

@@ -1035,6 +1035,7 @@ func readTranscriptFile(path string, modTime time.Time, id string) (session.Tran
 		Path:     path,
 		Metadata: make(map[string]string),
 	}}
+	var lastUserTitle string
 
 	_, err = readClaudeRecords(f, func(line []byte) bool {
 		var rec rawRecord
@@ -1051,6 +1052,13 @@ func readTranscriptFile(path string, modTime time.Time, id string) (session.Tran
 		if title := cleanTitle(firstNonEmpty(rec.Summary, rec.Title)); title != "" {
 			out.Session.Title = title
 			out.Session.Metadata["title_source"] = rec.Type
+		}
+		// Keep the same title fallback as discovery: without a summary or
+		// native title, the last real user message names the session.
+		if rec.Type == "user" && !rec.IsMeta && msg.Role == "user" {
+			if title := cleanTitle(messageText(msg.Content)); title != "" {
+				lastUserTitle = title
+			}
 		}
 		if t := parseTime(rec.Timestamp); !t.IsZero() {
 			if out.Session.CreatedAt.IsZero() || t.Before(out.Session.CreatedAt) {
@@ -1085,6 +1093,10 @@ func readTranscriptFile(path string, modTime time.Time, id string) (session.Tran
 	}
 	if out.Session.ID == "" {
 		out.Session.ID = id
+	}
+	if out.Session.Title == "" && lastUserTitle != "" {
+		out.Session.Title = lastUserTitle
+		out.Session.Metadata["title_source"] = "user"
 	}
 	if out.Session.CreatedAt.IsZero() {
 		out.Session.CreatedAt = modTime
