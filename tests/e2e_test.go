@@ -1902,6 +1902,15 @@ func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
 	}
 }
 
+func (e asmTestEnv) Run2(t testing.TB, args ...string) string {
+	t.Helper()
+	out, err := e.Run(t, args...)
+	if err != nil {
+		t.Fatalf("command failed: %v\n%s", err, out)
+	}
+	return out
+}
+
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
 	out, err := runCommandAllowError(t, args...)
@@ -2202,5 +2211,201 @@ func writeFile(t testing.TB, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCLIShowsClaudeTranscript(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := filepath.Join(env.ProviderHome["claude"])
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_show.jsonl"), `{"type":"user","sessionId":"sess_show","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"<system-reminder>injected</system-reminder>"}}
+{"type":"user","sessionId":"sess_show","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"user","content":"what broke"}}
+{"type":"assistant","sessionId":"sess_show","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"the build failed"}]}}
+{"type":"summary","summary":"fixed build"}
+`)
+
+	out := env.Run2(t, "show", "sess_show")
+	var payload struct {
+		ID               string `json:"id"`
+		Provider         string `json:"provider"`
+		CWD              string `json:"cwd"`
+		Title            string `json:"title"`
+		TotalMessages    int    `json:"total_messages"`
+		MatchedMessages  int    `json:"matched_messages"`
+		ReturnedMessages int    `json:"returned_messages"`
+		Truncated        bool   `json:"truncated"`
+		Messages         []struct {
+			Role  string `json:"role"`
+			Text  string `json:"text"`
+			Index int    `json:"index"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.ID != "sess_show" || payload.Provider != "claude" || payload.CWD != repo || payload.Title != "fixed build" {
+		t.Fatalf("header = %#v", payload)
+	}
+	if payload.TotalMessages != 2 || payload.MatchedMessages != 2 || payload.ReturnedMessages != 2 || payload.Truncated {
+		t.Fatalf("counts = %#v", payload)
+	}
+	if len(payload.Messages) != 2 ||
+		payload.Messages[0].Role != "user" || payload.Messages[0].Text != "what broke" || payload.Messages[0].Index != 0 ||
+		payload.Messages[1].Role != "assistant" || payload.Messages[1].Text != "the build failed" || payload.Messages[1].Index != 1 {
+		t.Fatalf("messages = %#v", payload.Messages)
+	}
+}
+
+func TestCLIShowFilterContractIsSelfDescribing(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_filter.jsonl"), `{"type":"user","sessionId":"sess_filter","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"question one"}}
+{"type":"assistant","sessionId":"sess_filter","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"assistant","content":"answer one"}}
+{"type":"user","sessionId":"sess_filter","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"question two"}}
+`)
+
+	var payload struct {
+		TotalMessages    int  `json:"total_messages"`
+		MatchedMessages  int  `json:"matched_messages"`
+		ReturnedMessages int  `json:"returned_messages"`
+		Truncated        bool `json:"truncated"`
+		Filters          struct {
+			Grep string `json:"grep"`
+			Tail int    `json:"tail,omitempty"`
+		} `json:"filters"`
+		Messages []struct {
+			Text string `json:"text"`
+		} `json:"messages"`
+	}
+
+	// Grep narrows the conversation and echoes the filter back.
+	out := env.Run2(t, "show", "sess_filter", "--claude-home", claudeHome, "--grep", "two")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.MatchedMessages != 1 || payload.ReturnedMessages != 1 {
+		t.Fatalf("grep counts = %#v", payload)
+	}
+	if payload.Filters.Grep != "two" {
+		t.Fatalf("filters = %#v", payload.Filters)
+	}
+
+	// A window smaller than the match set reports truncation explicitly.
+	out = env.Run2(t, "show", "sess_filter", "--claude-home", claudeHome, "--last", "1")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.ReturnedMessages != 1 || !payload.Truncated {
+		t.Fatalf("window counts = %#v", payload)
+	}
+	if payload.Messages[0].Text != "question two" {
+		t.Fatalf("tail message = %#v", payload.Messages[0])
+	}
+}
+
+func TestCLIShowsZCodeTranscriptFromSQLite(t *testing.T) {
+	env := newASMTestEnv(t)
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	writeZCodeSession(t, zcodeHome, "ses_zshow", repo, "zcode transcript session")
+
+	out := env.Run2(t, "show", "ses_zshow", "--zcode-home", zcodeHome)
+	var payload struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+		CWD      string `json:"cwd"`
+		Title    string `json:"title"`
+		Messages []struct {
+			Role string `json:"role"`
+			Text string `json:"text"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.ID != "ses_zshow" || payload.Provider != "zcode" || payload.CWD != repo || payload.Title != "zcode transcript session" {
+		t.Fatalf("header = %#v", payload)
+	}
+	if len(payload.Messages) != 1 || payload.Messages[0].Role != "user" || payload.Messages[0].Text != "zcode transcript session" {
+		t.Fatalf("messages = %#v", payload.Messages)
+	}
+}
+
+func TestCLIShowNotFoundListsUnsupportedProviders(t *testing.T) {
+	env := newASMTestEnv(t)
+	out, err := env.Run(t, "show", "missing_session")
+	if err == nil {
+		t.Fatalf("expected failure, got: %s", out)
+	}
+	if !strings.Contains(out, "session not found: missing_session") {
+		t.Fatalf("output = %s", out)
+	}
+	for _, name := range []string{"codex", "kimi", "kiro", "opencode"} {
+		if !strings.Contains(out, name) {
+			t.Fatalf("output should mention unsupported provider %q: %s", name, out)
+		}
+	}
+}
+
+func TestCLIShowAmbiguousIDRequiresProvider(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_dup.jsonl"), `{"type":"user","sessionId":"sess_dup","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"from claude"}}
+`)
+	writeZCodeSession(t, env.ProviderHome["zcode"], "sess_dup", repo, "from zcode")
+
+	out, err := env.Run(t, "show", "sess_dup")
+	if err == nil {
+		t.Fatalf("expected ambiguity failure, got: %s", out)
+	}
+	if !strings.Contains(out, "ambiguous") || !strings.Contains(out, "--provider") {
+		t.Fatalf("output = %s", out)
+	}
+
+	disambiguated := env.Run2(t, "show", "sess_dup", "--provider", "zcode")
+	if !strings.Contains(disambiguated, `"provider": "zcode"`) {
+		t.Fatalf("output = %s", disambiguated)
+	}
+}
+
+func TestCLIShowDoesNotResolveUnqualifiedIDAfterProviderFailure(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_partial.jsonl"), `{"type":"user","sessionId":"sess_partial","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"from claude"}}
+`)
+	zcodeDB := filepath.Join(env.ProviderHome["zcode"], "cli", "db", "db.sqlite")
+	writeFile(t, zcodeDB, "not a sqlite database")
+
+	out, err := env.Run(t, "show", "sess_partial")
+	if err == nil {
+		t.Fatalf("expected incomplete-resolution failure, got: %s", out)
+	}
+	if !strings.Contains(out, "cannot safely resolve") ||
+		!strings.Contains(out, "zcode") || !strings.Contains(out, "--provider") {
+		t.Fatalf("output = %s", out)
+	}
+
+	resolved := env.Run2(t, "show", "sess_partial", "--provider", "claude")
+	if !strings.Contains(resolved, `"provider": "claude"`) {
+		t.Fatalf("provider-qualified output = %s", resolved)
 	}
 }

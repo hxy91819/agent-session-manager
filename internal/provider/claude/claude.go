@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -980,4 +981,129 @@ func parseTime(value string) time.Time {
 		return t
 	}
 	return time.Time{}
+}
+
+// ReadTranscript resolves one session id to its transcript file and returns
+// the normalized header plus the full user/assistant text flow. Claude stores
+// each project's transcripts under <home>/projects/<encoded-cwd>/; the file
+// name is the session id, so resolution is a bounded glob instead of a full
+// discovery pass. When several homes or project dirs contain the same id the
+// most recently modified transcript wins, matching how Claude Code treats the
+// newest file as the live one.
+func (p Provider) ReadTranscript(id string) (session.Transcript, error) {
+	id = strings.TrimSpace(id)
+	if id == "" || strings.ContainsAny(id, "/\\") || id == "." || id == ".." {
+		return session.Transcript{}, fmt.Errorf("%w: invalid claude session id %q", session.ErrSessionNotFound, id)
+	}
+	homes, err := p.homes()
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	var path string
+	var modTime time.Time
+	for _, home := range homes {
+		matches, err := filepath.Glob(filepath.Join(home, "projects", "*", id+".jsonl"))
+		if err != nil {
+			return session.Transcript{}, err
+		}
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil || info.IsDir() {
+				continue
+			}
+			if path == "" || info.ModTime().After(modTime) {
+				path = match
+				modTime = info.ModTime()
+			}
+		}
+	}
+	if path == "" {
+		return session.Transcript{}, fmt.Errorf("%w: %s session %q", session.ErrSessionNotFound, Name, id)
+	}
+	return readTranscriptFile(path, modTime, id)
+}
+
+func readTranscriptFile(path string, modTime time.Time, id string) (session.Transcript, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	defer func() { _ = f.Close() }()
+
+	out := session.Transcript{Session: session.Session{
+		Provider: Name,
+		Path:     path,
+		Metadata: make(map[string]string),
+	}}
+	var lastUserTitle string
+
+	_, err = readClaudeRecords(f, func(line []byte) bool {
+		var rec rawRecord
+		if json.Unmarshal(line, &rec) != nil {
+			return true
+		}
+		msg := parseMessage(rec.Message)
+		if rec.SessionID != "" {
+			out.Session.ID = rec.SessionID
+		}
+		if rec.CWD != "" {
+			out.Session.CWD = rec.CWD
+		}
+		if title := cleanTitle(firstNonEmpty(rec.Summary, rec.Title)); title != "" {
+			out.Session.Title = title
+			out.Session.Metadata["title_source"] = rec.Type
+		}
+		// Keep the same title fallback as discovery: without a summary or
+		// native title, the last real user message names the session.
+		if rec.Type == "user" && !rec.IsMeta && msg.Role == "user" {
+			if title := cleanTitle(messageText(msg.Content)); title != "" {
+				lastUserTitle = title
+			}
+		}
+		if t := parseTime(rec.Timestamp); !t.IsZero() {
+			if out.Session.CreatedAt.IsZero() || t.Before(out.Session.CreatedAt) {
+				out.Session.CreatedAt = t
+			}
+			if t.After(out.Session.UpdatedAt) {
+				out.Session.UpdatedAt = t
+			}
+		}
+		if rec.Type != "user" && rec.Type != "assistant" {
+			return true
+		}
+		if rec.Type == "user" && (rec.IsMeta || msg.Role != "user") {
+			return true
+		}
+		text := strings.TrimSpace(messageText(msg.Content))
+		if text == "" {
+			return true
+		}
+		if isInjectedContext(text) {
+			return true
+		}
+		out.Messages = append(out.Messages, session.Message{
+			Role: rec.Type,
+			Text: text,
+			At:   parseTime(rec.Timestamp),
+		})
+		return true
+	})
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	if out.Session.ID == "" {
+		out.Session.ID = id
+	}
+	if out.Session.Title == "" && lastUserTitle != "" {
+		out.Session.Title = lastUserTitle
+		out.Session.Metadata["title_source"] = "user"
+	}
+	if out.Session.CreatedAt.IsZero() {
+		out.Session.CreatedAt = modTime
+	}
+	if out.Session.UpdatedAt.IsZero() {
+		out.Session.UpdatedAt = modTime
+	}
+	out.Session.Title = session.NormalizeTitle(out.Session.Title)
+	return out, nil
 }

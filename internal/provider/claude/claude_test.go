@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -740,5 +741,88 @@ func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReadTranscriptReturnsFullMessageFlow(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_full.jsonl"), `{"type":"user","sessionId":"sess_full","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","isMeta":true,"message":{"role":"user","content":"ignored meta"}}
+{"type":"user","sessionId":"sess_full","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"user","content":"<system-reminder>injected</system-reminder>"}}
+{"type":"user","sessionId":"sess_full","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"what broke"}}
+{"type":"assistant","sessionId":"sess_full","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:03Z","message":{"role":"assistant","content":[{"type":"text","text":"the build failed"},{"type":"tool_use","name":"bash"}]}}
+{"type":"summary","summary":"fixed build","timestamp":"2026-06-13T01:00:04Z"}
+{"type":"user","sessionId":"sess_full","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:05Z","message":{"role":"user","content":"thanks"}}
+`)
+
+	got, err := New(home).ReadTranscript("sess_full")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Session.ID != "sess_full" || got.Session.Provider != Name || got.Session.CWD != repo {
+		t.Fatalf("header = %#v", got.Session)
+	}
+	if got.Session.Title != "fixed build" {
+		t.Fatalf("title = %q, want summary title", got.Session.Title)
+	}
+	type step struct {
+		role string
+		text string
+	}
+	want := []step{
+		{"user", "what broke"},
+		{"assistant", "the build failed"},
+		{"user", "thanks"},
+	}
+	if len(got.Messages) != len(want) {
+		t.Fatalf("messages = %#v", got.Messages)
+	}
+	for i, item := range want {
+		if got.Messages[i].Role != item.role || got.Messages[i].Text != item.text {
+			t.Fatalf("message[%d] = %s/%q, want %s/%q", i, got.Messages[i].Role, got.Messages[i].Text, item.role, item.text)
+		}
+	}
+	if got.Messages[0].At.IsZero() {
+		t.Fatalf("message timestamp missing")
+	}
+}
+
+func TestReadTranscriptMissingSessionIsNotFound(t *testing.T) {
+	home := t.TempDir()
+	_, err := New(home).ReadTranscript("missing")
+	if !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestReadTranscriptRejectsPathTraversalID(t *testing.T) {
+	home := t.TempDir()
+	_, err := New(home).ReadTranscript("../../etc/passwd")
+	if !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestReadTranscriptFallsBackToUserMessageTitle(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_title.jsonl"), `{"type":"user","sessionId":"sess_title","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"fix the login bug"}}
+{"type":"assistant","sessionId":"sess_title","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"assistant","content":"on it"}}
+`)
+
+	got, err := New(home).ReadTranscript("sess_title")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Session.Title != "fix the login bug" {
+		t.Fatalf("title = %q, want user message fallback", got.Session.Title)
 	}
 }

@@ -3,6 +3,7 @@ package zcode
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -511,5 +512,104 @@ func addUserMessage(t testing.TB, db *sql.DB, sess zcodeSession, messageID strin
 		partID, messageID, sess.ID, createdAt, createdAt, string(partData))
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func addAssistantMessage(t testing.TB, db *sql.DB, sess zcodeSession, messageID string, createdAt int64, text string) {
+	t.Helper()
+	msgData, _ := json.Marshal(map[string]any{
+		"role": "assistant",
+		"time": map[string]any{"created": createdAt},
+	})
+	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		messageID, sess.ID, createdAt, createdAt, string(msgData)); err != nil {
+		t.Fatal(err)
+	}
+	partData, _ := json.Marshal(map[string]any{
+		"type": "text",
+		"text": text,
+		"time": map[string]any{"start": createdAt, "end": createdAt},
+	})
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_"+messageID, messageID, sess.ID, createdAt, createdAt, string(partData)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadTranscriptReturnsFullMessageFlow(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createZCodeDB(t, home)
+	created := int64(1781881688636)
+	sess := writeZCodeSession(t, db, zcodeSession{
+		ID: "sess_transcript", Directory: repo, Title: "analyze me",
+		TitleSource: "generated", TimeCreated: created, TimeUpdated: created,
+	})
+	addUserMessage(t, db, sess, "msg_1", created, "<system-reminder>injected</system-reminder>")
+	addUserMessage(t, db, sess, "msg_2", created+1000, "what broke")
+	addAssistantMessage(t, db, sess, "msg_3", created+2000, "the build failed")
+	closeDB(t, db)
+
+	got, err := New(home).ReadTranscript("sess_transcript")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Session.ID != "sess_transcript" || got.Session.Provider != Name || got.Session.CWD != repo {
+		t.Fatalf("header = %#v", got.Session)
+	}
+	if got.Session.Title != "analyze me" {
+		t.Fatalf("title = %q", got.Session.Title)
+	}
+	type step struct {
+		role string
+		text string
+	}
+	want := []step{
+		{"user", "what broke"},
+		{"assistant", "the build failed"},
+	}
+	if len(got.Messages) != len(want) {
+		t.Fatalf("messages = %#v", got.Messages)
+	}
+	for i, item := range want {
+		if got.Messages[i].Role != item.role || got.Messages[i].Text != item.text {
+			t.Fatalf("message[%d] = %s/%q, want %s/%q", i, got.Messages[i].Role, got.Messages[i].Text, item.role, item.text)
+		}
+	}
+}
+
+func TestReadTranscriptGroupsTextPartsByMessage(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createZCodeDB(t, home)
+	created := int64(1781881688636)
+	sess := writeZCodeSession(t, db, zcodeSession{
+		ID: "sess_multi_part", Directory: repo, Title: "multi-part",
+		TimeCreated: created, TimeUpdated: created,
+	})
+	addAssistantMessage(t, db, sess, "msg_assistant", created, "first part")
+	partData, _ := json.Marshal(map[string]any{"type": "text", "text": "second part"})
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_assistant_two", "msg_assistant", sess.ID, created+1, created+1, string(partData)); err != nil {
+		t.Fatal(err)
+	}
+	closeDB(t, db)
+
+	got, err := New(home).ReadTranscript(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Text != "first part\nsecond part" {
+		t.Fatalf("messages = %#v, want one aggregated message", got.Messages)
+	}
+}
+
+func TestReadTranscriptMissingSessionIsNotFound(t *testing.T) {
+	home := t.TempDir()
+	db := createZCodeDB(t, home)
+	closeDB(t, db)
+	_, err := New(home).ReadTranscript("missing")
+	if !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
 	}
 }
