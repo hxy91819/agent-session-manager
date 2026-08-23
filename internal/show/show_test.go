@@ -144,6 +144,45 @@ func TestValidateRejectsBadOptions(t *testing.T) {
 	}
 }
 
+func TestBuildGrepContextAndOffsets(t *testing.T) {
+	tr := transcript()
+	tr.Messages = []session.Message{
+		{Role: RoleUser, Text: "before"},
+		{Role: RoleAssistant, Text: "needle here"},
+		{Role: RoleUser, Text: "after"},
+	}
+	out := Build(tr, Options{Grep: "needle", Before: 1, After: 1, Full: true})
+	if len(out.Messages) != 3 || out.MatchedMessages != 1 || out.Messages[1].Index != 1 {
+		t.Fatalf("context output = %#v", out)
+	}
+	if len(out.Messages[1].MatchOffsets) != 1 || out.Messages[1].MatchOffsets[0].Start != 0 || out.Messages[1].MatchOffsets[0].End != 6 {
+		t.Fatalf("match offsets = %#v", out.Messages[1].MatchOffsets)
+	}
+}
+
+func TestBuildRegexExactAndCaseSensitivity(t *testing.T) {
+	tr := transcript()
+	tr.Messages = []session.Message{{Role: RoleUser, Text: "Fix issue 42"}, {Role: RoleUser, Text: "fix another"}}
+	if got := Build(tr, Options{Grep: `FIX\s+ISSUE\s+\d+`, Regex: true}).MatchedMessages; got != 1 {
+		t.Fatalf("regex matches = %d", got)
+	}
+	if got := Build(tr, Options{Grep: "Fix issue 42", Exact: true}).MatchedMessages; got != 1 {
+		t.Fatalf("exact matches = %d", got)
+	}
+	if got := Build(tr, Options{Grep: "FIX", CaseSensitive: true}).MatchedMessages; got != 0 {
+		t.Fatalf("case-sensitive matches = %d", got)
+	}
+}
+
+func TestBuildFromIndexAndSummary(t *testing.T) {
+	tr := transcript()
+	tr.Messages = []session.Message{{Role: RoleUser, Text: "zero"}, {Role: RoleAssistant, Text: "one"}, {Role: RoleUser, Text: "two"}}
+	out := Build(tr, Options{Full: true, FromIndex: 1, Summary: true, SummaryChars: 2})
+	if len(out.Messages) != 2 || out.Messages[0].Index != 1 || out.Messages[0].Text != "on…" {
+		t.Fatalf("summary cursor output = %#v", out.Messages)
+	}
+}
+
 func TestValidateRejectsGrepThatCannotFitMaxChars(t *testing.T) {
 	if err := (Options{Grep: "needle", MaxChars: 7}).Validate(); err == nil {
 		t.Fatal("grep term that cannot fit its excerpt was accepted")
