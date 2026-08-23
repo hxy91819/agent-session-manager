@@ -198,7 +198,9 @@ func (p Provider) home() (string, error) {
 
 func openDB(path string) (*sql.DB, error) {
 	// mode=ro keeps discovery read-only so concurrent ZCode app writes are safe.
-	dsn := "file:" + path + "?mode=ro"
+	// busy_timeout makes concurrent read-only callers (e.g. parallel `asm show`
+	// probes) wait out WAL lock churn instead of failing with SQLITE_BUSY(261).
+	dsn := "file:" + path + "?mode=ro&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("zcode open db: %w", err)

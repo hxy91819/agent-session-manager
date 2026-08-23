@@ -987,10 +987,17 @@ func runShow(args []string) error {
 		found = append(found, transcript)
 	}
 	if len(found) == 0 {
-		message := fmt.Sprintf("session not found: %s", cfg.sessionID)
+		// Lead with hard failures: a store error (e.g. database lock) must not
+		// be misread as a benign miss because "session not found" came first.
 		if len(failures) > 0 {
-			message += "; " + strings.Join(failures, "; ")
+			message := fmt.Sprintf("show failed for session %q: %s", cfg.sessionID, strings.Join(failures, "; "))
+			message += "; not found in the remaining providers"
+			if len(unsupported) > 0 {
+				message += "; transcript reading not yet supported by: " + strings.Join(unsupported, ", ")
+			}
+			return errors.New(message)
 		}
+		message := fmt.Sprintf("session not found: %s", cfg.sessionID)
 		if len(unsupported) > 0 {
 			message += "; transcript reading not yet supported by: " + strings.Join(unsupported, ", ")
 		}

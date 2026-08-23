@@ -2239,8 +2239,9 @@ func TestCLIShowsClaudeTranscript(t *testing.T) {
 		ReturnedMessages int    `json:"returned_messages"`
 		Truncated        bool   `json:"truncated"`
 		Messages         []struct {
-			Role string `json:"role"`
-			Text string `json:"text"`
+			Role  string `json:"role"`
+			Text  string `json:"text"`
+			Index int    `json:"index"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -2253,8 +2254,8 @@ func TestCLIShowsClaudeTranscript(t *testing.T) {
 		t.Fatalf("counts = %#v", payload)
 	}
 	if len(payload.Messages) != 2 ||
-		payload.Messages[0].Role != "user" || payload.Messages[0].Text != "what broke" ||
-		payload.Messages[1].Role != "assistant" || payload.Messages[1].Text != "the build failed" {
+		payload.Messages[0].Role != "user" || payload.Messages[0].Text != "what broke" || payload.Messages[0].Index != 0 ||
+		payload.Messages[1].Role != "assistant" || payload.Messages[1].Text != "the build failed" || payload.Messages[1].Index != 1 {
 		t.Fatalf("messages = %#v", payload.Messages)
 	}
 }

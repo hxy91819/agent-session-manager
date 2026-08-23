@@ -70,6 +70,10 @@ type Message struct {
 	Role string    `json:"role"`
 	Text string    `json:"text"`
 	At   time.Time `json:"at,omitempty"`
+	// Index is the message's stable position within the full transcript,
+	// populated by show output so callers can cite and revisit exact turns.
+	// No omitempty: index 0 is a valid citation and must round-trip.
+	Index int `json:"index"`
 }
 
 // Transcript pairs the normalized session header with its full message flow.

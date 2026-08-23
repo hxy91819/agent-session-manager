@@ -130,7 +130,8 @@ func Build(t session.Transcript, opts Options) Output {
 	grep := strings.ToLower(opts.Grep)
 
 	matched := make([]session.Message, 0, len(t.Messages))
-	for _, msg := range t.Messages {
+	for i, msg := range t.Messages {
+		msg.Index = i
 		if opts.Role != "" && msg.Role != opts.Role {
 			continue
 		}
