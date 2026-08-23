@@ -1,6 +1,9 @@
 package session
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	MetadataReportEvidenceStatus = "report_evidence_status"
@@ -58,6 +61,33 @@ type Provider interface {
 	Discover(opts DiscoverOptions) ([]Session, error)
 	ResumeCommand(Session) ExecSpec
 	NewCommand(cwd string) ExecSpec
+}
+
+// Message is one normalized conversation turn extracted from a provider's
+// native transcript. Text keeps the original wording; only surrounding blank
+// space is trimmed so downstream analysis sees what the agent saw.
+type Message struct {
+	Role string    `json:"role"`
+	Text string    `json:"text"`
+	At   time.Time `json:"at,omitempty"`
+}
+
+// Transcript pairs the normalized session header with its full message flow.
+type Transcript struct {
+	Session  Session
+	Messages []Message
+}
+
+// ErrSessionNotFound is returned by TranscriptReader implementations when the
+// id does not resolve to any stored session.
+var ErrSessionNotFound = errors.New("session not found")
+
+// TranscriptReader is an optional provider capability for reading the full
+// message flow of one session by id. Providers whose stores cannot support
+// cheap single-session reads simply do not implement it; callers must type
+// assert instead of assuming it.
+type TranscriptReader interface {
+	ReadTranscript(id string) (Transcript, error)
 }
 
 type DiscoverOptions struct {

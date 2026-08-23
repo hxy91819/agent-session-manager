@@ -398,3 +398,141 @@ func unixMillis(value int64) time.Time {
 	}
 	return time.UnixMilli(value).UTC()
 }
+
+// ReadTranscript resolves one session id directly against the SQLite store and
+// returns the normalized header plus the full user/assistant text flow. The
+// id is a primary key lookup, so this stays cheap regardless of history size
+// and never needs a discovery pass.
+func (p Provider) ReadTranscript(id string) (session.Transcript, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return session.Transcript{}, fmt.Errorf("%w: empty zcode session id", session.ErrSessionNotFound)
+	}
+	home, err := p.home()
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	dbPath := filepath.Join(home, "cli", "db", "db.sqlite")
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return session.Transcript{}, fmt.Errorf("%w: %s session %q", session.ErrSessionNotFound, Name, id)
+		}
+		return session.Transcript{}, err
+	}
+	db, err := openDB(dbPath)
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	defer func() { _ = db.Close() }()
+
+	out := session.Transcript{Session: session.Session{
+		ID:       id,
+		Provider: Name,
+		Path:     dbPath,
+		Metadata: make(map[string]string),
+	}}
+	if err := readSessionHeader(db, id, &out.Session); err != nil {
+		return session.Transcript{}, err
+	}
+	messages, err := readTranscriptMessages(db, id)
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	out.Messages = messages
+	return out, nil
+}
+
+// readSessionHeader loads the session row so the transcript envelope carries
+// the same normalized fields discovery produces.
+func readSessionHeader(db *sql.DB, id string, s *session.Session) error {
+	var rec sessionRecord
+	var archived sql.NullInt64
+	err := db.QueryRow(`
+SELECT id, directory, title, title_source, time_created, time_updated, path, slug, parent_id, project_id, time_archived
+FROM session
+WHERE id = ?`, id).Scan(&rec.ID, &rec.Directory, &rec.Title, &rec.TitleSource,
+		&rec.TimeCreated, &rec.TimeUpdated, &rec.Path, &rec.Slug,
+		&rec.ParentID, &rec.ProjectID, &archived)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %s session %q", session.ErrSessionNotFound, Name, id)
+	}
+	if err != nil {
+		return fmt.Errorf("zcode query session %q: %w", id, err)
+	}
+	s.ID = strings.TrimSpace(rec.ID)
+	s.CWD = strings.TrimSpace(rec.Directory)
+	s.Title = cleanTitle(rec.Title)
+	s.CreatedAt = unixMillis(rec.TimeCreated)
+	s.UpdatedAt = unixMillis(rec.TimeUpdated)
+	if source := strings.TrimSpace(rec.TitleSource); source != "" {
+		s.Metadata["title_source"] = source
+	}
+	if rec.ProjectID.Valid && strings.TrimSpace(rec.ProjectID.String) != "" {
+		s.Metadata["zcode_project_id"] = rec.ProjectID.String
+	}
+	if rec.ParentID.Valid && strings.TrimSpace(rec.ParentID.String) != "" {
+		s.Metadata[session.MetadataParentThreadID] = strings.TrimSpace(rec.ParentID.String)
+	}
+	if rec.Slug.Valid && strings.TrimSpace(rec.Slug.String) != "" {
+		s.Metadata["zcode_slug"] = rec.Slug.String
+	}
+	if s.Title == "" {
+		if title, ok := firstUserMessageTitle(db, s.ID); ok {
+			s.Title = title
+			s.Metadata["title_source"] = "first_input"
+		}
+	}
+	s.Title = session.NormalizeTitle(s.Title)
+	return nil
+}
+
+// readTranscriptMessages walks user and assistant text parts in conversation
+// order. Tool and reasoning parts stay excluded so the transcript reflects the
+// dialogue an analyst agent cares about; user-side injected context is
+// dropped with the same rule discovery uses for titles and previews.
+func readTranscriptMessages(db *sql.DB, sessionID string) ([]session.Message, error) {
+	rows, err := db.Query(`
+SELECT m.time_created,
+       json_extract(m.data, '$.role') AS role,
+       json_extract(p.data, '$.type') AS type,
+       json_extract(p.data, '$.text') AS text,
+       p.time_created
+FROM message m
+JOIN part p ON p.message_id = m.id AND p.session_id = m.session_id
+WHERE m.session_id = ?
+  AND json_extract(m.data, '$.role') IN ('user', 'assistant')
+  AND (json_extract(p.data, '$.type') IS NULL
+       OR json_extract(p.data, '$.type') = 'text')
+ORDER BY m.time_created ASC, p.time_created ASC
+`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("zcode query transcript %q: %w", sessionID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var messages []session.Message
+	for rows.Next() {
+		var msgTime, partTime int64
+		var role, text string
+		var partType sql.NullString
+		if err := rows.Scan(&msgTime, &role, &partType, &text, &partTime); err != nil {
+			return nil, fmt.Errorf("zcode scan transcript %q: %w", sessionID, err)
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		if role == "user" && isInjectedContext(text) {
+			continue
+		}
+		at := unixMillis(partTime)
+		if at.IsZero() {
+			at = unixMillis(msgTime)
+		}
+		messages = append(messages, session.Message{Role: role, Text: text, At: at})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("zcode iterate transcript %q: %w", sessionID, err)
+	}
+	return messages, nil
+}

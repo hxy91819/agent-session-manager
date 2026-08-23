@@ -29,6 +29,7 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/provider/zcode"
 	reportpkg "github.com/hxy91819/agent-session-manager/internal/report"
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/show"
 	"github.com/hxy91819/agent-session-manager/internal/skillinstall"
 	"github.com/hxy91819/agent-session-manager/internal/startupdiag"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
@@ -101,6 +102,29 @@ type resumeConfig struct {
 	limit         int
 }
 
+type showConfig struct {
+	codexHome     string
+	codexProfile  string
+	claudeHome    string
+	kimiHome      string
+	kiroHome      string
+	opencodeHome  string
+	piHome        string
+	codebuddyHome string
+	cursorHome    string
+	openclawHome  string
+	zcodeHome     string
+	dshHome       string
+	provider      string
+	role          string
+	grep          string
+	first         int
+	last          int
+	maxChars      int
+	full          bool
+	sessionID     string
+}
+
 type skillsInstallConfig struct {
 	source  string
 	ref     string
@@ -135,6 +159,9 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	if len(args) > 0 && args[0] == "report" {
 		return runReport(args[1:])
+	}
+	if len(args) > 0 && args[0] == "show" {
+		return runShow(args[1:])
 	}
 	if len(args) > 0 && args[0] == "resume" {
 		return runResume(ctx, args[1:])
@@ -905,4 +932,146 @@ func resumeNotice(selected session.Session) string {
 
 func newNotice(provider string, cwd string) string {
 	return fmt.Sprintf("Starting new %s session from %s ... this can take a few seconds.", provider, cwd)
+}
+
+func runShow(args []string) error {
+	cfg, err := parseShowFlags(args)
+	if err != nil {
+		return err
+	}
+	opts := show.Options{
+		Role:     cfg.role,
+		Grep:     cfg.grep,
+		First:    cfg.first,
+		Last:     cfg.last,
+		MaxChars: cfg.maxChars,
+		Full:     cfg.full,
+	}
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.piHome, cfg.zcodeHome, cfg.dshHome)
+	type candidate struct {
+		name   string
+		reader session.TranscriptReader
+	}
+	var candidates []candidate
+	var unsupported []string
+	for _, provider := range providers {
+		if cfg.provider != "" && provider.Name() != cfg.provider {
+			continue
+		}
+		reader, ok := provider.(session.TranscriptReader)
+		if !ok {
+			unsupported = append(unsupported, provider.Name())
+			continue
+		}
+		candidates = append(candidates, candidate{name: provider.Name(), reader: reader})
+	}
+	if cfg.provider != "" && len(candidates) == 0 && len(unsupported) == 1 {
+		return fmt.Errorf("provider %q does not support transcript reading yet", cfg.provider)
+	}
+
+	var found []session.Transcript
+	var failures []string
+	for _, item := range candidates {
+		transcript, err := item.reader.ReadTranscript(cfg.sessionID)
+		if errors.Is(err, session.ErrSessionNotFound) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", item.name, err))
+			continue
+		}
+		found = append(found, transcript)
+	}
+	if len(found) == 0 {
+		message := fmt.Sprintf("session not found: %s", cfg.sessionID)
+		if len(failures) > 0 {
+			message += "; " + strings.Join(failures, "; ")
+		}
+		if len(unsupported) > 0 {
+			message += "; transcript reading not yet supported by: " + strings.Join(unsupported, ", ")
+		}
+		return errors.New(message)
+	}
+	if len(found) > 1 {
+		names := make([]string, 0, len(found))
+		for _, transcript := range found {
+			names = append(names, transcript.Session.Provider)
+		}
+		return fmt.Errorf("session id %q is ambiguous across providers %s; pass --provider <name>", cfg.sessionID, strings.Join(names, ", "))
+	}
+
+	out := show.Build(found[0], opts)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+func parseShowFlags(args []string) (showConfig, error) {
+	cfg := showConfig{}
+	fs := flag.NewFlagSet("asm show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
+	fs.StringVar(&cfg.codexProfile, "codex-profile", "", "Codex config profile")
+	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
+	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
+	fs.StringVar(&cfg.kiroHome, "kiro-home", "", "Kiro CLI home directory")
+	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
+	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
+	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
+	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
+	fs.StringVar(&cfg.piHome, "pi-home", "", "Pi agent directory")
+	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
+	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
+	fs.StringVar(&cfg.provider, "provider", "", "provider name for disambiguating session ids")
+	fs.StringVar(&cfg.role, "role", "", "filter messages by role: user or assistant")
+	fs.StringVar(&cfg.grep, "grep", "", "case-insensitive substring filter on message text")
+	fs.IntVar(&cfg.first, "first", 0, "keep only the first N matching messages")
+	fs.IntVar(&cfg.last, "last", 0, "keep only the last N matching messages")
+	fs.IntVar(&cfg.maxChars, "max-chars", 0, "maximum characters per message text")
+	fs.BoolVar(&cfg.full, "full", false, "return every message without default tail and character caps")
+	// Go's flag package stops at the first positional argument, so
+	// "asm show <id> --grep x" would misparse. Agents routinely emit flags
+	// after the session id; reorder so the contract accepts any order.
+	normalized, err := normalizeShowArgs(fs, args)
+	if err != nil {
+		return showConfig{}, err
+	}
+	if err := fs.Parse(normalized); err != nil {
+		return showConfig{}, err
+	}
+	if fs.NArg() != 1 {
+		return showConfig{}, fmt.Errorf("usage: asm show [flags] <session-id>")
+	}
+	cfg.sessionID = fs.Arg(0)
+	return cfg, nil
+}
+
+// normalizeShowArgs moves positional arguments (exactly one expected) behind
+// every flag so both "show <id> --grep x" and "show --grep x <id>" parse.
+func normalizeShowArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	boolFlags := map[string]bool{"full": true}
+	fs.VisitAll(func(f *flag.Flag) {
+		if _, ok := f.Value.(interface{ IsBoolFlag() bool }); ok {
+			boolFlags[f.Name] = true
+		}
+	})
+	var flags, positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if len(arg) < 2 || arg[0] != '-' {
+			positionals = append(positionals, arg)
+			continue
+		}
+		name := strings.TrimLeft(arg, "-")
+		flags = append(flags, arg)
+		if !strings.Contains(arg, "=") && !boolFlags[name] && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, positionals...), nil
 }
