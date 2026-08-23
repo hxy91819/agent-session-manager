@@ -74,6 +74,14 @@ type Message struct {
 	// populated by show output so callers can cite and revisit exact turns.
 	// No omitempty: index 0 is a valid citation and must round-trip.
 	Index int `json:"index"`
+	// MatchOffsets reports byte offsets of the --grep match in the original
+	// message text. It is populated only for messages that matched a grep.
+	MatchOffsets []MatchOffset `json:"match_offsets,omitempty"`
+}
+
+type MatchOffset struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
 }
 
 // Transcript pairs the normalized session header with its full message flow.

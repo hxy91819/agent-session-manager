@@ -34,6 +34,38 @@ Providers:
 go run ./cmd/asm
 ```
 
+## Transcript inspection
+
+Use `asm show <session-id>` to read a bounded, normalized transcript without
+opening a provider. All registered providers implement transcript reading;
+providers whose native store keeps only a latest prompt return that available
+portion. Tool calls, tool results, and reasoning are omitted from the normalized
+user/assistant flow for a stable cross-provider contract.
+
+```sh
+asm show <session-id> --provider claude
+asm show <session-id> --grep "timeout" --before 2 --after 2
+asm show <session-id> --grep 'error-[0-9]+' --regex --case-sensitive
+asm show <session-id> --full --from-index 50 --format jsonl --fields id,provider,messages
+```
+
+`--grep` is a case-insensitive substring match by default. `--regex` switches
+to regular-expression matching and `--exact` requires the complete message text
+to match; `--case-sensitive` applies to either mode. `--before` and `--after`
+require `--grep` and include neighboring messages while `match_offsets` reports
+byte offsets in the original matching message. Message `index` values are
+zero-based positions in the append-only transcript and are stable for existing
+messages; use `--from-index` as a cursor when walking a growing session.
+`--offset` skips returned rows after filtering and is less stable than
+`--from-index` if a provider inserts history.
+
+The default `json` format is indented, `compact` is one JSON envelope without
+whitespace, and `jsonl` emits a metadata row followed by one message row per
+line. `--fields` selects top-level envelope fields. `--summary` keeps the same
+indexes, roles, and timestamps but limits text to `--summary-chars` (200 by
+default). Show failures are written as `{"error":{"code":"...","message":"..."}}`
+to stderr for scripts.
+
 ## Install
 
 Download a prebuilt binary from the
