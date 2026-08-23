@@ -578,6 +578,32 @@ func TestReadTranscriptReturnsFullMessageFlow(t *testing.T) {
 	}
 }
 
+func TestReadTranscriptGroupsTextPartsByMessage(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	db := createZCodeDB(t, home)
+	created := int64(1781881688636)
+	sess := writeZCodeSession(t, db, zcodeSession{
+		ID: "sess_multi_part", Directory: repo, Title: "multi-part",
+		TimeCreated: created, TimeUpdated: created,
+	})
+	addAssistantMessage(t, db, sess, "msg_assistant", created, "first part")
+	partData, _ := json.Marshal(map[string]any{"type": "text", "text": "second part"})
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_assistant_two", "msg_assistant", sess.ID, created+1, created+1, string(partData)); err != nil {
+		t.Fatal(err)
+	}
+	closeDB(t, db)
+
+	got, err := New(home).ReadTranscript(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Text != "first part\nsecond part" {
+		t.Fatalf("messages = %#v, want one aggregated message", got.Messages)
+	}
+}
+
 func TestReadTranscriptMissingSessionIsNotFound(t *testing.T) {
 	home := t.TempDir()
 	db := createZCodeDB(t, home)

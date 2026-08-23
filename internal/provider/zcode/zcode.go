@@ -488,13 +488,15 @@ WHERE id = ?`, id).Scan(&rec.ID, &rec.Directory, &rec.Title, &rec.TitleSource,
 	return nil
 }
 
-// readTranscriptMessages walks user and assistant text parts in conversation
-// order. Tool and reasoning parts stay excluded so the transcript reflects the
-// dialogue an analyst agent cares about; user-side injected context is
-// dropped with the same rule discovery uses for titles and previews.
+// readTranscriptMessages walks user and assistant messages in conversation
+// order, joining all text parts belonging to one message. Tool and reasoning
+// parts stay excluded so the transcript reflects the dialogue an analyst agent
+// cares about; user-side injected context is dropped with the same rule
+// discovery uses for titles and previews.
 func readTranscriptMessages(db *sql.DB, sessionID string) ([]session.Message, error) {
 	rows, err := db.Query(`
-SELECT m.time_created,
+SELECT m.id,
+       m.time_created,
        json_extract(m.data, '$.role') AS role,
        json_extract(p.data, '$.type') AS type,
        json_extract(p.data, '$.text') AS text,
@@ -505,7 +507,7 @@ WHERE m.session_id = ?
   AND json_extract(m.data, '$.role') IN ('user', 'assistant')
   AND (json_extract(p.data, '$.type') IS NULL
        OR json_extract(p.data, '$.type') = 'text')
-ORDER BY m.time_created ASC, p.time_created ASC
+ORDER BY m.time_created ASC, p.time_created ASC, p.id ASC
 `, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("zcode query transcript %q: %w", sessionID, err)
@@ -513,28 +515,48 @@ ORDER BY m.time_created ASC, p.time_created ASC
 	defer func() { _ = rows.Close() }()
 
 	var messages []session.Message
+	var currentID, currentRole string
+	var currentTime time.Time
+	var parts []string
+	flush := func() {
+		if currentID == "" || len(parts) == 0 {
+			return
+		}
+		text := strings.TrimSpace(strings.Join(parts, "\n"))
+		if text == "" {
+			return
+		}
+		messages = append(messages, session.Message{Role: currentRole, Text: text, At: currentTime})
+	}
 	for rows.Next() {
+		var messageID, role string
 		var msgTime, partTime int64
-		var role, text string
-		var partType sql.NullString
-		if err := rows.Scan(&msgTime, &role, &partType, &text, &partTime); err != nil {
+		var partType, text sql.NullString
+		if err := rows.Scan(&messageID, &msgTime, &role, &partType, &text, &partTime); err != nil {
 			return nil, fmt.Errorf("zcode scan transcript %q: %w", sessionID, err)
 		}
-		text = strings.TrimSpace(text)
-		if text == "" {
+		if messageID != currentID {
+			flush()
+			currentID = messageID
+			currentRole = role
+			currentTime = unixMillis(partTime)
+			if currentTime.IsZero() {
+				currentTime = unixMillis(msgTime)
+			}
+			parts = nil
+		}
+		if !text.Valid {
 			continue
 		}
-		if role == "user" && isInjectedContext(text) {
+		partText := strings.TrimSpace(text.String)
+		if partText == "" || (role == "user" && isInjectedContext(partText)) {
 			continue
 		}
-		at := unixMillis(partTime)
-		if at.IsZero() {
-			at = unixMillis(msgTime)
-		}
-		messages = append(messages, session.Message{Role: role, Text: text, At: at})
+		parts = append(parts, partText)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("zcode iterate transcript %q: %w", sessionID, err)
 	}
+	flush()
 	return messages, nil
 }

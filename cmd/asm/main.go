@@ -1003,6 +1003,17 @@ func runShow(args []string) error {
 		}
 		return errors.New(message)
 	}
+	if len(failures) > 0 {
+		// A successful read from one provider does not prove that the id is
+		// unique when another provider could not be inspected. Unqualified
+		// callers must choose a provider rather than receive an incomplete
+		// transcript resolution.
+		return fmt.Errorf(
+			"cannot safely resolve unqualified session %q while transcript reading is incomplete; pass --provider <name>: %s",
+			cfg.sessionID,
+			strings.Join(failures, "; "),
+		)
+	}
 	if len(found) > 1 {
 		names := make([]string, 0, len(found))
 		for _, transcript := range found {

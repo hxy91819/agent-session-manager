@@ -80,6 +80,9 @@ func (o Options) Validate() error {
 	if o.First < 0 || o.Last < 0 || o.MaxChars < 0 {
 		return fmt.Errorf("first, last, and max-chars must be >= 0")
 	}
+	if o.Grep != "" && o.MaxChars > 0 && o.MaxChars < utf8.RuneCountInString(o.Grep)+2 {
+		return fmt.Errorf("max-chars must be at least the grep term length plus excerpt markers")
+	}
 	return nil
 }
 

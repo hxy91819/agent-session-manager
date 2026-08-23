@@ -2381,3 +2381,31 @@ func TestCLIShowAmbiguousIDRequiresProvider(t *testing.T) {
 		t.Fatalf("output = %s", disambiguated)
 	}
 }
+
+func TestCLIShowDoesNotResolveUnqualifiedIDAfterProviderFailure(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_partial.jsonl"), `{"type":"user","sessionId":"sess_partial","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"from claude"}}
+`)
+	zcodeDB := filepath.Join(env.ProviderHome["zcode"], "cli", "db", "db.sqlite")
+	writeFile(t, zcodeDB, "not a sqlite database")
+
+	out, err := env.Run(t, "show", "sess_partial")
+	if err == nil {
+		t.Fatalf("expected incomplete-resolution failure, got: %s", out)
+	}
+	if !strings.Contains(out, "cannot safely resolve") ||
+		!strings.Contains(out, "zcode") || !strings.Contains(out, "--provider") {
+		t.Fatalf("output = %s", out)
+	}
+
+	resolved := env.Run2(t, "show", "sess_partial", "--provider", "claude")
+	if !strings.Contains(resolved, `"provider": "claude"`) {
+		t.Fatalf("provider-qualified output = %s", resolved)
+	}
+}

@@ -143,3 +143,12 @@ func TestValidateRejectsBadOptions(t *testing.T) {
 		t.Fatal("negative last accepted")
 	}
 }
+
+func TestValidateRejectsGrepThatCannotFitMaxChars(t *testing.T) {
+	if err := (Options{Grep: "needle", MaxChars: 7}).Validate(); err == nil {
+		t.Fatal("grep term that cannot fit its excerpt was accepted")
+	}
+	if err := (Options{Grep: "needle", MaxChars: 8}).Validate(); err != nil {
+		t.Fatalf("grep term should fit at max-chars=8: %v", err)
+	}
+}
