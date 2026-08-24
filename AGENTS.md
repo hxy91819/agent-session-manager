@@ -33,10 +33,16 @@ Current providers:
 - Kiro CLI scans `$KIRO_HOME/sessions/cli` or `~/.kiro/sessions/cli`, using
   per-session JSON metadata plus companion JSONL `Prompt` records, and resumes
   with `kiro-cli chat --resume-id <session-id>` from the original cwd.
-- opencode scans `$OPENCODE_HOME/storage` or
-  `~/.local/share/opencode/storage`, using session JSON plus project and message
-  fallback files, and resumes with `opencode -s <session-id>` from the original
-  cwd.
+- opencode reads `$OPENCODE_HOME/opencode.db` or
+  `~/.local/share/opencode/opencode.db`, the drizzle-managed SQLite store used
+  since opencode v1.18. Pre-migration stores without `opencode.db` fall back
+  to scanning `storage/session/**.json` plus project and message fallback
+  files. Resume uses `opencode -s <session-id>` from the original cwd.
+- Pi scans `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`, reading
+  append-only JSONL transcripts whose first record carries the session id, cwd,
+  and creation time. Titles come from the latest `session_info` display name,
+  falling back to the first user message, and resume uses
+  `pi --session <session-id>` from the original cwd.
 - ZCode scans `$ZCODE_HOME/cli/db/db.sqlite` or `~/.zcode/cli/db/db.sqlite`, a
   SQLite store. It reads the `session` table and falls back to the first user
   message (via the `message` and `part` tables) for titles. ZCode has no CLI or
@@ -245,14 +251,55 @@ consume normalized sessions.
 
 ## opencode Provider Notes
 
-- Treat `$OPENCODE_HOME/storage` or `~/.local/share/opencode/storage` as the
-  supported store.
-- Session JSON is the primary per-session file and should be cached with
-  `internal/sessioncache`.
-- Project worktree fallback and message title fallback are dynamic side inputs;
-  reapply them after cache hits instead of storing their derived values as the
-  cached primary parse result.
+- Modern store: `$OPENCODE_HOME/opencode.db` or
+  `~/.local/share/opencode/opencode.db` (opencode v1.18+). The one-time
+  migration imports legacy JSON sessions into the DB, so when the DB exists it
+  is authoritative — do not also scan `storage/session`, or migrated sessions
+  surface twice with stale JSON shadows.
+- DB sessions come from the `session` table: `id`, `directory` (cwd), `title`,
+  `version`, `project_id`, `parent_id`, `time_created`, and `time_updated` are
+  millisecond Unix epochs. Read read-only (`?mode=ro`) so concurrent opencode
+  writes are safe, and use `modernc.org/sqlite` (pure Go) so the release build
+  stays `CGO_ENABLED=0`. Skip archived sessions (`time_archived` set).
+- Empty `directory` falls back to `project.worktree`. Empty titles and the
+  auto-generated `New session - <timestamp>` placeholder fall back to the
+  first user message text (title_source `first_input`) via the `message` and
+  `part` tables; keep the placeholder visible when no user text exists.
+- Child sessions (`parent_id` set) must record `parent_thread_id` metadata so
+  reports can deduplicate delegated subagent work, mirroring zcode.
+- `sessioncache` is not required for the DB path because discovery reads a
+  single database with indexed queries; declare the exemption with a reason.
+- Legacy pre-migration stores: scan `storage/session/**.json` as the primary
+  per-session file, cached with `internal/sessioncache`. Project worktree
+  fallback and message title fallback are dynamic side inputs; reapply them
+  after cache hits instead of storing their derived values as the cached
+  primary parse result.
 - Keep opencode resume as `opencode -s <session-id>` from the original cwd.
+
+## Pi Provider Notes
+
+- Treat `$PI_CODING_AGENT_DIR` (the Pi agent directory) or `~/.pi/agent` as the
+  supported store; sessions live under `sessions/<encoded-cwd>/*.jsonl`. Pi
+  encodes the cwd into that directory name, but the header record's `cwd` is
+  authoritative; never decode directory names.
+- Each transcript is append-only JSONL. The first record must be
+  `{"type":"session", ...}` (id, cwd, RFC3339 timestamp, optional
+  `parentSession`), mirroring Pi's own session listing; later records include
+  `session_info`, `model_change`, and `message` entries.
+- Display titles come from the latest `session_info` record; an empty name
+  explicitly clears the title. Without a name, use the first real user
+  message, matching Pi's session picker. Filter injected context prefixes
+  before using message text as a title or preview.
+- Message activity time prefers the numeric per-message `timestamp` (Unix
+  milliseconds) and falls back to the record `timestamp`; only user and
+  assistant messages count toward `UpdatedAt`, as in Pi's session list.
+- One transcript file holds titles and user messages alike, so cache the full
+  per-file parse (header, latest name, first user message, last activity) with
+  `internal/sessioncache`, and re-scan the transcript for report previews and
+  cwd status on every discovery pass.
+- Keep Pi resume as `pi --session <session-id>` from the original cwd: Pi
+  resolves exact session ids in the current project's session directory before
+  falling back to a global search.
 
 ## ZCode Provider Notes
 

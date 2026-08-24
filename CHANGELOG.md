@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.0
+
+Changes since [v0.8.3](https://github.com/hxy91819/agent-session-manager/compare/v0.8.3...v0.9.0).
+
+### Changes
+
+- test: add release smoke verification script (`cdfc14f`). Thanks masonxhuang.
+- docs: add PR landing skill (`76be712`). Thanks masonxhuang.
+- feat: add Pi coding agent provider ([#53](https://github.com/hxy91819/agent-session-manager/pull/53)). Thanks @hxy91819.
+- Discover opencode v1.18+ sessions from opencode.db ([#55](https://github.com/hxy91819/agent-session-manager/pull/55)). Thanks @hxy91819.
+- build(deps): bump modernc.org/sqlite from 1.54.0 to 1.56.0 in the go-modules group across 1 directory ([#34](https://github.com/hxy91819/agent-session-manager/pull/34)).
+- Add dsh (DeepSeek Harness) session discovery provider ([#54](https://github.com/hxy91819/agent-session-manager/pull/54)). Thanks @hxy91819.
+- feat: structure report overview tasks (`9af21c7`). Thanks masonxhuang.
+- ci: verify published release artifacts ([#52](https://github.com/hxy91819/agent-session-manager/pull/52)). Thanks @hxy91819.
+
+### Contributors
+
+Thanks masonxhuang and @hxy91819 for this release.
+
 ## v0.8.3
 
 Changes since [v0.8.2](https://github.com/hxy91819/agent-session-manager/compare/v0.8.2...v0.8.3).

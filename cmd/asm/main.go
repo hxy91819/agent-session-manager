@@ -26,9 +26,11 @@ import (
 	"github.com/hxy91819/agent-session-manager/internal/provider/kiro"
 	"github.com/hxy91819/agent-session-manager/internal/provider/openclaw"
 	"github.com/hxy91819/agent-session-manager/internal/provider/opencode"
+	"github.com/hxy91819/agent-session-manager/internal/provider/pi"
 	"github.com/hxy91819/agent-session-manager/internal/provider/zcode"
 	reportpkg "github.com/hxy91819/agent-session-manager/internal/report"
 	"github.com/hxy91819/agent-session-manager/internal/session"
+	"github.com/hxy91819/agent-session-manager/internal/show"
 	"github.com/hxy91819/agent-session-manager/internal/skillinstall"
 	"github.com/hxy91819/agent-session-manager/internal/startupdiag"
 	"github.com/hxy91819/agent-session-manager/internal/ui"
@@ -41,6 +43,7 @@ type config struct {
 	kimiHome              string
 	kiroHome              string
 	opencodeHome          string
+	piHome                string
 	codebuddyHome         string
 	cursorHome            string
 	openclawHome          string
@@ -62,6 +65,7 @@ type reportConfig struct {
 	kimiHome              string
 	kiroHome              string
 	opencodeHome          string
+	piHome                string
 	codebuddyHome         string
 	cursorHome            string
 	openclawHome          string
@@ -86,6 +90,7 @@ type resumeConfig struct {
 	kimiHome      string
 	kiroHome      string
 	opencodeHome  string
+	piHome        string
 	codebuddyHome string
 	cursorHome    string
 	openclawHome  string
@@ -96,6 +101,40 @@ type resumeConfig struct {
 	printExec     bool
 	sinceDays     int
 	limit         int
+}
+
+type showConfig struct {
+	codexHome     string
+	codexProfile  string
+	claudeHome    string
+	kimiHome      string
+	kiroHome      string
+	opencodeHome  string
+	piHome        string
+	codebuddyHome string
+	cursorHome    string
+	openclawHome  string
+	zcodeHome     string
+	dshHome       string
+	provider      string
+	role          string
+	grep          string
+	regex         bool
+	exact         bool
+	caseSensitive bool
+	before        int
+	after         int
+	first         int
+	last          int
+	offset        int
+	fromIndex     int
+	maxChars      int
+	summary       bool
+	summaryChars  int
+	full          bool
+	format        string
+	fields        string
+	sessionID     string
 }
 
 type skillsInstallConfig struct {
@@ -125,7 +164,12 @@ func main() {
 		err = diagnosticErr
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		var showErr show.Error
+		if errors.As(err, &showErr) {
+			_ = json.NewEncoder(os.Stderr).Encode(map[string]show.Error{"error": showErr})
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		os.Exit(1)
 	}
 }
@@ -133,6 +177,9 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	if len(args) > 0 && args[0] == "report" {
 		return runReport(args[1:])
+	}
+	if len(args) > 0 && args[0] == "show" {
+		return runShow(args[1:])
 	}
 	if len(args) > 0 && args[0] == "resume" {
 		return runResume(ctx, args[1:])
@@ -146,7 +193,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome, cfg.dshHome)
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.piHome, cfg.zcodeHome, cfg.dshHome)
 	herdrClient := herdr.NewFromEnv()
 	loadSessions := func(days int) (session.DiscoveryResult, error) {
 		var result session.DiscoveryResult
@@ -223,7 +270,7 @@ func runResume(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome, cfg.dshHome)
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.piHome, cfg.zcodeHome, cfg.dshHome)
 	herdrClient := herdr.NewFromEnv()
 	discoveryProviders := providers
 	if cfg.provider != "" {
@@ -324,7 +371,7 @@ func runReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.zcodeHome, cfg.dshHome)
+	providers := newProviders(cfg.codexHome, "", cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.piHome, cfg.zcodeHome, cfg.dshHome)
 	discovery := discoverAllWithOptions(providers, session.DiscoverOptions{
 		// A report cannot safely apply its limit while collecting candidate
 		// files: sessions updated after the report window may otherwise consume
@@ -372,6 +419,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
 	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
 	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
+	fs.StringVar(&cfg.piHome, "pi-home", "", "Pi agent directory")
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
 	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
 	fs.BoolVar(&cfg.json, "json", false, "print indexed sessions as JSON")
@@ -414,6 +462,7 @@ func parseResumeFlags(args []string) (resumeConfig, error) {
 	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
 	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
 	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
+	fs.StringVar(&cfg.piHome, "pi-home", "", "Pi agent directory")
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
 	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
 	fs.StringVar(&cfg.provider, "provider", "", "provider name for disambiguating session ids")
@@ -559,6 +608,7 @@ func parseReportFlags(args []string) (reportConfig, error) {
 	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
 	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
 	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
+	fs.StringVar(&cfg.piHome, "pi-home", "", "Pi agent directory")
 	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
 	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
 	fs.StringVar(&cfg.query, "query", "", "filter sessions")
@@ -610,7 +660,7 @@ func filterVisibleSessions(items []session.Session, includeNonInteractive bool) 
 	return filtered
 }
 
-func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, zcodeHome, dshHome string) []session.Provider {
+func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, opencodeHome, codebuddyHome, cursorHome, openclawHome, piHome, zcodeHome, dshHome string) []session.Provider {
 	return []session.Provider{
 		codex.NewWithProfile(codexHome, codexProfile),
 		claude.New(claudeHome),
@@ -620,6 +670,7 @@ func newProviders(codexHome, codexProfile, claudeHome, kimiHome, kiroHome, openc
 		codebuddy.New(codebuddyHome),
 		cursor.New(cursorHome),
 		openclaw.New(openclawHome),
+		pi.New(piHome),
 		zcode.New(zcodeHome),
 		dsh.New(dshHome),
 	}
@@ -979,4 +1030,185 @@ func warnHerdrFallback(operation string, err error) {
 
 func newNotice(provider string, cwd string) string {
 	return fmt.Sprintf("Starting new %s session from %s ... this can take a few seconds.", provider, cwd)
+}
+
+func runShow(args []string) error {
+	cfg, err := parseShowFlags(args)
+	if err != nil {
+		return show.NewError("invalid_options", err.Error())
+	}
+	opts := show.Options{
+		Role: cfg.role, Grep: cfg.grep, Regex: cfg.regex, Exact: cfg.exact,
+		CaseSensitive: cfg.caseSensitive, Before: cfg.before, After: cfg.after,
+		First: cfg.first, Last: cfg.last, Offset: cfg.offset, FromIndex: cfg.fromIndex,
+		MaxChars: cfg.maxChars, Summary: cfg.summary, SummaryChars: cfg.summaryChars,
+		Full: cfg.full,
+	}
+	if err := opts.Validate(); err != nil {
+		return show.NewError("invalid_options", err.Error())
+	}
+
+	providers := newProviders(cfg.codexHome, cfg.codexProfile, cfg.claudeHome, cfg.kimiHome, cfg.kiroHome, cfg.opencodeHome, cfg.codebuddyHome, cfg.cursorHome, cfg.openclawHome, cfg.piHome, cfg.zcodeHome, cfg.dshHome)
+	type candidate struct {
+		name   string
+		reader session.TranscriptReader
+	}
+	var candidates []candidate
+	var unsupported []string
+	for _, provider := range providers {
+		if cfg.provider != "" && provider.Name() != cfg.provider {
+			continue
+		}
+		reader, ok := provider.(session.TranscriptReader)
+		if !ok {
+			unsupported = append(unsupported, provider.Name())
+			continue
+		}
+		candidates = append(candidates, candidate{name: provider.Name(), reader: reader})
+	}
+	if cfg.provider != "" && len(candidates) == 0 && len(unsupported) == 1 {
+		return show.NewError("provider_unsupported", fmt.Sprintf("provider %q does not support transcript reading yet", cfg.provider))
+	}
+
+	var found []session.Transcript
+	var failures []string
+	for _, item := range candidates {
+		transcript, err := item.reader.ReadTranscript(cfg.sessionID)
+		if errors.Is(err, session.ErrSessionNotFound) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", item.name, err))
+			continue
+		}
+		found = append(found, transcript)
+	}
+	if len(found) == 0 {
+		// Lead with hard failures: a store error (e.g. database lock) must not
+		// be misread as a benign miss because "session not found" came first.
+		if len(failures) > 0 {
+			message := fmt.Sprintf("show failed for session %q: %s", cfg.sessionID, strings.Join(failures, "; "))
+			message += "; not found in the remaining providers"
+			if len(unsupported) > 0 {
+				message += "; transcript reading not yet supported by: " + strings.Join(unsupported, ", ")
+			}
+			return show.NewError("transcript_read_failed", message)
+		}
+		message := fmt.Sprintf("session not found: %s", cfg.sessionID)
+		if len(unsupported) > 0 {
+			message += "; transcript reading not yet supported by: " + strings.Join(unsupported, ", ")
+		}
+		return show.NewError("session_not_found", message)
+	}
+	if len(failures) > 0 {
+		// A successful read from one provider does not prove that the id is
+		// unique when another provider could not be inspected. Unqualified
+		// callers must choose a provider rather than receive an incomplete
+		// transcript resolution.
+		return show.NewError("incomplete_resolution", fmt.Sprintf(
+			"cannot safely resolve unqualified session %q while transcript reading is incomplete; pass --provider <name>: %s",
+			cfg.sessionID, strings.Join(failures, "; ")))
+	}
+	if len(found) > 1 {
+		names := make([]string, 0, len(found))
+		for _, transcript := range found {
+			names = append(names, transcript.Session.Provider)
+		}
+		return show.NewError("ambiguous_session_id", fmt.Sprintf("session id %q is ambiguous across providers %s; pass --provider <name>", cfg.sessionID, strings.Join(names, ", ")))
+	}
+
+	out := show.Build(found[0], opts)
+	var fields []string
+	if strings.TrimSpace(cfg.fields) != "" {
+		for _, field := range strings.Split(cfg.fields, ",") {
+			field = strings.TrimSpace(field)
+			if field == "" {
+				continue
+			}
+			fields = append(fields, field)
+		}
+	}
+	data, err := show.Render(out, cfg.format, fields)
+	if err != nil {
+		return show.NewError("invalid_output_options", err.Error())
+	}
+	_, err = os.Stdout.Write(data)
+	return err
+}
+
+func parseShowFlags(args []string) (showConfig, error) {
+	cfg := showConfig{}
+	fs := flag.NewFlagSet("asm show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&cfg.codexHome, "codex-home", "", "Codex home directory")
+	fs.StringVar(&cfg.codexProfile, "codex-profile", "", "Codex config profile")
+	fs.StringVar(&cfg.claudeHome, "claude-home", "", "Claude Code home directory")
+	fs.StringVar(&cfg.kimiHome, "kimi-home", "", "Kimi Code home directory")
+	fs.StringVar(&cfg.kiroHome, "kiro-home", "", "Kiro CLI home directory")
+	fs.StringVar(&cfg.opencodeHome, "opencode-home", "", "opencode home directory")
+	fs.StringVar(&cfg.codebuddyHome, "codebuddy-home", "", "CodeBuddy home directory")
+	fs.StringVar(&cfg.cursorHome, "cursor-home", "", "Cursor home directory")
+	fs.StringVar(&cfg.openclawHome, "openclaw-home", "", "OpenClaw state directory")
+	fs.StringVar(&cfg.piHome, "pi-home", "", "Pi agent directory")
+	fs.StringVar(&cfg.zcodeHome, "zcode-home", "", "ZCode home directory")
+	fs.StringVar(&cfg.dshHome, "dsh-home", "", "dsh (DeepSeek Harness) home directory")
+	fs.StringVar(&cfg.provider, "provider", "", "provider name for disambiguating session ids")
+	fs.StringVar(&cfg.role, "role", "", "filter messages by role: user or assistant")
+	fs.StringVar(&cfg.grep, "grep", "", "case-insensitive substring filter; use --regex or --exact to change matching")
+	fs.BoolVar(&cfg.regex, "regex", false, "treat --grep as a regular expression")
+	fs.BoolVar(&cfg.exact, "exact", false, "match the entire message text exactly")
+	fs.BoolVar(&cfg.caseSensitive, "case-sensitive", false, "make --grep matching case-sensitive (default is insensitive)")
+	fs.IntVar(&cfg.before, "before", 0, "include N messages before each --grep match")
+	fs.IntVar(&cfg.after, "after", 0, "include N messages after each --grep match")
+	fs.IntVar(&cfg.first, "first", 0, "keep only the first N matching messages")
+	fs.IntVar(&cfg.last, "last", 0, "keep only the last N matching messages")
+	fs.IntVar(&cfg.offset, "offset", 0, "skip N returned messages")
+	fs.IntVar(&cfg.fromIndex, "from-index", 0, "start at this stable transcript message index")
+	fs.IntVar(&cfg.maxChars, "max-chars", 0, "maximum characters per message text")
+	fs.BoolVar(&cfg.summary, "summary", false, "return role, index, time, and a short text summary per message")
+	fs.IntVar(&cfg.summaryChars, "summary-chars", 0, "summary text limit (default 200 characters)")
+	fs.BoolVar(&cfg.full, "full", false, "return every message without default tail and character caps")
+	fs.StringVar(&cfg.format, "format", "json", "output format: json, compact, or jsonl")
+	fs.StringVar(&cfg.fields, "fields", "", "comma-separated output fields, for example id,provider,messages")
+	// Go's flag package stops at the first positional argument, so
+	// "asm show <id> --grep x" would misparse. Agents routinely emit flags
+	// after the session id; reorder so the contract accepts any order.
+	normalized, err := normalizeShowArgs(fs, args)
+	if err != nil {
+		return showConfig{}, err
+	}
+	if err := fs.Parse(normalized); err != nil {
+		return showConfig{}, err
+	}
+	if fs.NArg() != 1 {
+		return showConfig{}, fmt.Errorf("usage: asm show [flags] <session-id>")
+	}
+	cfg.sessionID = fs.Arg(0)
+	return cfg, nil
+}
+
+// normalizeShowArgs moves positional arguments (exactly one expected) behind
+// every flag so both "show <id> --grep x" and "show --grep x <id>" parse.
+func normalizeShowArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	boolFlags := map[string]bool{"full": true}
+	fs.VisitAll(func(f *flag.Flag) {
+		if _, ok := f.Value.(interface{ IsBoolFlag() bool }); ok {
+			boolFlags[f.Name] = true
+		}
+	})
+	var flags, positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if len(arg) < 2 || arg[0] != '-' {
+			positionals = append(positionals, arg)
+			continue
+		}
+		name := strings.TrimLeft(arg, "-")
+		flags = append(flags, arg)
+		if !strings.Contains(arg, "=") && !boolFlags[name] && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, positionals...), nil
 }

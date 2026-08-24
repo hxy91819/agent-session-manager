@@ -447,6 +447,29 @@ func TestCLIIndexesDshAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesPiAndPrintsResumeCommand(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	writePiSession(t, env.ProviderHome["pi"], "pi-session", repo, "fix openclaw with pi")
+	out, err := env.Run(t, "--since-days", "0", "--json", "--query", "pi")
+	if err != nil {
+		t.Fatalf("json command: %v\n%s", err, out)
+	}
+	var payload struct {
+		Sessions []struct{ ID, Provider, CWD, Title string } `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "pi-session" || payload.Sessions[0].Provider != "pi" || payload.Sessions[0].CWD != repo || payload.Sessions[0].Title != "fix openclaw with pi" {
+		t.Fatalf("unexpected Pi sessions: %#v", payload.Sessions)
+	}
+	cmd, err := env.Run(t, "--since-days", "0", "--resume", "pi-session", "--print-exec")
+	if err != nil || !strings.Contains(cmd, `cd '`+repo+`' && 'pi' '--session' 'pi-session'`) {
+		t.Fatalf("unexpected Pi resume: %v\n%s", err, cmd)
+	}
+}
+
 func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 	codexHome := t.TempDir()
 	claudeHome := t.TempDir()
@@ -483,6 +506,58 @@ func TestCLIIndexesOpencodeAndPrintsResumeCommand(t *testing.T) {
 
 	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--resume", "ses_opencode", "--print-exec")
 	if !strings.Contains(cmd, `cd '`+repo+`' && 'opencode' '-s' 'ses_opencode'`) {
+		t.Fatalf("unexpected resume command: %s", cmd)
+	}
+}
+
+func TestCLIIndexesOpencodeSQLiteStoreAndPrintsResumeCommand(t *testing.T) {
+	codexHome := t.TempDir()
+	claudeHome := t.TempDir()
+	kimiHome := t.TempDir()
+	opencodeHome := t.TempDir()
+	repo := t.TempDir()
+	writeOpencodeDBStore(t, opencodeHome, "ses_opencode_db", repo, "opencode sqlite 存储发现的会话")
+	// A stale legacy JSON file with the same migrated ID must not duplicate or
+	// shadow the database record once opencode has moved to opencode.db.
+	writeFile(t, filepath.Join(opencodeHome, "storage", "session", "project_one", "ses_opencode_db.json"), `{
+  "id": "ses_opencode_db",
+  "projectID": "project_one",
+  "directory": `+jsonString(repo)+`,
+  "title": "stale json shadow",
+  "time": {"created": 1781322000000, "updated": 1781322060000}
+}`)
+
+	out := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--since-days", "0", "--json", "--query", "sqlite")
+	var payload struct {
+		Projects []struct {
+			CWD   string `json:"cwd"`
+			Count int    `json:"count"`
+		} `json:"projects"`
+		Sessions []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			CWD      string `json:"cwd"`
+			Title    string `json:"title"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_opencode_db" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "opencode" {
+		t.Fatalf("provider = %q, want opencode", payload.Sessions[0].Provider)
+	}
+	if payload.Sessions[0].Title != "opencode sqlite 存储发现的会话" {
+		t.Fatalf("title = %q, want the database title, not the stale json file", payload.Sessions[0].Title)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].CWD != repo || payload.Projects[0].Count != 1 {
+		t.Fatalf("unexpected projects: %#v", payload.Projects)
+	}
+
+	cmd := runCommand(t, "--codex-home", codexHome, "--claude-home", claudeHome, "--kimi-home", kimiHome, "--opencode-home", opencodeHome, "--since-days", "0", "--resume", "ses_opencode_db", "--print-exec")
+	if !strings.Contains(cmd, `cd '`+repo+`' && 'opencode' '-s' 'ses_opencode_db'`) {
 		t.Fatalf("unexpected resume command: %s", cmd)
 	}
 }
@@ -1861,6 +1936,15 @@ func TestCLIUsesCodexSessionIndexTitle(t *testing.T) {
 	}
 }
 
+func (e asmTestEnv) Run2(t testing.TB, args ...string) string {
+	t.Helper()
+	out, err := e.Run(t, args...)
+	if err != nil {
+		t.Fatalf("command failed: %v\n%s", err, out)
+	}
+	return out
+}
+
 func runCommand(t *testing.T, args ...string) string {
 	t.Helper()
 	out, err := runCommandAllowError(t, args...)
@@ -1953,6 +2037,69 @@ func writeOpencodeSession(t testing.TB, home, projectID, id, cwd, title string) 
 `)
 	writeFile(t, filepath.Join(sessionDir, id+".json"), `{"id":`+jsonString(id)+`,"projectID":`+jsonString(projectID)+`,"directory":`+jsonString(cwd)+`,"title":`+jsonString(title)+`,"time":{"created":1781322000000,"updated":1781322060000}}
 `)
+}
+
+// writeOpencodeDBStore builds the modern (v1.18+) opencode store layout: a
+// drizzle-managed opencode.db with the core session/project/message/part
+// tables used by discovery.
+func writeOpencodeDBStore(t testing.TB, home, id, cwd, title string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(home, "opencode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.Exec(`
+CREATE TABLE session (
+  id text primary key,
+  project_id text not null,
+  parent_id text,
+  slug text not null,
+  directory text not null,
+  title text not null,
+  version text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  time_archived integer
+);
+CREATE TABLE project (
+  id text primary key,
+  worktree text not null
+);
+CREATE TABLE message (
+  id text primary key,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+CREATE TABLE part (
+  id text primary key,
+  message_id text not null,
+  session_id text not null,
+  time_created integer not null,
+  time_updated integer not null,
+  data text not null
+);
+`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, "proj_"+id, id, cwd, title, "1.18.19", 1781322000000, 1781322060000); err != nil {
+		t.Fatal(err)
+	}
+	msgData, _ := json.Marshal(map[string]any{"role": "user", "time": map[string]any{"created": 1781322000000}})
+	if _, err := db.Exec(`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+		"msg_"+id, id, 1781322000000, 1781322000000, string(msgData)); err != nil {
+		t.Fatal(err)
+	}
+	partData, _ := json.Marshal(map[string]any{"type": "text", "text": title})
+	if _, err := db.Exec(`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)`,
+		"part_"+id, "msg_"+id, id, 1781322000000, 1781322000000, string(partData)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func jsonString(value string) string {
@@ -2077,6 +2224,20 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	}
 }
 
+func writePiNamedSession(t testing.TB, home, id, cwd, title string) {
+	t.Helper()
+	writePiSession(t, home, id, cwd, title)
+}
+
+func writePiSession(t testing.TB, home, id, cwd, title string) {
+	t.Helper()
+	dir := filepath.Join(home, "sessions", "--"+strings.ReplaceAll(id, "_", "-")+"--")
+	path := filepath.Join(dir, "2026-06-13T01-00-00-000Z_"+id+".jsonl")
+	header := `{"type":"session","version":3,"id":` + jsonString(id) + `,"timestamp":"2026-06-13T01:00:00.000Z","cwd":` + jsonString(cwd) + `}`
+	message := `{"type":"message","id":"msg-` + id + `","timestamp":"2026-06-13T01:01:00.000Z","message":{"role":"user","content":[{"type":"text","text":` + jsonString(title) + `}]}}`
+	writeFile(t, path, header+"\n"+message+"\n")
+}
+
 func writeFile(t testing.TB, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -2084,5 +2245,288 @@ func writeFile(t testing.TB, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCLIShowsClaudeTranscript(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := filepath.Join(env.ProviderHome["claude"])
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_show.jsonl"), `{"type":"user","sessionId":"sess_show","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"<system-reminder>injected</system-reminder>"}}
+{"type":"user","sessionId":"sess_show","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"user","content":"what broke"}}
+{"type":"assistant","sessionId":"sess_show","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"the build failed"}]}}
+{"type":"summary","summary":"fixed build"}
+`)
+
+	out := env.Run2(t, "show", "sess_show")
+	var payload struct {
+		ID               string `json:"id"`
+		Provider         string `json:"provider"`
+		CWD              string `json:"cwd"`
+		Title            string `json:"title"`
+		TotalMessages    int    `json:"total_messages"`
+		MatchedMessages  int    `json:"matched_messages"`
+		ReturnedMessages int    `json:"returned_messages"`
+		Truncated        bool   `json:"truncated"`
+		Messages         []struct {
+			Role  string `json:"role"`
+			Text  string `json:"text"`
+			Index int    `json:"index"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.ID != "sess_show" || payload.Provider != "claude" || payload.CWD != repo || payload.Title != "fixed build" {
+		t.Fatalf("header = %#v", payload)
+	}
+	if payload.TotalMessages != 2 || payload.MatchedMessages != 2 || payload.ReturnedMessages != 2 || payload.Truncated {
+		t.Fatalf("counts = %#v", payload)
+	}
+	if len(payload.Messages) != 2 ||
+		payload.Messages[0].Role != "user" || payload.Messages[0].Text != "what broke" || payload.Messages[0].Index != 0 ||
+		payload.Messages[1].Role != "assistant" || payload.Messages[1].Text != "the build failed" || payload.Messages[1].Index != 1 {
+		t.Fatalf("messages = %#v", payload.Messages)
+	}
+}
+
+func TestCLIShowFilterContractIsSelfDescribing(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_filter.jsonl"), `{"type":"user","sessionId":"sess_filter","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"question one"}}
+{"type":"assistant","sessionId":"sess_filter","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:01Z","message":{"role":"assistant","content":"answer one"}}
+{"type":"user","sessionId":"sess_filter","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:02Z","message":{"role":"user","content":"question two"}}
+`)
+
+	var payload struct {
+		TotalMessages    int  `json:"total_messages"`
+		MatchedMessages  int  `json:"matched_messages"`
+		ReturnedMessages int  `json:"returned_messages"`
+		Truncated        bool `json:"truncated"`
+		Filters          struct {
+			Grep string `json:"grep"`
+			Tail int    `json:"tail,omitempty"`
+		} `json:"filters"`
+		Messages []struct {
+			Text string `json:"text"`
+		} `json:"messages"`
+	}
+
+	// Grep narrows the conversation and echoes the filter back.
+	out := env.Run2(t, "show", "sess_filter", "--claude-home", claudeHome, "--grep", "two")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.MatchedMessages != 1 || payload.ReturnedMessages != 1 {
+		t.Fatalf("grep counts = %#v", payload)
+	}
+	if payload.Filters.Grep != "two" {
+		t.Fatalf("filters = %#v", payload.Filters)
+	}
+
+	// A window smaller than the match set reports truncation explicitly.
+	out = env.Run2(t, "show", "sess_filter", "--claude-home", claudeHome, "--last", "1")
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.ReturnedMessages != 1 || !payload.Truncated {
+		t.Fatalf("window counts = %#v", payload)
+	}
+	if payload.Messages[0].Text != "question two" {
+		t.Fatalf("tail message = %#v", payload.Messages[0])
+	}
+}
+
+func TestCLIShowsZCodeTranscriptFromSQLite(t *testing.T) {
+	env := newASMTestEnv(t)
+	zcodeHome := t.TempDir()
+	repo := t.TempDir()
+	writeZCodeSession(t, zcodeHome, "ses_zshow", repo, "zcode transcript session")
+
+	out := env.Run2(t, "show", "ses_zshow", "--zcode-home", zcodeHome)
+	var payload struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+		CWD      string `json:"cwd"`
+		Title    string `json:"title"`
+		Messages []struct {
+			Role string `json:"role"`
+			Text string `json:"text"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if payload.ID != "ses_zshow" || payload.Provider != "zcode" || payload.CWD != repo || payload.Title != "zcode transcript session" {
+		t.Fatalf("header = %#v", payload)
+	}
+	if len(payload.Messages) != 1 || payload.Messages[0].Role != "user" || payload.Messages[0].Text != "zcode transcript session" {
+		t.Fatalf("messages = %#v", payload.Messages)
+	}
+}
+
+func TestCLIShowNotFoundUsesMachineReadableError(t *testing.T) {
+	env := newASMTestEnv(t)
+	out, err := env.Run(t, "show", "missing_session")
+	if err == nil {
+		t.Fatalf("expected failure, got: %s", out)
+	}
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	errorJSON := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
+	if json.Unmarshal([]byte(errorJSON), &payload) != nil {
+		t.Fatalf("error output is not JSON: %s", out)
+	}
+	if payload.Error.Code != "session_not_found" || payload.Error.Message != "session not found: missing_session" {
+		t.Fatalf("unexpected show error: %#v", payload)
+	}
+}
+
+func TestCLIShowSupportsEveryRegisteredProvider(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	codexPath := filepath.Join(env.ProviderHome["codex"], "sessions", "2026", "06", "13", "show-codex.jsonl")
+	writeFile(t, codexPath, `{"timestamp":"2026-06-13T01:00:00Z","type":"session_meta","payload":{"id":"show-codex","timestamp":"2026-06-13T01:00:00Z","cwd":`+jsonString(repo)+`}}
+{"timestamp":"2026-06-13T01:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"codex prompt"}]}}
+{"timestamp":"2026-06-13T01:02:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"codex answer"}]}}
+`)
+	writeClaudeSession(t, filepath.Join(env.ProviderHome["claude"], "projects", "-repo", "show-claude.jsonl"), "show-claude", repo, "claude prompt")
+	kimiDir := filepath.Join(env.ProviderHome["kimi"], "sessions", "repo", "show-kimi")
+	writeKimiSession(t, env.ProviderHome["kimi"], kimiDir, "show-kimi", repo, "kimi title")
+	writeFile(t, filepath.Join(kimiDir, "state.json"), `{"createdAt":"2026-06-13T01:00:00Z","updatedAt":"2026-06-13T01:01:00Z","lastPrompt":"kimi prompt"}`)
+	writeKiroSession(t, env.ProviderHome["kiro"], "show-kiro", repo, "kiro prompt")
+	writeDshSession(t, env.ProviderHome["dsh"], "show-dsh", repo)
+	writePiSession(t, env.ProviderHome["pi"], "show-pi", repo, "pi prompt")
+	writeOpencodeSession(t, env.ProviderHome["opencode"], "project", "show-opencode", repo, "opencode title")
+	writeFile(t, filepath.Join(env.ProviderHome["opencode"], "storage", "message", "show-opencode", "msg.json"), `{"id":"msg","sessionID":"show-opencode","role":"user","time":{"created":1781322000000}}`)
+	writeFile(t, filepath.Join(env.ProviderHome["opencode"], "storage", "part", "msg", "part.json"), `{"type":"text","text":"opencode prompt"}`)
+	writeCodeBuddySession(t, env.ProviderHome["codebuddy"], "show-codebuddy", repo, "codebuddy title")
+	writeCursorSession(t, env.ProviderHome["cursor"], "show-cursor", repo, "cursor prompt")
+	writeOpenClawSession(t, env.ProviderHome["openclaw"], "show-openclaw", "native", "openclaw title")
+	writeZCodeSession(t, env.ProviderHome["zcode"], "show-zcode", repo, "zcode prompt")
+
+	cases := []struct{ provider, id string }{
+		{"codex", "show-codex"}, {"claude", "show-claude"}, {"kimi", "show-kimi"}, {"kiro", "show-kiro"},
+		{"opencode", "show-opencode"}, {"codebuddy", "show-codebuddy"}, {"cursor", "show-cursor"},
+		{"openclaw", "show-openclaw"}, {"zcode", "show-zcode"}, {"pi", "show-pi"}, {"dsh", "show-dsh"},
+	}
+	for _, tc := range cases {
+		out, err := env.Run(t, "show", tc.id, "--provider", tc.provider, "--full", "--format", "compact")
+		if err != nil {
+			t.Fatalf("%s show failed: %v\n%s", tc.provider, err, out)
+		}
+		var payload struct {
+			Provider string `json:"provider"`
+			ID       string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("%s output is not JSON: %v\n%s", tc.provider, err, out)
+		}
+		if payload.Provider != tc.provider || payload.ID != tc.id {
+			t.Fatalf("%s payload = %#v", tc.provider, payload)
+		}
+	}
+}
+
+func TestCLIShowSearchFormatsAndCursorArePublicContracts(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	path := filepath.Join(env.ProviderHome["claude"], "projects", "-repo", "show-options.jsonl")
+	writeFile(t, path,
+		`{"type":"user","sessionId":"show-options","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"before"}}`+"\n"+
+			`{"type":"assistant","sessionId":"show-options","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:01:00Z","message":{"role":"assistant","content":"Needle answer"}}`+"\n"+
+			`{"type":"user","sessionId":"show-options","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:02:00Z","message":{"role":"user","content":"after"}}`+"\n")
+	out := env.Run2(t, "show", "show-options", "--provider", "claude", "--grep", "needle", "--before", "1", "--after", "1", "--format", "compact")
+	var payload struct {
+		Matched  int `json:"matched_messages"`
+		Messages []struct {
+			Index        int `json:"index"`
+			MatchOffsets []struct {
+				Start int `json:"start"`
+				End   int `json:"end"`
+			} `json:"match_offsets"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid compact output: %v\n%s", err, out)
+	}
+	if payload.Matched != 1 || len(payload.Messages) != 3 || payload.Messages[1].Index != 1 || len(payload.Messages[1].MatchOffsets) != 1 {
+		t.Fatalf("search contract = %#v", payload)
+	}
+
+	out = env.Run2(t, "show", "show-options", "--provider", "claude", "--full", "--from-index", "1", "--summary", "--summary-chars", "4", "--format", "jsonl", "--fields", "id,provider,messages")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("jsonl lines = %d, want metadata plus two messages: %s", len(lines), out)
+	}
+	if !strings.Contains(lines[0], `"type":"meta"`) || !strings.Contains(lines[1], `"type":"message"`) {
+		t.Fatalf("jsonl shape = %s", out)
+	}
+}
+
+func TestCLIShowAmbiguousIDRequiresProvider(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_dup.jsonl"), `{"type":"user","sessionId":"sess_dup","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"from claude"}}
+`)
+	writeZCodeSession(t, env.ProviderHome["zcode"], "sess_dup", repo, "from zcode")
+
+	out, err := env.Run(t, "show", "sess_dup")
+	if err == nil {
+		t.Fatalf("expected ambiguity failure, got: %s", out)
+	}
+	if !strings.Contains(out, "ambiguous") || !strings.Contains(out, "--provider") {
+		t.Fatalf("output = %s", out)
+	}
+
+	disambiguated := env.Run2(t, "show", "sess_dup", "--provider", "zcode")
+	if !strings.Contains(disambiguated, `"provider": "zcode"`) {
+		t.Fatalf("output = %s", disambiguated)
+	}
+}
+
+func TestCLIShowDoesNotResolveUnqualifiedIDAfterProviderFailure(t *testing.T) {
+	env := newASMTestEnv(t)
+	repo := t.TempDir()
+	claudeHome := env.ProviderHome["claude"]
+	projectDir := filepath.Join(claudeHome, "projects", "-repo")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(projectDir, "sess_partial.jsonl"), `{"type":"user","sessionId":"sess_partial","cwd":`+jsonString(repo)+`,"timestamp":"2026-06-13T01:00:00Z","message":{"role":"user","content":"from claude"}}
+`)
+	zcodeDB := filepath.Join(env.ProviderHome["zcode"], "cli", "db", "db.sqlite")
+	writeFile(t, zcodeDB, "not a sqlite database")
+
+	out, err := env.Run(t, "show", "sess_partial")
+	if err == nil {
+		t.Fatalf("expected incomplete-resolution failure, got: %s", out)
+	}
+	if !strings.Contains(out, "cannot safely resolve") ||
+		!strings.Contains(out, "zcode") || !strings.Contains(out, "--provider") {
+		t.Fatalf("output = %s", out)
+	}
+
+	resolved := env.Run2(t, "show", "sess_partial", "--provider", "claude")
+	if !strings.Contains(resolved, `"provider": "claude"`) {
+		t.Fatalf("provider-qualified output = %s", resolved)
 	}
 }

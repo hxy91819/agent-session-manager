@@ -18,9 +18,11 @@ Providers:
 - Kiro CLI sessions stored under `$KIRO_HOME/sessions/cli` or
   `~/.kiro/sessions/cli`. Resume runs from the original session cwd with
   `kiro-cli chat --resume-id <session-id>`.
-- opencode sessions stored under `$OPENCODE_HOME/storage` or
-  `~/.local/share/opencode/storage`. Resume runs from the original session cwd
-  with `opencode -s <session-id>`.
+- opencode sessions stored in `$OPENCODE_HOME/opencode.db` or
+  `~/.local/share/opencode/opencode.db` (SQLite, opencode v1.18+), with the
+  legacy `storage/session/**.json` layout used when the database does not
+  exist. Resume runs from the original session cwd with
+  `opencode -s <session-id>`.
 - ZCode sessions stored in a SQLite database under `$ZCODE_HOME/cli/db/db.sqlite`
   or `~/.zcode/cli/db/db.sqlite`. ZCode is an Electron desktop app without a CLI
   or documented resume path, so asm treats zcode as discover-only; the reported
@@ -32,6 +34,38 @@ Providers:
 ```sh
 go run ./cmd/asm
 ```
+
+## Transcript inspection
+
+Use `asm show <session-id>` to read a bounded, normalized transcript without
+opening a provider. All registered providers implement transcript reading;
+providers whose native store keeps only a latest prompt return that available
+portion. Tool calls, tool results, and reasoning are omitted from the normalized
+user/assistant flow for a stable cross-provider contract.
+
+```sh
+asm show <session-id> --provider claude
+asm show <session-id> --grep "timeout" --before 2 --after 2
+asm show <session-id> --grep 'error-[0-9]+' --regex --case-sensitive
+asm show <session-id> --full --from-index 50 --format jsonl --fields id,provider,messages
+```
+
+`--grep` is a case-insensitive substring match by default. `--regex` switches
+to regular-expression matching and `--exact` requires the complete message text
+to match; `--case-sensitive` applies to either mode. `--before` and `--after`
+require `--grep` and include neighboring messages while `match_offsets` reports
+byte offsets in the original matching message. Message `index` values are
+zero-based positions in the append-only transcript and are stable for existing
+messages; use `--from-index` as a cursor when walking a growing session.
+`--offset` skips returned rows after filtering and is less stable than
+`--from-index` if a provider inserts history.
+
+The default `json` format is indented, `compact` is one JSON envelope without
+whitespace, and `jsonl` emits a metadata row followed by one message row per
+line. `--fields` selects top-level envelope fields. `--summary` keeps the same
+indexes, roles, and timestamps but limits text to `--summary-chars` (200 by
+default). Show failures are written as `{"error":{"code":"...","message":"..."}}`
+to stderr for scripts.
 
 ## Install
 
@@ -145,6 +179,19 @@ Generate and commit the changelog only after every intended feature and fix has
 merged into `master`. The generator reads first-parent history, resolves each
 merged PR's original GitHub author, and writes explicit `Thanks @author`
 credit. The tag workflow verifies that committed section before publishing.
+
+Release smoke verification:
+
+```sh
+tar -xzf asm_v0.9.0_linux_amd64.tar.gz
+scripts/verify-release-smoke.sh ./asm_v0.9.0_linux_amd64/asm
+```
+
+The script uses isolated temporary stores and exercises the installed binary
+through its public CLI for dsh, Pi, and opencode SQLite discovery, title
+fallbacks, report evidence, provider-scoped resume commands, and missing-cwd
+safety. It requires `jq` and `python3`; it never reads or modifies real agent
+stores.
 
 Performance controls:
 
