@@ -12,6 +12,10 @@ umask 077
 #   --generator-provider selects a bundled provider; Ollama is the default and
 #   CodeBuddy remains available for compatibility.
 #   --generator-attempts defaults to 3; --generator-max-turns defaults to 50.
+#   --generator-model-fallbacks is a comma-separated backup model list used when
+#   the generator reports model overload; REPORT_GENERATOR_INFRA_BACKOFF_SECONDS
+#   (default 30, capped at 300) is the exponential base delay for infrastructure
+#   failures such as network stalls and HTTP 5xx responses.
 #   --env-file defaults to .env and supplies integration credentials.
 #   --start and --end select a custom half-open report window together.
 #   --skip-meetings disables Tencent Meeting enrichment.
@@ -64,6 +68,9 @@ Options:
   --skip-meetings             Disable Tencent Meeting enrichment.
   --generator-attempts <n>    Generation attempts. Default: 3.
   --generator-max-turns <n>   Optional adapter turn budget. Default: 50.
+  --generator-model-fallbacks <list>
+                              Comma-separated backup models tried in order after
+                              a model-overload failure. Default: none.
   --codebuddy-attempts <n>    Compatibility alias for --generator-attempts.
   --codebuddy-max-turns <n>   Compatibility alias for --generator-max-turns.
   --dry-run                   Generate and validate report but skip delivery.
@@ -123,6 +130,9 @@ skip_meetings=0
 dry_run=0
 generator_attempts=3
 generator_max_turns=50
+generator_model_fallbacks=${REPORT_GENERATOR_MODEL_FALLBACKS:-}
+infra_backoff_base=${REPORT_GENERATOR_INFRA_BACKOFF_SECONDS:-30}
+infra_backoff_max=300
 custom_start=
 custom_end=
 period_set=0
@@ -231,6 +241,11 @@ while (($#)); do
       generator_max_turns=$2
       shift 2
       ;;
+    --generator-model-fallbacks)
+      [[ $# -ge 2 ]] || { log_error "$1 requires a value"; exit 1; }
+      generator_model_fallbacks=$2
+      shift 2
+      ;;
     --dry-run)
       dry_run=1
       shift
@@ -295,6 +310,20 @@ fi
 if ! [[ "$generator_max_turns" =~ ^[1-9][0-9]*$ ]]; then
   log_error "--generator-max-turns must be a positive integer"
   exit 1
+fi
+
+if ! [[ "$infra_backoff_base" =~ ^[0-9]+$ ]]; then
+  log_error "REPORT_GENERATOR_INFRA_BACKOFF_SECONDS must be a non-negative integer"
+  exit 1
+fi
+
+fallback_models=()
+if [[ -n "$generator_model_fallbacks" ]]; then
+  if ! [[ "$generator_model_fallbacks" =~ ^[A-Za-z0-9._:/+-]+(,[A-Za-z0-9._:/+-]+)*$ ]]; then
+    log_error "--generator-model-fallbacks must be a comma-separated model list"
+    exit 1
+  fi
+  IFS=',' read -r -a fallback_models <<< "$generator_model_fallbacks"
 fi
 
 if [[ -z "$generator_script" ]]; then
@@ -400,6 +429,9 @@ fi
 log_info "Found ${session_count} sessions across ${project_count} projects."
 log_info "Evidence-backed sessions: ${evidence_session_count}; compacting report input."
 log_info "Generating report with provider=${generator_provider} adapter=${generator_script} model=${model:-provider-default} attempts=${generator_attempts} max_turns=${generator_max_turns}"
+if ((${#fallback_models[@]})); then
+  log_info "Generator model fallbacks: ${fallback_models[*]}"
+fi
 
 case "$period" in
   last-week | last-7-days)
@@ -539,12 +571,14 @@ printf '%s\n' '--- END UNTRUSTED REPORT EVIDENCE ---'
 } > "$prompt_out"
 
 generate_report() {
-  local attempt attempt_report attempt_stderr
+  local attempt attempt_report attempt_stderr backoff infra_failures fallback_index
+  infra_failures=0
+  fallback_index=0
   for ((attempt = 1; attempt <= generator_attempts; attempt++)); do
     attempt_report="${report_out}.attempt-${attempt}"
     attempt_stderr="${report_out}.attempt-${attempt}.err"
     rm -f "$attempt_report" "$attempt_stderr"
-    log_info "Generator attempt ${attempt}/${generator_attempts}: prompt=${prompt_out}"
+    log_info "Generator attempt ${attempt}/${generator_attempts}: prompt=${prompt_out} model=${model:-provider-default}"
     if REPORT_MODEL="$model" \
       REPORT_MAX_TURNS="$generator_max_turns" \
       REPORT_GENERATOR_PROVIDER="$generator_provider" \
@@ -554,8 +588,14 @@ generate_report() {
       if [[ ! -s "$attempt_report" ]]; then
         log_error "Generator attempt ${attempt} produced an empty report; stderr: $attempt_stderr"
       elif python3 "$report_validator" "$attempt_report" >> "$attempt_stderr" 2>&1; then
+        # Decision:
+        #   Record the resolved generator model in the delivered report so a
+        #   rotated backup model stays identifiable when readers compare report
+        #   quality across nights.
+        resolved_model=${model:-${REPORT_MODEL:-${OLLAMA_MODEL:-provider-default}}}
+        printf '\n---\n\n生成模型：%s\n' "$resolved_model" >> "$attempt_report"
         mv "$attempt_report" "$report_out"
-        log_info "Generator attempt ${attempt} succeeded."
+        log_info "Generator attempt ${attempt} succeeded with model=${resolved_model}."
         return 0
       else
         log_error "Generator attempt ${attempt} produced an invalid report; validator output: $attempt_stderr"
@@ -570,7 +610,23 @@ generate_report() {
     fi
     rm -f "$attempt_report"
     if ((attempt < generator_attempts)); then
-      sleep "$attempt"
+      if grep -qE '\[ollama:(network|model-overloaded|http-error)\]' "$attempt_stderr" 2>/dev/null; then
+        infra_failures=$((infra_failures + 1))
+        backoff=$((infra_backoff_base * (2 ** (infra_failures - 1))))
+        ((backoff > infra_backoff_max)) && backoff=$infra_backoff_max
+        if grep -q '\[ollama:model-overloaded\]' "$attempt_stderr" 2>/dev/null \
+          && ((fallback_index < ${#fallback_models[@]})); then
+          model=${fallback_models[fallback_index]}
+          fallback_index=$((fallback_index + 1))
+          log_info "Rotating generator model to \"${model}\" for the next attempt"
+        fi
+        if ((backoff > 0)); then
+          log_info "Infrastructure backoff ${backoff}s before the next attempt"
+        fi
+        sleep "$backoff"
+      else
+        sleep "$attempt"
+      fi
     fi
   done
 

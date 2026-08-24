@@ -48,13 +48,23 @@ Environment:
   OLLAMA_BASE_URL          Optional API base URL ending in /v1.
   OLLAMA_REASONING_EFFORT  Optional thinking depth: none, low, medium, high, or max.
   OLLAMA_CURL_BIN          Optional curl executable override for tests or wrappers.
+  REPORT_OLLAMA_STALL_SECONDS
+                           Optional stall guard: abort when fewer than 1 byte
+                           per second arrives for this many consecutive seconds.
+                           Default: 60. Requires a value smaller than the request
+                           timeout so stalled requests fail fast.
 
 Outputs:
   stdout                   Generated Markdown report only.
-  stderr                   Non-secret request diagnostics.
+  stderr                   Diagnostics with stable markers such as
+                           [ollama:network] for transport failures,
+                           [ollama:model-overloaded] for overload responses that
+                           recommend another model, [ollama:http-error] for other
+                           non-2xx responses, and [ollama:empty-response] when no
+                           assistant content comes back.
   exit 0                   A non-empty assistant message was returned.
   exit non-zero            Invalid input, missing dependency, network, HTTP, or
-                           response-format failure.
+                            response-format failure.
 
 Examples:
   scripts/report-generators/ollama.sh --prompt report-prompt.txt
@@ -71,6 +81,7 @@ base_url=${REPORT_OLLAMA_BASE_URL:-${OLLAMA_BASE_URL:-https://ollama.com/v1}}
 api_key=${REPORT_OLLAMA_API_KEY:-${OLLAMA_API_KEY:-}}
 reasoning_effort=${REPORT_OLLAMA_REASONING_EFFORT:-${OLLAMA_REASONING_EFFORT:-max}}
 timeout_seconds=${REPORT_OLLAMA_TIMEOUT_SECONDS:-300}
+stall_seconds=${REPORT_OLLAMA_STALL_SECONDS:-60}
 curl_bin=${OLLAMA_CURL_BIN:-curl}
 
 while (($#)); do
@@ -140,6 +151,14 @@ if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   log_error "--timeout-seconds must be a positive integer"
   exit 1
 fi
+if ! [[ "$stall_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  log_error "REPORT_OLLAMA_STALL_SECONDS must be a positive integer"
+  exit 1
+fi
+if ((stall_seconds >= timeout_seconds)); then
+  log_error "REPORT_OLLAMA_STALL_SECONDS must be smaller than the request timeout"
+  exit 1
+fi
 if [[ "$curl_bin" == */* ]]; then
   if [[ ! -x "$curl_bin" ]]; then
     log_error "curl executable not found or not executable: $curl_bin"
@@ -162,11 +181,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Decision:
+#   Stream the response so a stalled server aborts early through the
+#   --speed-limit guard instead of burning the full request timeout, and so
+#   partial progress is visible while long generations run.
 if ! jq -n \
   --arg model "$model" \
   --arg reasoning_effort "$reasoning_effort" \
   --rawfile prompt "$prompt_path" \
-  '{model: $model, messages: [{role: "user", content: $prompt}], reasoning_effort: $reasoning_effort}' \
+  '{model: $model, messages: [{role: "user", content: $prompt}], reasoning_effort: $reasoning_effort, stream: true}' \
   > "$request_path"; then
   log_error "Unable to build Ollama request payload"
   exit 1
@@ -188,26 +211,39 @@ if ! http_status=$(
     --location \
     --connect-timeout 15 \
     --max-time "$timeout_seconds" \
+    --speed-limit 1 \
+    --speed-time "$stall_seconds" \
     --output "$response_path" \
     --write-out '%{http_code}' \
     --data-binary "@$request_path" \
     "$endpoint"
 ); then
-  log_error "Ollama API request failed"
+  log_error "[ollama:network] Ollama API request failed"
   exit 1
 fi
 
 if ! [[ "$http_status" =~ ^2[0-9][0-9]$ ]]; then
   error_message=$(jq -r '.error.message // .message // empty' "$response_path" 2>/dev/null || true)
-  if [[ -n "$error_message" ]]; then
-    log_error "Ollama API returned HTTP ${http_status}: ${error_message}"
+  if [[ "$http_status" =~ ^(429|5[0-9][0-9])$ && -n "$error_message" ]] \
+    && [[ "${error_message,,}" == *overloaded* || "${error_message,,}" == *"try a different model"* ]]; then
+    log_error "[ollama:model-overloaded] Ollama API returned HTTP ${http_status}: ${error_message}"
+  elif [[ -n "$error_message" ]]; then
+    log_error "[ollama:http-error] Ollama API returned HTTP ${http_status}: ${error_message}"
   else
-    log_error "Ollama API returned HTTP ${http_status}"
+    log_error "[ollama:http-error] Ollama API returned HTTP ${http_status}"
   fi
   exit 1
 fi
 
-if ! jq -er '.choices[0].message.content | select(type == "string" and length > 0)' "$response_path"; then
-  log_error "Ollama API response did not contain assistant Markdown"
+assistant_content=$(
+  sed -n 's/^data: //p' "$response_path" 2>/dev/null \
+    | jq -Rj 'fromjson? | .choices[0].delta.content // empty' 2>/dev/null || true
+)
+if [[ -z "$assistant_content" ]]; then
+  assistant_content=$(jq -r '.choices[0].message.content // empty' "$response_path" 2>/dev/null || true)
+fi
+if [[ -z "$assistant_content" ]]; then
+  log_error "[ollama:empty-response] Ollama API response did not contain assistant Markdown"
   exit 1
 fi
+printf '%s\n' "$assistant_content"

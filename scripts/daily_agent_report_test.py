@@ -372,20 +372,53 @@ class DailyReportScriptTests(unittest.TestCase):
             request_path = option_value("--data-binary")[1:]
             response_path = option_value("--output")
             config_path = option_value("--config")
-            Path(os.environ["FAKE_OLLAMA_REQUEST"]).write_text(
+            state_path = os.environ.get("FAKE_OLLAMA_STATE")
+            call = 0
+            if state_path and Path(state_path).exists():
+                raw = Path(state_path).read_text(encoding="utf-8").strip()
+                call = int(raw) if raw else 0
+            capture_path = os.environ["FAKE_OLLAMA_REQUEST"]
+            if state_path:
+                capture_path = f"{capture_path}.{call + 1}"
+            Path(capture_path).write_text(
                 Path(request_path).read_text(encoding="utf-8"), encoding="utf-8"
             )
-            Path(os.environ["FAKE_OLLAMA_CONFIG"]).write_text(
-                Path(config_path).read_text(encoding="utf-8"), encoding="utf-8"
-            )
-            Path(response_path).write_text(json.dumps({
-                "choices": [{"message": {"content": (
-                    "## 工作概览\\n"
-                    "1. [中投入] [project] Ollama 试验：完成生成验证；下一步：持续推送\\n\\n"
-                    "## 后续跟进\\n- [project] 持续推送\\n\\n"
-                    "## 风险与阻塞\\n- [全局] 暂无明确阻塞"
-                )}}]
-            }, ensure_ascii=False), encoding="utf-8")
+            config_capture = os.environ.get("FAKE_OLLAMA_CONFIG")
+            if config_capture:
+                Path(config_capture).write_text(
+                    Path(config_path).read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            if (
+                os.environ.get("FAKE_OLLAMA_OVERLOADED_FIRST") == "1"
+                and call == 0
+            ):
+                Path(response_path).write_text(json.dumps({
+                    "error": {"message": (
+                        "model 'deepseek-fixture' is temporarily overloaded, "
+                        "please retry shortly or try a different model"
+                    )}
+                }, ensure_ascii=False), encoding="utf-8")
+                if state_path:
+                    Path(state_path).write_text("1", encoding="utf-8")
+                print("503")
+                sys.exit(0)
+            if state_path:
+                Path(state_path).write_text(str(call + 1), encoding="utf-8")
+            chunks = [
+                "## 工作概览\\n",
+                "1. [中投入] [project] Ollama 试验：完成生成验证；下一步：持续推送\\n\\n",
+                "## 后续跟进\\n- [project] 持续推送\\n\\n",
+                "## 风险与阻塞\\n- [全局] 暂无明确阻塞",
+            ]
+            with open(response_path, "w", encoding="utf-8") as stream:
+                for chunk in chunks:
+                    event = json.dumps(
+                        {"choices": [{"delta": {"content": chunk}}]},
+                        ensure_ascii=False,
+                    )
+                    stream.write(f"data: {event}\\n\\n")
+                stream.write("data: [DONE]\\n")
             print("200")
             """,
         )
@@ -614,6 +647,7 @@ class DailyReportScriptTests(unittest.TestCase):
         custom_end: str | None = None,
         extra_env: dict[str, str] | None = None,
         env_file: Path | None = None,
+        extra_args: list[str] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], Path]:
         run_dir = self.root / f"run-{period}"
         prompt_dir = self.root / f"prompts-{period}"
@@ -663,6 +697,8 @@ class DailyReportScriptTests(unittest.TestCase):
             command.extend(["--generator-script", str(generator_script)])
         if delivery_script is not None:
             command.extend(["--delivery-script", str(delivery_script)])
+        if extra_args:
+            command.extend(extra_args)
         if dry_run:
             command.append("--dry-run")
         result = subprocess.run(
@@ -1002,17 +1038,155 @@ class DailyReportScriptTests(unittest.TestCase):
         request = json.loads(request_path.read_text(encoding="utf-8"))
         self.assertEqual(request["model"], "deepseek-v4-flash:0731-cloud")
         self.assertEqual(request["reasoning_effort"], "max")
+        self.assertIs(request["stream"], True)
         self.assertEqual(request["messages"], [{
             "role": "user",
             "content": "只根据这里的证据生成报告",
         }])
         curl_args = json.loads(args_path.read_text(encoding="utf-8"))
         self.assertEqual(curl_args[-1], "https://ollama.example/v1/chat/completions")
+        self.assertEqual(curl_args[curl_args.index("--speed-limit") + 1], "1")
+        stall_seconds = curl_args[curl_args.index("--speed-time") + 1]
+        self.assertTrue(stall_seconds.isdigit(), curl_args)
+        self.assertGreater(int(stall_seconds), 0)
         self.assertNotIn("fixture-secret", curl_args)
         self.assertIn(
             'header = "Authorization: Bearer fixture-secret"',
             config_path.read_text(encoding="utf-8"),
         )
+
+    def test_ollama_adapter_marks_transport_failure_as_network_error(self) -> None:
+        prompt = self.root / "ollama-network-prompt.txt"
+        prompt.write_text("只根据这里的证据生成报告", encoding="utf-8")
+        self._write_executable(
+            "fake-ollama-curl-dead",
+            """\
+            #!/usr/bin/env python3
+            import sys
+
+            sys.stderr.write(
+                "curl: (28) Operation timed out after 300002 milliseconds "
+                "with 0 bytes received\\n"
+            )
+            sys.exit(28)
+            """,
+        )
+        result = subprocess.run(
+            [
+                str(OLLAMA_GENERATOR),
+                "--prompt",
+                str(prompt),
+            ],
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "OLLAMA_API_KEY": "fixture-secret",
+                "OLLAMA_BASE_URL": "https://ollama.example/v1",
+                "OLLAMA_CURL_BIN": str(self.bin_dir / "fake-ollama-curl-dead"),
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("[ollama:network]", result.stderr)
+        self.assertNotIn("fixture-secret", result.stderr)
+
+    def test_ollama_adapter_marks_503_as_model_overloaded(self) -> None:
+        prompt = self.root / "ollama-overloaded-prompt.txt"
+        prompt.write_text("只根据这里的证据生成报告", encoding="utf-8")
+        self._write_executable(
+            "fake-ollama-curl-overloaded",
+            """\
+            #!/usr/bin/env python3
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            args = sys.argv[1:]
+
+
+            def option_value(name):
+                return args[args.index(name) + 1]
+
+
+            response_path = option_value("--output")
+            Path(response_path).write_text(json.dumps({
+                "error": {"message": (
+                    "model 'deepseek-fixture' is temporarily overloaded, "
+                    "please retry shortly or try a different model"
+                )}
+            }, ensure_ascii=False), encoding="utf-8")
+            print("503")
+            """,
+        )
+        result = subprocess.run(
+            [
+                str(OLLAMA_GENERATOR),
+                "--prompt",
+                str(prompt),
+            ],
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "OLLAMA_API_KEY": "fixture-secret",
+                "OLLAMA_BASE_URL": "https://ollama.example/v1",
+                "OLLAMA_CURL_BIN": str(self.bin_dir / "fake-ollama-curl-overloaded"),
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("[ollama:model-overloaded]", result.stderr)
+        self.assertIn("HTTP 503", result.stderr)
+
+    def test_overloaded_model_rotates_to_fallback_and_succeeds(self) -> None:
+        request_path = self.root / "rotation-ollama-request.json"
+        state_path = self.root / "rotation-ollama-state"
+        result, _ = self.run_report(
+            "today",
+            generator_provider="ollama",
+            extra_env={
+                "PATH": f"{self.bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "OLLAMA_API_KEY": "fixture-secret",
+                "OLLAMA_BASE_URL": "https://ollama.example/v1",
+                "OLLAMA_MODEL": "fixture-model",
+                "OLLAMA_CURL_BIN": str(self.bin_dir / "fake-ollama-curl"),
+                "FAKE_OLLAMA_REQUEST": str(request_path),
+                "FAKE_OLLAMA_STATE": str(state_path),
+                "FAKE_OLLAMA_OVERLOADED_FIRST": "1",
+                "REPORT_GENERATOR_INFRA_BACKOFF_SECONDS": "0",
+            },
+            env_file=self.empty_env,
+            extra_args=[
+                "--generator-model-fallbacks",
+                "backup-model-1,backup-model-2",
+            ],
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("attempt 2 succeeded", result.stdout)
+        self.assertIn(
+            'Rotating generator model to "backup-model-1"', result.stdout
+        )
+        first_request = json.loads(
+            (Path(f"{request_path}.1")).read_text(encoding="utf-8")
+        )
+        second_request = json.loads(
+            (Path(f"{request_path}.2")).read_text(encoding="utf-8")
+        )
+        self.assertEqual(first_request["model"], "fixture-model")
+        self.assertEqual(second_request["model"], "backup-model-1")
+        report_files = sorted((self.root / "run-today").glob("*.md"))
+        self.assertTrue(report_files, "expected a delivered report file")
+        combined_reports = "\n".join(
+            path.read_text(encoding="utf-8") for path in report_files
+        )
+        self.assertIn("生成模型：backup-model-1", combined_reports)
 
     def test_ollama_provider_can_replace_codebuddy_in_orchestrator(self) -> None:
         request_path = self.root / "orchestrator-ollama-request.json"
