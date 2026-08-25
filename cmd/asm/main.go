@@ -249,6 +249,7 @@ func run(ctx context.Context, args []string) error {
 		WindowDays:          cfg.sinceDays,
 		StepDays:            30,
 		LoadMore:            loadSessions,
+		PreviewLoader:       transcriptLoader(providers),
 		NewSessionProviders: newSessionProviderNames(providers),
 	}), tea.WithAltScreen()).Run()
 	if err != nil {
@@ -686,6 +687,23 @@ func newSessionProviderNames(providers []session.Provider) []string {
 		names = append(names, provider.Name())
 	}
 	return names
+}
+
+func transcriptLoader(providers []session.Provider) ui.PreviewLoader {
+	return func(selected session.Session) (session.Transcript, error) {
+		provider := providerByName(providers, selected.Provider)
+		if provider == nil {
+			return session.Transcript{}, fmt.Errorf("no provider registered for %q", selected.Provider)
+		}
+		if reader, ok := provider.(session.SelectedTranscriptReader); ok {
+			return reader.ReadSelectedTranscript(selected)
+		}
+		reader, ok := provider.(session.TranscriptReader)
+		if !ok {
+			return session.Transcript{}, fmt.Errorf("%s conversation preview is unavailable", selected.Provider)
+		}
+		return reader.ReadTranscript(selected.ID)
+	}
 }
 
 func discoverAll(providers []session.Provider, limit int, sinceDays int) session.DiscoveryResult {

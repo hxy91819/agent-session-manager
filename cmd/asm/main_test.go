@@ -294,10 +294,37 @@ func TestResumeSessionRejectsUnavailableSession(t *testing.T) {
 	}
 }
 
+func TestTranscriptLoaderRoutesSelectedSessionToProviderReader(t *testing.T) {
+	want := session.Transcript{
+		Session:  session.Session{ID: "target", Provider: "codex"},
+		Messages: []session.Message{{Role: "assistant", Text: "preview text"}},
+	}
+	loader := transcriptLoader([]session.Provider{
+		transcriptProvider{staticProvider: staticProvider{name: "codex"}, transcript: want},
+	})
+
+	got, err := loader(session.Session{ID: "target", Provider: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Text != "preview text" {
+		t.Fatalf("transcript = %#v", got)
+	}
+}
+
 type staticProvider struct {
 	name  string
 	err   error
 	items []session.Session
+}
+
+type transcriptProvider struct {
+	staticProvider
+	transcript session.Transcript
+}
+
+func (p transcriptProvider) ReadTranscript(string) (session.Transcript, error) {
+	return p.transcript, nil
 }
 
 func (p staticProvider) Name() string {

@@ -657,6 +657,84 @@ func TestSessionsViewShowsProviderTags(t *testing.T) {
 	}
 }
 
+func TestSessionsViewShowsSelectedConversationPreview(t *testing.T) {
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{{
+		ID:        "uuid-only-session",
+		Provider:  "codex",
+		CWD:       "/repo",
+		Title:     "uuid-only-session",
+		UpdatedAt: time.Now(),
+	}}}, ModelOptions{
+		WindowDays: defaultWindowDays,
+		StepDays:   defaultStepDays,
+		PreviewLoader: func(selected session.Session) (session.Transcript, error) {
+			return session.Transcript{Session: selected, Messages: []session.Message{
+				{Role: "user", Text: "please diagnose the missing sessions"},
+				{Role: "assistant", Text: "the extra Codex homes were not configured"},
+			}}, nil
+		},
+	})
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("expected initial preview load")
+	}
+	next, _ := m.Update(cmd())
+	m = next.(Model)
+	view := m.sessionsView(16, 96)
+
+	for _, want := range []string{
+		"Conversation preview",
+		"user: please diagnose the missing sessions",
+		"assistant: the extra Codex homes were not configured",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	if got := lipgloss.Height(view); got > 16 {
+		t.Fatalf("height = %d, want <= 16\n%s", got, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 96 {
+			t.Fatalf("line width = %d, want <= 96\n%s", got, line)
+		}
+	}
+}
+
+func TestConversationPreviewIgnoresStaleSelectionResult(t *testing.T) {
+	base := time.Now()
+	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{
+		{ID: "new", Provider: "codex", CWD: "/repo", UpdatedAt: base.Add(time.Minute)},
+		{ID: "old", Provider: "codex", CWD: "/repo", UpdatedAt: base},
+	}}, ModelOptions{
+		WindowDays: defaultWindowDays,
+		StepDays:   defaultStepDays,
+		PreviewLoader: func(selected session.Session) (session.Transcript, error) {
+			return session.Transcript{Session: selected, Messages: []session.Message{{
+				Role: "assistant", Text: "preview for " + selected.ID,
+			}}}, nil
+		},
+	})
+
+	staleCmd := m.Init()
+	next, currentCmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if currentCmd == nil {
+		t.Fatal("expected preview load after changing selection")
+	}
+	next, _ = m.Update(staleCmd())
+	m = next.(Model)
+	if strings.Contains(m.sessionsView(16, 96), "preview for new") {
+		t.Fatalf("stale preview replaced current selection:\n%s", m.sessionsView(16, 96))
+	}
+	next, _ = m.Update(currentCmd())
+	m = next.(Model)
+	if !strings.Contains(m.sessionsView(16, 96), "preview for old") {
+		t.Fatalf("current preview missing:\n%s", m.sessionsView(16, 96))
+	}
+}
+
 func TestNewSessionChooserFitsContentHeightAndWidth(t *testing.T) {
 	m := NewWithDiscoveryOptions(session.DiscoveryResult{Sessions: []session.Session{{
 		ID:        "codex-session",

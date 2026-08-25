@@ -118,6 +118,12 @@ type TranscriptReader interface {
 	ReadTranscript(id string) (Transcript, error)
 }
 
+// SelectedTranscriptReader lets a provider reuse the exact source location
+// returned by discovery instead of searching its entire store by id.
+type SelectedTranscriptReader interface {
+	ReadSelectedTranscript(selected Session) (Transcript, error)
+}
+
 type DiscoverOptions struct {
 	LimitFiles int
 	Since      time.Time

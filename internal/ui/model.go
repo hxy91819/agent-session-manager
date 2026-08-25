@@ -38,6 +38,12 @@ type Model struct {
 	runtimeErrors             []session.RuntimeError
 	message                   string
 	loadMore                  LoadMoreFunc
+	previewLoader             PreviewLoader
+	previewCache              map[string]previewResult
+	previewKey                string
+	previewMessages           []session.Message
+	previewLoading            bool
+	previewErr                string
 	selected                  *Selection
 	quitting                  bool
 }
@@ -57,11 +63,13 @@ type Selection struct {
 }
 
 type LoadMoreFunc func(days int) (session.DiscoveryResult, error)
+type PreviewLoader func(selected session.Session) (session.Transcript, error)
 
 type ModelOptions struct {
 	WindowDays          int
 	StepDays            int
 	LoadMore            LoadMoreFunc
+	PreviewLoader       PreviewLoader
 	NewSessionProviders []string
 }
 
@@ -69,6 +77,17 @@ type loadedSessionsMsg struct {
 	days   int
 	result session.DiscoveryResult
 	err    error
+}
+
+type previewResult struct {
+	messages []session.Message
+	err      string
+}
+
+type previewLoadedMsg struct {
+	key      string
+	messages []session.Message
+	err      error
 }
 
 const defaultWindowDays = 30
@@ -115,12 +134,15 @@ func NewWithDiscoveryOptions(result session.DiscoveryResult, opts ModelOptions) 
 		windowDays:          opts.WindowDays,
 		stepDays:            opts.StepDays,
 		loadMore:            opts.LoadMore,
+		previewLoader:       opts.PreviewLoader,
+		previewCache:        make(map[string]previewResult),
 	}
 	if m.stepDays <= 0 {
 		m.stepDays = defaultStepDays
 	}
 	m.refresh()
 	m.sessionIdx = m.defaultSessionIdx()
+	_ = m.syncPreview()
 	return m
 }
 
@@ -132,11 +154,29 @@ func (m Model) Selected() (Selection, bool) {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.previewLoading {
+		if selected, ok := m.currentSelectedSession(); ok {
+			return previewLoadCmd(m.previewLoader, selected)
+		}
+	}
 	return textinput.Blink
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case previewLoadedMsg:
+		result := previewResult{messages: msg.messages}
+		if msg.err != nil {
+			result.err = msg.err.Error()
+		}
+		m.previewCache[msg.key] = result
+		if msg.key != m.previewKey {
+			return m, nil
+		}
+		m.previewLoading = false
+		m.previewMessages = result.messages
+		m.previewErr = result.err
+		return m, nil
 	case loadedSessionsMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -149,7 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.providerErrors = msg.result.ProviderErrors
 		m.runtimeErrors = msg.result.RuntimeErrors
 		m.refresh()
-		return m, nil
+		return m, m.syncPreview()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -164,7 +204,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.search.SetValue("")
 				m.refresh()
-				return m, nil
+				return m, m.syncPreview()
 			case "enter":
 				m.search.Blur()
 				return m, nil
@@ -172,7 +212,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.search, cmd = m.search.Update(msg)
 			m.refresh()
-			return m, cmd
+			return m, tea.Batch(cmd, m.syncPreview())
 		}
 		if m.choosingNewProvider {
 			switch msg.String() {
@@ -221,7 +261,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = ""
 			m.cycleSort()
 			m.refresh()
-			return m, nil
+			return m, m.syncPreview()
 		case "m":
 			if m.loadMore == nil || m.loading || m.windowDays <= 0 {
 				return m, nil
@@ -239,36 +279,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.sessionIdx--
 				}
 			}
-			return m, nil
+			return m, m.syncPreview()
 		case "down", "j":
 			if m.sessionIdx < m.maxSessionIdx() {
 				m.sessionIdx++
 			}
-			return m, nil
+			return m, m.syncPreview()
 		case "pgup", "pageup", "ctrl+u":
 			m.moveSessionPage(-1)
-			return m, nil
+			return m, m.syncPreview()
 		case "pgdown", "pagedown", "ctrl+d":
 			m.moveSessionPage(1)
-			return m, nil
+			return m, m.syncPreview()
 		case "home", "g":
 			m.sessionIdx = 0
-			return m, nil
+			return m, m.syncPreview()
 		case "end", "G":
 			m.sessionIdx = m.maxSessionIdx()
-			return m, nil
+			return m, m.syncPreview()
 		case "left", "h":
 			if m.projectIdx > 0 {
 				m.projectIdx--
 				m.sessionIdx = m.defaultSessionIdx()
 			}
-			return m, nil
+			return m, m.syncPreview()
 		case "right", "l":
 			if m.projectIdx < len(m.projects)-1 {
 				m.projectIdx++
 				m.sessionIdx = m.defaultSessionIdx()
 			}
-			return m, nil
+			return m, m.syncPreview()
 		case "enter":
 			items := m.currentSessions()
 			if len(items) == 0 {
@@ -415,6 +455,57 @@ func loadMoreCmd(loader LoadMoreFunc, days int) tea.Cmd {
 		result, err := loader(days)
 		return loadedSessionsMsg{days: days, result: result, err: err}
 	}
+}
+
+func previewLoadCmd(loader PreviewLoader, selected session.Session) tea.Cmd {
+	if loader == nil {
+		return nil
+	}
+	key := previewSessionKey(selected)
+	return func() tea.Msg {
+		transcript, err := loader(selected)
+		return previewLoadedMsg{key: key, messages: tailMessages(transcript.Messages, 2), err: err}
+	}
+}
+
+func tailMessages(messages []session.Message, limit int) []session.Message {
+	if limit <= 0 || len(messages) == 0 {
+		return nil
+	}
+	if len(messages) > limit {
+		messages = messages[len(messages)-limit:]
+	}
+	return append([]session.Message(nil), messages...)
+}
+
+func (m *Model) syncPreview() tea.Cmd {
+	selected, ok := m.currentSelectedSession()
+	if !ok || m.previewLoader == nil {
+		m.previewKey = ""
+		m.previewMessages = nil
+		m.previewLoading = false
+		m.previewErr = ""
+		return nil
+	}
+	key := previewSessionKey(selected)
+	if key == m.previewKey {
+		return nil
+	}
+	m.previewKey = key
+	m.previewMessages = nil
+	m.previewErr = ""
+	if cached, ok := m.previewCache[key]; ok {
+		m.previewMessages = cached.messages
+		m.previewErr = cached.err
+		m.previewLoading = false
+		return nil
+	}
+	m.previewLoading = true
+	return previewLoadCmd(m.previewLoader, selected)
+}
+
+func previewSessionKey(selected session.Session) string {
+	return selected.Provider + "\x00" + selected.ID
 }
 
 func providerErrorSummary(items []session.ProviderError) string {
@@ -630,7 +721,7 @@ func (m Model) sessionPageSize() int {
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
-	return sessionListLimit(contentHeight)
+	return sessionListLimit(contentHeight, m.previewLoader != nil)
 }
 
 func (m Model) projectsView(height int, width int) string {
@@ -688,7 +779,7 @@ func (m Model) sessionsView(height int, width int) string {
 	var b strings.Builder
 	b.WriteString(sectionStyle.Render(m.sessionsHeader(width)))
 	b.WriteByte('\n')
-	limit := sessionListLimit(height)
+	limit := sessionListLimit(height, m.previewLoader != nil)
 	newSession, hasNewSession := m.currentProjectNewSession()
 	offset := 0
 	if hasNewSession {
@@ -775,6 +866,14 @@ func (m Model) sessionsView(height int, width int) string {
 		b.WriteByte('\n')
 		b.WriteString(mutedStyle.Render(detailLine("file", selected.Path, width)))
 	}
+	if m.previewLoader != nil {
+		b.WriteByte('\n')
+		b.WriteString(sectionStyle.Render(truncate("Conversation preview", width)))
+		for _, line := range m.conversationPreviewLines(width) {
+			b.WriteByte('\n')
+			b.WriteString(mutedStyle.Render(line))
+		}
+	}
 	b.WriteByte('\n')
 	b.WriteString(mutedStyle.Render(truncate(sessionPageStatus(start, end, total, limit), width)))
 	return strings.TrimRight(b.String(), "\n")
@@ -860,12 +959,57 @@ func (m Model) newSessionLine(providerSession session.Session, width int) string
 	return fmt.Sprintf("%-11s %s %-6s %-8s %s", "new", status, providerTag(providerSession.Provider), "", "start fresh session")
 }
 
-func sessionListLimit(height int) int {
-	limit := height - 9
+func sessionListLimit(height int, withPreview bool) int {
+	reserved := 9
+	if withPreview {
+		reserved += 3
+	}
+	limit := height - reserved
 	if limit < 1 {
 		return 1
 	}
 	return limit
+}
+
+func (m Model) currentSelectedSession() (session.Session, bool) {
+	items := m.currentSessions()
+	if len(items) == 0 {
+		return session.Session{}, false
+	}
+	offset := 0
+	if _, hasNewSession := m.currentProjectNewSession(); hasNewSession {
+		if m.sessionIdx == 0 {
+			return session.Session{}, false
+		}
+		offset = 1
+	}
+	idx := m.sessionIdx - offset
+	if idx < 0 || idx >= len(items) {
+		return session.Session{}, false
+	}
+	return items[idx], true
+}
+
+func (m Model) conversationPreviewLines(width int) []string {
+	if m.previewLoading {
+		return []string{truncate("loading conversation...", width)}
+	}
+	if m.previewErr != "" {
+		return []string{truncate("unavailable: "+m.previewErr, width)}
+	}
+	if len(m.previewMessages) == 0 {
+		return []string{truncate("No conversation text available", width)}
+	}
+	start := len(m.previewMessages) - 2
+	if start < 0 {
+		start = 0
+	}
+	lines := make([]string, 0, 2)
+	for _, message := range m.previewMessages[start:] {
+		text := session.NormalizePreviewText(message.Text, 240)
+		lines = append(lines, detailLine(message.Role, text, width))
+	}
+	return lines
 }
 
 func sessionPageStart(cursor, limit int) int {

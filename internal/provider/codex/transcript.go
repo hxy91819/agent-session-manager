@@ -51,6 +51,47 @@ func (p Provider) ReadTranscript(id string) (session.Transcript, error) {
 	}
 	return best, nil
 }
+
+func (p Provider) ReadSelectedTranscript(selected session.Session) (session.Transcript, error) {
+	if strings.TrimSpace(selected.Path) == "" {
+		return p.ReadTranscript(selected.ID)
+	}
+	homes, err := p.homes()
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	path, err := filepath.Abs(selected.Path)
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	allowed := false
+	for _, home := range homes {
+		root, absErr := filepath.Abs(filepath.Join(home, "sessions"))
+		if absErr != nil {
+			continue
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed || filepath.Ext(path) != ".jsonl" {
+		return session.Transcript{}, fmt.Errorf("%w: codex session %q has an invalid source path", session.ErrSessionNotFound, selected.ID)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	transcript, ok, err := readCodexTranscriptFile(path, selected.ID, info.ModTime())
+	if err != nil {
+		return session.Transcript{}, err
+	}
+	if !ok {
+		return session.Transcript{}, fmt.Errorf("%w: codex session %q", session.ErrSessionNotFound, selected.ID)
+	}
+	return transcript, nil
+}
 func readCodexTranscriptFile(path, id string, modTime time.Time) (session.Transcript, bool, error) {
 	base, _, err := func() (session.Session, bool, error) {
 		f, e := os.Open(path)
