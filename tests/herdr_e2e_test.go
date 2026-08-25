@@ -364,13 +364,17 @@ func installFakeCommand(t *testing.T, source, dir, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer in.Close()
+	defer func() {
+		if err := in.Close(); err != nil {
+			t.Errorf("close fake command source: %v", err)
+		}
+	}()
 	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		t.Fatal(err)
 	}
 	if err := out.Close(); err != nil {

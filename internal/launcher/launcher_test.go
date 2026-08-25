@@ -135,7 +135,7 @@ func TestRunEnvironmentHelper(t *testing.T) {
 	if os.Getenv("ASM_LAUNCHER_ENV_HELPER") != "1" {
 		return
 	}
-	fmt.Fprint(os.Stdout, os.Getenv("CODEX_HOME"))
+	_, _ = fmt.Fprint(os.Stdout, os.Getenv("CODEX_HOME"))
 	os.Exit(0)
 }
 
