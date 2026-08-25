@@ -55,6 +55,42 @@ func TestDiscoverReadsIndexAndState(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsNumericMillisecondTimestamps(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sessionDir := filepath.Join(home, "sessions", "wd_repo", "ses_numeric")
+	writeKimiSession(t, home, sessionDir, "ses_numeric", repo, `{
+  "createdAt": 1787588320144,
+  "updatedAt": 1787588330643,
+  "title": "Numeric timestamp session",
+  "lastPrompt": "latest numeric prompt"
+}`)
+
+	got, err := New(home).Discover(session.DiscoverOptions{
+		Preview: session.PreviewOptions{UserMessagesPerEdge: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].ID != "ses_numeric" {
+		t.Fatalf("ID = %q", got[0].ID)
+	}
+	wantCreatedAt := time.UnixMilli(1787588320144).UTC()
+	if !got[0].CreatedAt.Equal(wantCreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", got[0].CreatedAt, wantCreatedAt)
+	}
+	wantUpdatedAt := time.UnixMilli(1787588330643).UTC().Format(time.RFC3339Nano)
+	if got[0].Metadata["kimi_updated_at"] != wantUpdatedAt {
+		t.Fatalf("kimi_updated_at = %q, want %q", got[0].Metadata["kimi_updated_at"], wantUpdatedAt)
+	}
+	if len(got[0].Previews) != 1 || !got[0].Previews[0].At.Equal(time.UnixMilli(1787588330643).UTC()) {
+		t.Fatalf("previews = %#v", got[0].Previews)
+	}
+}
+
 func TestDiscoverUsesLastPromptTitleFallback(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()

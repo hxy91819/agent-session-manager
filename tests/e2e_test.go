@@ -285,6 +285,38 @@ func TestCLIIndexesKimiAndPrintsResumeCommand(t *testing.T) {
 	}
 }
 
+func TestCLIIndexesKimiSessionWithNumericMillisecondTimestamps(t *testing.T) {
+	env := newASMTestEnv(t)
+	kimiHome := env.ProviderHome["kimi"]
+	repo := t.TempDir()
+	sessionDir := filepath.Join(kimiHome, "sessions", "wd_lightcloud", "ses_kimi_numeric")
+	writeKimiSession(t, kimiHome, sessionDir, "ses_kimi_numeric", repo, "numeric timestamp session")
+	writeFile(t, filepath.Join(sessionDir, "state.json"), `{"createdAt":1787588320144,"updatedAt":1787588330643,"title":"numeric timestamp session"}
+`)
+
+	out := env.Run2(t, "--since-days", "0", "--json", "--query", "numeric timestamp session")
+	var payload struct {
+		Sessions []struct {
+			ID        string    `json:"id"`
+			Provider  string    `json:"provider"`
+			CreatedAt time.Time `json:"created_at"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(payload.Sessions) != 1 || payload.Sessions[0].ID != "ses_kimi_numeric" {
+		t.Fatalf("unexpected sessions: %#v", payload.Sessions)
+	}
+	if payload.Sessions[0].Provider != "kimi" {
+		t.Fatalf("provider = %q, want kimi", payload.Sessions[0].Provider)
+	}
+	wantCreatedAt := time.UnixMilli(1787588320144).UTC()
+	if !payload.Sessions[0].CreatedAt.Equal(wantCreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", payload.Sessions[0].CreatedAt, wantCreatedAt)
+	}
+}
+
 func TestCLIIndexesKiroAndPrintsResumeCommand(t *testing.T) {
 	providerArgs := []string{
 		"--codex-home", t.TempDir(),
