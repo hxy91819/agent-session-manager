@@ -46,7 +46,7 @@ func (p Provider) ReadTranscript(id string) (session.Transcript, error) {
 		if err != nil {
 			return session.Transcript{}, err
 		}
-		s := session.Session{ID: id, Provider: Name, CWD: entry.WorkDir, Title: titleFromState(state), CreatedAt: parseTime(state.CreatedAt), UpdatedAt: info.ModTime(), Path: statePath, Metadata: map[string]string{"session_dir": sessionDir, session.MetadataReportEvidenceStatus: session.ReportEvidencePartial, session.MetadataReportEvidenceNote: "Kimi state exposes only the latest prompt; earlier turns are unavailable"}}
+		s := session.Session{ID: id, Provider: Name, CWD: entry.WorkDir, Title: titleFromState(state), CreatedAt: parseStateTime(state.CreatedAt), UpdatedAt: info.ModTime(), Path: statePath, Metadata: map[string]string{"session_dir": sessionDir, session.MetadataReportEvidenceStatus: session.ReportEvidencePartial, session.MetadataReportEvidenceNote: "Kimi state exposes only the latest prompt; earlier turns are unavailable"}}
 		if s.CreatedAt.IsZero() {
 			s.CreatedAt = s.UpdatedAt
 		}
@@ -54,7 +54,7 @@ func (p Provider) ReadTranscript(id string) (session.Transcript, error) {
 			s.Metadata["title_source"] = "title_or_last_prompt"
 		}
 		if text := cleanTitle(state.LastPrompt); text != "" {
-			at := parseTime(state.UpdatedAt)
+			at := parseStateTime(state.UpdatedAt)
 			if at.IsZero() {
 				at = s.UpdatedAt
 			}

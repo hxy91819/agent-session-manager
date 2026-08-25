@@ -77,7 +77,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 			Provider:  Name,
 			CWD:       file.Entry.WorkDir,
 			Title:     titleFromState(state),
-			CreatedAt: parseTime(state.CreatedAt),
+			CreatedAt: parseStateTime(state.CreatedAt),
 			UpdatedAt: file.ModTime,
 			Path:      file.StatePath,
 			Metadata: map[string]string{
@@ -96,7 +96,7 @@ func (p Provider) Discover(opts session.DiscoverOptions) ([]session.Session, err
 				s.Metadata["title_source"] = "last_prompt"
 			}
 		}
-		if updated := parseTime(state.UpdatedAt); !updated.IsZero() {
+		if updated := parseStateTime(state.UpdatedAt); !updated.IsZero() {
 			s.Metadata["kimi_updated_at"] = updated.Format(time.RFC3339Nano)
 		}
 		if opts.Preview.Enabled() {
@@ -147,10 +147,10 @@ type indexRecord struct {
 }
 
 type stateRecord struct {
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
-	Title      string `json:"title"`
-	LastPrompt string `json:"lastPrompt"`
+	CreatedAt  json.RawMessage `json:"createdAt"`
+	UpdatedAt  json.RawMessage `json:"updatedAt"`
+	Title      string          `json:"title"`
+	LastPrompt string          `json:"lastPrompt"`
 }
 
 type fileInfo struct {
@@ -209,7 +209,7 @@ func statePreviews(state stateRecord, fallbackTime time.Time, opts session.Previ
 	if text == "" {
 		return nil
 	}
-	at := parseTime(state.UpdatedAt)
+	at := parseStateTime(state.UpdatedAt)
 	if at.IsZero() {
 		at = fallbackTime
 	}
@@ -251,6 +251,21 @@ func parseTime(value string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, value)
 	if err == nil {
 		return t
+	}
+	return time.Time{}
+}
+
+func parseStateTime(value json.RawMessage) time.Time {
+	if len(value) == 0 {
+		return time.Time{}
+	}
+	var text string
+	if json.Unmarshal(value, &text) == nil {
+		return parseTime(text)
+	}
+	var milliseconds int64
+	if json.Unmarshal(value, &milliseconds) == nil {
+		return time.UnixMilli(milliseconds).UTC()
 	}
 	return time.Time{}
 }
