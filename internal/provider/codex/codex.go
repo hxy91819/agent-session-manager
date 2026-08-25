@@ -36,6 +36,7 @@ const (
 	defaultParseWorkers      = 8
 	metadataParseCacheKey    = "_asm_codex_parse_mode"
 	metadataParseCacheValue  = "metadata"
+	metadataHistoryMode      = "history_mode"
 )
 
 type Provider struct {
@@ -435,6 +436,7 @@ type rawRecord struct {
 type sessionMeta struct {
 	ID             string          `json:"id"`
 	ParentThreadID string          `json:"parent_thread_id"`
+	HistoryMode    string          `json:"history_mode"`
 	Timestamp      string          `json:"timestamp"`
 	CWD            string          `json:"cwd"`
 	Source         json.RawMessage `json:"source"`
@@ -636,6 +638,9 @@ func parseSessionIntoMode(r io.Reader, out session.Session, metadataOnly bool) (
 				}
 				if meta.ParentThreadID != "" {
 					out.Metadata[session.MetadataParentThreadID] = meta.ParentThreadID
+				}
+				if meta.HistoryMode != "" {
+					out.Metadata[metadataHistoryMode] = meta.HistoryMode
 				}
 			}
 		case "turn_context":

@@ -2280,6 +2280,48 @@ func writeFile(t testing.TB, path, content string) {
 	}
 }
 
+func TestCLIShowsCodexSubagentAcrossHistoryLayouts(t *testing.T) {
+	env := newASMTestEnv(t)
+	home := env.ProviderHome["codex"]
+	sessionDir := filepath.Join(home, "sessions", "2026", "08", "25")
+
+	writeFile(t, filepath.Join(sessionDir, "paginated.jsonl"), `{"timestamp":"2026-08-25T01:00:00Z","type":"session_meta","payload":{"id":"paginated-child","parent_thread_id":"parent","forked_from_id":"parent","history_mode":"paginated","cwd":"/repo"}}
+{"timestamp":"2026-08-25T01:00:01Z","type":"session_meta","payload":{"id":"parent","cwd":"/repo"}}
+{"timestamp":"2026-08-25T01:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"delegated paginated request"}]}}
+{"timestamp":"2026-08-25T01:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"paginated child result"}]}}
+`)
+	writeFile(t, filepath.Join(sessionDir, "appended.jsonl"), `{"timestamp":"2026-08-25T02:00:00Z","type":"session_meta","payload":{"id":"appended-child","parent_thread_id":"parent","cwd":"/repo"}}
+{"timestamp":"2026-08-25T02:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"delegated appended request"}]}}
+{"timestamp":"2026-08-25T02:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"appended child result"}]}}
+{"timestamp":"2026-08-25T02:00:03Z","type":"session_meta","payload":{"id":"parent","cwd":"/parent"}}
+{"timestamp":"2026-08-25T02:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inherited parent request"}]}}
+`)
+
+	assertMessages := func(id string, want []string) {
+		t.Helper()
+		out := env.Run2(t, "show", id, "--provider", "codex", "--full", "--format", "json")
+		var payload struct {
+			Messages []struct {
+				Text string `json:"text"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, out)
+		}
+		if len(payload.Messages) != len(want) {
+			t.Fatalf("%s messages = %#v, want %q", id, payload.Messages, want)
+		}
+		for i, message := range payload.Messages {
+			if message.Text != want[i] {
+				t.Fatalf("%s message %d = %q, want %q", id, i, message.Text, want[i])
+			}
+		}
+	}
+
+	assertMessages("paginated-child", []string{"delegated paginated request", "paginated child result"})
+	assertMessages("appended-child", []string{"delegated appended request", "appended child result"})
+}
+
 func TestCLIShowsClaudeTranscript(t *testing.T) {
 	env := newASMTestEnv(t)
 	repo := t.TempDir()

@@ -135,7 +135,10 @@ func readCodexTranscriptFile(path, id string, modTime time.Time) (session.Transc
 		}
 		if rec.Type == "session_meta" && parent != "" {
 			var meta sessionMeta
-			if json.Unmarshal(rec.Payload, &meta) == nil && meta.ID == parent {
+			// Paginated forks persist the parent metadata before the child's
+			// messages; older rollouts append inherited parent history at the end.
+			if json.Unmarshal(rec.Payload, &meta) == nil &&
+				meta.ID == parent && base.Metadata[metadataHistoryMode] != "paginated" {
 				stopped = true
 				return false
 			}
