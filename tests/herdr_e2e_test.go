@@ -156,7 +156,7 @@ func TestCLIHerdrIntegration(t *testing.T) {
 		if err := json.Unmarshal(data, &got); err != nil {
 			t.Fatal(err)
 		}
-		if got.Program != executableName("codex") {
+		if got.Program != "codex" {
 			t.Fatalf("program = %q", got.Program)
 		}
 		for key, want := range map[string]string{
