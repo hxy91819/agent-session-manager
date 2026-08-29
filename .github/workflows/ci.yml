@@ -115,7 +115,7 @@ jobs:
             code-health.txt
             code-health-run.json
           if-no-files-found: warn
-          retention-days: 90
+          retention-days: 7
 
   lint:
     name: Lint
