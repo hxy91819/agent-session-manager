@@ -221,7 +221,10 @@ func TestStateDirFallsBackToUserHomeDotOpenClaw(t *testing.T) {
 	t.Setenv("OPENCLAW_STATE_DIR", "")
 	t.Setenv("OPENCLAW_HOME", "")
 	home := t.TempDir()
+	// os.UserHomeDir reads HOME on Unix but USERPROFILE on Windows, so set
+	// both to keep this fallback test portable across the CI matrix.
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	got, err := New("").stateDir()
 	if err != nil {
