@@ -1,9 +1,12 @@
 ---
 name: agent-work-report
 description: Generate Chinese daily and weekly work reports from local coding-agent sessions, optionally enriched with Tencent Meeting history and smart minutes. Use only when the user asks to generate, view, or summarize work for a concrete time window, such as today, yesterday, last week, 日报, 周报, 今日工作总结, 昨天工作总结, or 上周工作总结. Do not use when the user is designing, implementing, modifying, debugging, reviewing, or configuring report scripts, report skills, meeting integrations, delivery automations, or report formatting.
+disable-model-invocation: true
 ---
 
 # Agent Work Report
+
+Run this skill only when the user explicitly invokes `$agent-work-report`.
 
 Use `asm report` as the source of truth. Do not inspect provider-private session stores directly unless the command is unavailable and the user explicitly asks for fallback investigation.
 
