@@ -28,6 +28,12 @@ Providers:
   or documented resume path, so asm treats zcode as discover-only; the reported
   resume command (`zcode --resume <session-id>`) is a future-compatible
   placeholder.
+- OpenClaw sessions indexed from the per-agent `sessions.json` under
+  `$OPENCLAW_STATE_DIR`, `$OPENCLAW_HOME/.openclaw`, or `~/.openclaw`, checked
+  in that order; `--openclaw-home` overrides all of them with an explicit
+  state directory. asm lists OpenClaw sessions for discovery and reports, but
+  resume is unsupported and transcripts are not parsed yet, so its report
+  coverage is marked `unavailable`.
 
 ## Usage
 
@@ -420,6 +426,12 @@ otherwise duplicate the parent's work evidence.
 marked `unavailable` until its transcript is parsed. opencode messages without
 an original message timestamp are excluded from evidence rather than dated by
 filesystem mtime.
+`sessions[].evidence` reuses the bounded preview selection, so
+`--preview-messages-per-edge` caps evidence at twice its value per session.
+The default of 2 user messages per edge (up to 4 evidence items per session)
+is `session.DefaultPreviewMessagesPerEdge` in `internal/session/preview.go`;
+long sessions keep only the window's head and tail prompts unless the flag is
+raised.
 If the default previews are not enough for a reliable summary, increase
 `--preview-messages-per-edge` or `--preview-max-chars` and rerun the report.
 For incremental context loading, keep `--preview-messages-per-edge` fixed and

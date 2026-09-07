@@ -915,6 +915,10 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 			Previews      []struct {
 				Text string `json:"text"`
 			} `json:"previews"`
+			Evidence []struct {
+				Text string `json:"text"`
+			} `json:"evidence"`
+			EvidenceCount int `json:"evidence_count"`
 		} `json:"sessions"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -940,6 +944,15 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	if strings.Join(previews, "|") != strings.Join(want, "|") {
 		t.Fatalf("previews = %#v, want %#v", previews, want)
 	}
+	// Report evidence is the same bounded preview selection, so the default
+	// cap is two user messages per edge: four evidence items per session.
+	var evidence []string
+	for _, item := range payload.Sessions[0].Evidence {
+		evidence = append(evidence, item.Text)
+	}
+	if payload.Sessions[0].EvidenceCount != 4 || strings.Join(evidence, "|") != strings.Join(want, "|") {
+		t.Fatalf("evidence_count = %d, evidence = %#v, want 4 × %#v", payload.Sessions[0].EvidenceCount, evidence, want)
+	}
 
 	out = runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--period", "yesterday", "--preview-messages-per-edge", "3")
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -952,6 +965,10 @@ func TestCLIReportYesterdayIncludesWindowedPreviews(t *testing.T) {
 	want = []string{"first report prompt", "second report prompt", "third report prompt", "fourth report prompt", "fifth report prompt"}
 	if strings.Join(previews, "|") != strings.Join(want, "|") {
 		t.Fatalf("expanded previews = %#v, want %#v", previews, want)
+	}
+	// Raising the per-edge flag must raise the evidence cap with it.
+	if payload.Sessions[0].EvidenceCount != 5 {
+		t.Fatalf("expanded evidence_count = %d, want 5", payload.Sessions[0].EvidenceCount)
 	}
 
 	out = runCommand(t, "report", "--codex-home", home, "--claude-home", claudeHome, "--period", "yesterday", "--preview-messages-per-edge", "2", "--preview-edge-offset", "2")
