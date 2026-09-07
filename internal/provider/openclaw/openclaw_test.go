@@ -203,6 +203,35 @@ func TestStateDirUsesOpenClawHomeDotDir(t *testing.T) {
 	}
 }
 
+func TestStateDirPrefersOpenClawStateDirVerbatim(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("OPENCLAW_STATE_DIR", stateDir)
+	t.Setenv("OPENCLAW_HOME", t.TempDir())
+
+	got, err := New("").stateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != stateDir {
+		t.Fatalf("stateDir = %q, want %q", got, stateDir)
+	}
+}
+
+func TestStateDirFallsBackToUserHomeDotOpenClaw(t *testing.T) {
+	t.Setenv("OPENCLAW_STATE_DIR", "")
+	t.Setenv("OPENCLAW_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got, err := New("").stateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".openclaw"); got != want {
+		t.Fatalf("stateDir = %q, want %q", got, want)
+	}
+}
+
 func jsonString(value string) string {
 	data, err := json.Marshal(value)
 	if err != nil {
